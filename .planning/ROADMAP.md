@@ -8,11 +8,11 @@ Builds everything that has a known source. All later families plug into the same
 - `sas/00_config.sas`: paths (raw\master, P: output root), `pdd` libname helper, UTF-8 options
 - `run_pipeline.cmd`, `99_run_all.sas` skeleton, log directory convention
 - **Done when:** an empty run writes a clean log to `P:\...\data_dictionary\logs`
-- **Plans:** 1/2 plans executed
+- **Plans:** 2/2 plans complete
 
 Plans:
 - [x] 01-01-PLAN.md — Create sas/00_config.sas (macro variables, %pdd_lib, in_pipeline guard, SAS options)
-- [ ] 01-02-PLAN.md — Create run_pipeline.cmd and sas/99_run_all.sas (batch driver + pipeline runner skeleton)
+- [x] 01-02-PLAN.md — Create run_pipeline.cmd and sas/99_run_all.sas (batch driver + pipeline runner skeleton)
 
 ### Phase 2: Source guard and header inventory
 - `02_source_guard.sas`: SHA-256 baseline of the 8 raw\master files; fails the run if any file changes
