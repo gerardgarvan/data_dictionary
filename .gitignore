@@ -1,0 +1,21 @@
+# SAS data files
+*.sas7bdat
+*.sas7bcat
+
+# Flat files and spreadsheets (data — never commit)
+*.csv
+*.xlsx
+*.xls
+
+# SAS logs and output
+*.log
+*.lst
+
+# Network drive data (all paths under P:)
+P:\
+
+# OS / editor artifacts
+Thumbs.db
+.DS_Store
+*.tmp
+_reference_old/
