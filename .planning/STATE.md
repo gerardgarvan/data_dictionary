@@ -2,8 +2,8 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: PCNR_ raw layer and dictionary framework
-status: Phase complete — ready for verification
-last_updated: "2026-10-17T01:27:11.767Z"
+status: Ready to plan
+last_updated: "2026-10-17T01:29:58.394Z"
 progress:
   total_phases: 7
   completed_phases: 1
@@ -15,8 +15,8 @@ progress:
 
 ## Current position
 
-Phase: 01 (repo-and-config-scaffold) — COMPLETE
-Plan: 2 of 2 (all plans complete)
+Phase: 2
+Plan: Not started
 | Field | Value |
 |-------|-------|
 | Milestone | v1.0 — PCNR_ raw layer and dictionary framework |
