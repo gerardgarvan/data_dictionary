@@ -1,7 +1,22 @@
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: PCNR_ raw layer and dictionary framework
+status: Ready to execute
+last_updated: "2026-10-17T01:24:27.433Z"
+progress:
+  total_phases: 7
+  completed_phases: 0
+  total_plans: 2
+  completed_plans: 1
+---
+
 # GSD State: PeCAN Data Dictionary (PDD)
 
 ## Current position
 
+Phase: 01 (repo-and-config-scaffold) — EXECUTING
+Plan: 2 of 2
 | Field | Value |
 |-------|-------|
 | Milestone | v1.0 — PCNR_ raw layer and dictionary framework |
