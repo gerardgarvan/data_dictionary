@@ -1655,6 +1655,190 @@ quit;
 
 
 /* ============================================================
+   SECTION 10a -- 2022 bridge analysis
+   s16/s18/s01/s08/s20 PRECEDE_STUDY_ID vs s17 spine.
+   s17 ENCRYPTED_ENCOUNTER ambiguity (>1 PRECEDE_STUDY_ID per encounter).
+   ============================================================ */
+%macro _bridge_analysis_2022;
+  %local _s17psid_type _s17enc_type _s17enc_ambig
+         _br_files _ibr _br_sc _br_ds _br_type _nin_br _nmatch_br;
+
+  /* Build s17 PRECEDE_STUDY_ID spine */
+  %let _s17psid_type = ;
+  data work._br_spine_s17;
+    length spine_key $64;
+    stop;
+  run;
+  %if %sysfunc(exist(work.src_s17)) %then %do;
+    %_get_col_type(ds=work.src_s17, col=PRECEDE_STUDY_ID, outmv=_s17psid_type, nofail=1);
+    %if %length(&_s17psid_type) > 0 %then %do;
+      %if "&_s17psid_type" = "char" %then %do;
+        proc sql noprint;
+          create table work._br_spine_s17 as
+          select distinct strip(PRECEDE_STUDY_ID) as spine_key length=64
+          from work.src_s17
+          where PRECEDE_STUDY_ID is not missing and strip(PRECEDE_STUDY_ID) ne '';
+        quit;
+      %end;
+      %else %do;
+        proc sql noprint;
+          create table work._br_spine_s17 as
+          select distinct cats(strip(put(PRECEDE_STUDY_ID, 20.))) as spine_key length=64
+          from work.src_s17
+          where PRECEDE_STUDY_ID is not missing;
+        quit;
+      %end;
+    %end;
+  %end;
+  %else
+    %put NOTE: [02_source_guard] _bridge_analysis_2022: work.src_s17 not found -- spine empty;
+
+  /* Overlap: each candidate file vs s17 spine */
+  %let _br_files = s16 s18 s01 s08 s20;
+  %do _ibr = 1 %to 5;
+    %let _br_sc  = %scan(&_br_files, &_ibr, %str( ));
+    %let _br_ds  = work.src_&_br_sc;
+    %let _br_type = ;
+    %if %sysfunc(exist(&_br_ds)) %then %do;
+      %_get_col_type(ds=&_br_ds, col=PRECEDE_STUDY_ID, outmv=_br_type, nofail=1);
+      %if %length(&_br_type) = 0 %then %do;
+        %put NOTE: [02_source_guard] _bridge_analysis_2022: &_br_sc lacks PRECEDE_STUDY_ID -- skipping;
+      %end;
+      %else %do;
+        %let _nin_br    = 0;
+        %let _nmatch_br = 0;
+        %if "&_br_type" = "char" %then %do;
+          proc sql noprint;
+            select count(distinct strip(PRECEDE_STUDY_ID)) into :_nin_br trimmed
+            from &_br_ds
+            where PRECEDE_STUDY_ID is not missing and strip(PRECEDE_STUDY_ID) ne '';
+            select count(distinct strip(f.PRECEDE_STUDY_ID)) into :_nmatch_br trimmed
+            from &_br_ds f
+            inner join work._br_spine_s17 s
+              on strip(f.PRECEDE_STUDY_ID) = s.spine_key
+            where f.PRECEDE_STUDY_ID is not missing and strip(f.PRECEDE_STUDY_ID) ne '';
+          quit;
+        %end;
+        %else %do;
+          proc sql noprint;
+            select count(distinct cats(strip(put(PRECEDE_STUDY_ID, 20.)))) into :_nin_br trimmed
+            from &_br_ds
+            where PRECEDE_STUDY_ID is not missing;
+            select count(distinct cats(strip(put(f.PRECEDE_STUDY_ID, 20.)))) into :_nmatch_br trimmed
+            from &_br_ds f
+            inner join work._br_spine_s17 s
+              on cats(strip(put(f.PRECEDE_STUDY_ID, 20.))) = s.spine_key
+            where f.PRECEDE_STUDY_ID is not missing;
+          quit;
+        %end;
+        %put NOTE: [02_source_guard] _bridge_analysis_2022: &_br_sc PRECEDE_STUDY_ID vs s17 spine: n_distinct=&_nin_br n_match=&_nmatch_br;
+      %end;
+    %end;
+    %else
+      %put NOTE: [02_source_guard] _bridge_analysis_2022: &_br_ds not found -- skipping &_br_sc;
+  %end;
+
+  /* s17 ENCRYPTED_ENCOUNTER ambiguity: encounters with >1 distinct PRECEDE_STUDY_ID */
+  %let _s17enc_type   = ;
+  %let _s17enc_ambig  = 0;
+  %if %sysfunc(exist(work.src_s17)) %then %do;
+    %_get_col_type(ds=work.src_s17, col=ENCRYPTED_ENCOUNTER, outmv=_s17enc_type, nofail=1);
+    %if %length(&_s17enc_type) > 0 and %length(&_s17psid_type) > 0 %then %do;
+      proc sql noprint;
+        select count(*) into :_s17enc_ambig trimmed
+        from (
+          select ENCRYPTED_ENCOUNTER
+          from work.src_s17
+          where ENCRYPTED_ENCOUNTER is not missing
+          group by ENCRYPTED_ENCOUNTER
+          having count(distinct PRECEDE_STUDY_ID) > 1
+        );
+      quit;
+      %put NOTE: [02_source_guard] _bridge_analysis_2022: s17 ENCRYPTED_ENCOUNTER with >1 PRECEDE_STUDY_ID: &_s17enc_ambig encounters;
+    %end;
+    %else
+      %put NOTE: [02_source_guard] _bridge_analysis_2022: s17 lacks ENCRYPTED_ENCOUNTER or PRECEDE_STUDY_ID -- skipping ambiguity check;
+  %end;
+
+  proc datasets lib=work nolist nowarn; delete _br_spine_s17; quit;
+%mend _bridge_analysis_2022;
+%_bridge_analysis_2022;
+
+
+/* ============================================================
+   SECTION 10b -- ID pattern shapes for s09 and s17
+   Character-class shape: digits replaced by 9, letters by A.
+   Logs top 10 patterns (by frequency) and their length.
+   ============================================================ */
+%macro _log_id_patterns;
+  %local _isc _ipat_files _ipat_sc _ipat_ds _ipat_type;
+  %let _ipat_files = s09 s17;
+
+  %do _isc = 1 %to 2;
+    %let _ipat_sc   = %scan(&_ipat_files, &_isc, %str( ));
+    %let _ipat_ds   = work.src_&_ipat_sc;
+    %let _ipat_type = ;
+    %if %sysfunc(exist(&_ipat_ds)) %then %do;
+      %_get_col_type(ds=&_ipat_ds, col=PRECEDE_STUDY_ID, outmv=_ipat_type, nofail=1);
+      %if %length(&_ipat_type) = 0 %then %do;
+        %put NOTE: [02_source_guard] _log_id_patterns: &_ipat_sc lacks PRECEDE_STUDY_ID -- skipping;
+      %end;
+      %else %if "&_ipat_type" = "char" %then %do;
+        proc sql noprint;
+          create table work._idpat_&_ipat_sc as
+          select pattern, len, count(*) as n_ids
+          from (
+            select
+              compress(
+                prxchange('s/[0-9]/9/', -1,
+                  prxchange('s/[A-Za-z]/A/', -1, strip(PRECEDE_STUDY_ID))
+                )
+              , ' ') as pattern length=64,
+              length(strip(PRECEDE_STUDY_ID)) as len
+            from &_ipat_ds
+            where PRECEDE_STUDY_ID is not missing and strip(PRECEDE_STUDY_ID) ne ''
+          )
+          group by pattern, len
+          order by n_ids desc;
+        quit;
+        data _null_;
+          set work._idpat_&_ipat_sc (obs=10);
+          put 'NOTE: [02_source_guard] _log_id_patterns: ' "&_ipat_sc"
+              ' PRECEDE_STUDY_ID pattern=' pattern ' len=' len ' n_ids=' n_ids;
+        run;
+        proc datasets lib=work nolist nowarn; delete _idpat_&_ipat_sc; quit;
+      %end;
+      %else %do;
+        /* Numeric: shape is all 9s of the printed length */
+        proc sql noprint;
+          create table work._idpat_&_ipat_sc as
+          select pattern, len, count(*) as n_ids
+          from (
+            select
+              repeat('9', length(strip(put(PRECEDE_STUDY_ID, 20.))) - 1) as pattern length=64,
+              length(strip(put(PRECEDE_STUDY_ID, 20.))) as len
+            from &_ipat_ds
+            where PRECEDE_STUDY_ID is not missing
+          )
+          group by pattern, len
+          order by n_ids desc;
+        quit;
+        data _null_;
+          set work._idpat_&_ipat_sc (obs=10);
+          put 'NOTE: [02_source_guard] _log_id_patterns: ' "&_ipat_sc"
+              ' PRECEDE_STUDY_ID pattern=' pattern ' len=' len ' n_ids=' n_ids;
+        run;
+        proc datasets lib=work nolist nowarn; delete _idpat_&_ipat_sc; quit;
+      %end;
+    %end;
+    %else
+      %put NOTE: [02_source_guard] _log_id_patterns: &_ipat_ds not found -- skipping &_ipat_sc;
+  %end;
+%mend _log_id_patterns;
+%_log_id_patterns;
+
+
+/* ============================================================
    SECTION 13 -- Build display datasets for QC workbooks
    work.key_legend_inv  : KEY sheet for source_inventory.xlsx
    work.key_legend_hdr  : KEY sheet for header_matrix.xlsx
@@ -1664,62 +1848,107 @@ quit;
 /* KEY legend for source_inventory.xlsx */
 data work.key_legend_inv;
   length sheet_name $20 column_name $50 description $200 notes $250;
-  infile datalines dsd dlm='|' truncover;
-  input sheet_name $ column_name $ description $ notes $;
-  datalines;
-SOURCES|file_id|Sequential file identifier (1-20)|
-SOURCES|s_code|Source code (s01-s20)|
-SOURCES|filename|Source file name|
-SOURCES|ftype|File type: csv or xlsx|
-SOURCES|full_path|Full path in shared source folder (read-only)|
-SOURCES|file_size|File size in bytes|
-SOURCES|mod_date|Last-modified date string from OS|Raw locale-dependent string; not parsed to SAS date
-SOURCES|sha256|SHA-256 checksum from certutil|FAILED sentinel if certutil could not hash the file
-SOURCES|sha256_old|SHA-256 of older copy or NO_OLD_COPY sentinel|
-SOURCES|old_copy_folder|Older-copy root that matched: master / raw / blank|
-SOURCES|old_copy_status|identical / different / no_older_copy|
-SOURCES|row_count|Imported row count from import loop|
-SOURCES|col_count|Imported column count from import loop|
-SOURCES|sheet_list|Comma-separated XLSX sheet names (blank for CSV)|
-SOURCES|import_status|profiled or read-failed|
-SOURCES|import_reason|Failure or warning reason from import step|
-SOURCES|nonblank_row_count|Rows with at least one non-blank/non-missing value (s19 only)|
-KEY_ANALYSIS|s_code|Source code (s01-s20)|
-KEY_ANALYSIS|sheet_name|Sheet name (blank for CSV)|
-KEY_ANALYSIS|key_column_type|Key type detected|PRECEDE_STUDY_ID / ENCRYPTED_MRN / ENCRYPTED_ENCOUNTER / UNENC_MRN / UNENC_ENCOUNTER / RECORD_ID / NONE_DETECTED
-KEY_ANALYSIS|key_var_name|SAS variable name of the candidate key column|
-KEY_ANALYSIS|match_basis|How the key was matched: name / loose / label / none|
-KEY_ANALYSIS|n_rows|Total row count of imported table|
-KEY_ANALYSIS|n_distinct|Count of distinct non-missing key values|
-KEY_ANALYSIS|grain|unique or multi-row (blank for NONE_DETECTED)|
-KEY_ANALYSIS|PRECEDE_STUDY_ID|PRECEDE_STUDY_ID identifies a surgical case|s09: 41,150 IDs, 31,136 distinct ENCRYPTED_MRN
-ID_OVERLAP|s_code|Source code (s01-s20)|
-ID_OVERLAP|sheet_name|Sheet name (blank for CSV)|
-ID_OVERLAP|key_column_type|Key type|
-ID_OVERLAP|key_var_name|SAS variable name of the key column|
-ID_OVERLAP|spine_source|Spine dataset used: s09 / s16 / s17 / s18|
-ID_OVERLAP|n_in_file|Distinct non-missing key values in this file|
-ID_OVERLAP|n_matching_spine|Distinct file keys that appear in the spine|
-ID_OVERLAP|pct_overlap|n_matching_spine / n_in_file * 100 (rounded to 0.1)|
-ID_OVERLAP|status|ok or key_absent_in_target|key_absent_in_target when the target spine file lacks the required key column
-;
+  sheet_name = 'SOURCES'; column_name = 'file_id';
+    description = 'Sequential file identifier (1-20)'; notes = ''; output;
+  sheet_name = 'SOURCES'; column_name = 's_code';
+    description = 'Source code (s01-s20)'; notes = ''; output;
+  sheet_name = 'SOURCES'; column_name = 'filename';
+    description = 'Source file name'; notes = ''; output;
+  sheet_name = 'SOURCES'; column_name = 'ftype';
+    description = 'File type: csv or xlsx'; notes = ''; output;
+  sheet_name = 'SOURCES'; column_name = 'full_path';
+    description = 'Full path in shared source folder (read-only)'; notes = ''; output;
+  sheet_name = 'SOURCES'; column_name = 'file_size';
+    description = 'File size in bytes'; notes = ''; output;
+  sheet_name = 'SOURCES'; column_name = 'mod_date';
+    description = 'Last-modified date string from OS';
+    notes = 'Raw locale-dependent string; not parsed to SAS date'; output;
+  sheet_name = 'SOURCES'; column_name = 'sha256';
+    description = 'SHA-256 checksum from certutil';
+    notes = 'FAILED sentinel if certutil could not hash the file'; output;
+  sheet_name = 'SOURCES'; column_name = 'sha256_old';
+    description = 'SHA-256 of older copy or NO_OLD_COPY sentinel'; notes = ''; output;
+  sheet_name = 'SOURCES'; column_name = 'old_copy_folder';
+    description = 'Older-copy root that matched: master / raw / blank'; notes = ''; output;
+  sheet_name = 'SOURCES'; column_name = 'old_copy_status';
+    description = 'identical / different / no_older_copy'; notes = ''; output;
+  sheet_name = 'SOURCES'; column_name = 'row_count';
+    description = 'Imported row count from import loop'; notes = ''; output;
+  sheet_name = 'SOURCES'; column_name = 'col_count';
+    description = 'Imported column count from import loop'; notes = ''; output;
+  sheet_name = 'SOURCES'; column_name = 'sheet_list';
+    description = 'Comma-separated XLSX sheet names (blank for CSV)'; notes = ''; output;
+  sheet_name = 'SOURCES'; column_name = 'import_status';
+    description = 'profiled or read-failed'; notes = ''; output;
+  sheet_name = 'SOURCES'; column_name = 'import_reason';
+    description = 'Failure or warning reason from import step'; notes = ''; output;
+  sheet_name = 'SOURCES'; column_name = 'nonblank_row_count';
+    description = 'Rows with at least one non-blank/non-missing value (s19 only)'; notes = ''; output;
+  sheet_name = 'KEY_ANALYSIS'; column_name = 's_code';
+    description = 'Source code (s01-s20)'; notes = ''; output;
+  sheet_name = 'KEY_ANALYSIS'; column_name = 'sheet_name';
+    description = 'Sheet name (blank for CSV)'; notes = ''; output;
+  sheet_name = 'KEY_ANALYSIS'; column_name = 'key_column_type';
+    description = 'Key type detected';
+    notes = 'PRECEDE_STUDY_ID / ENCRYPTED_MRN / ENCRYPTED_ENCOUNTER / UNENC_MRN / UNENC_ENCOUNTER / RECORD_ID / NONE_DETECTED'; output;
+  sheet_name = 'KEY_ANALYSIS'; column_name = 'key_var_name';
+    description = 'SAS variable name of the candidate key column'; notes = ''; output;
+  sheet_name = 'KEY_ANALYSIS'; column_name = 'match_basis';
+    description = 'How the key was matched: name / loose / label / none'; notes = ''; output;
+  sheet_name = 'KEY_ANALYSIS'; column_name = 'n_rows';
+    description = 'Total row count of imported table'; notes = ''; output;
+  sheet_name = 'KEY_ANALYSIS'; column_name = 'n_distinct';
+    description = 'Count of distinct non-missing key values'; notes = ''; output;
+  sheet_name = 'KEY_ANALYSIS'; column_name = 'grain';
+    description = 'unique or multi-row (blank for NONE_DETECTED)'; notes = ''; output;
+  sheet_name = 'KEY_ANALYSIS'; column_name = 'PRECEDE_STUDY_ID';
+    description = 'PRECEDE_STUDY_ID identifies a surgical case';
+    notes = 's09: 41,150 IDs, 31,136 distinct ENCRYPTED_MRN'; output;
+  sheet_name = 'ID_OVERLAP'; column_name = 's_code';
+    description = 'Source code (s01-s20)'; notes = ''; output;
+  sheet_name = 'ID_OVERLAP'; column_name = 'sheet_name';
+    description = 'Sheet name (blank for CSV)'; notes = ''; output;
+  sheet_name = 'ID_OVERLAP'; column_name = 'key_column_type';
+    description = 'Key type'; notes = ''; output;
+  sheet_name = 'ID_OVERLAP'; column_name = 'key_var_name';
+    description = 'SAS variable name of the key column'; notes = ''; output;
+  sheet_name = 'ID_OVERLAP'; column_name = 'spine_source';
+    description = 'Spine dataset used: s09 / s16 / s17 / s18'; notes = ''; output;
+  sheet_name = 'ID_OVERLAP'; column_name = 'n_in_file';
+    description = 'Distinct non-missing key values in this file'; notes = ''; output;
+  sheet_name = 'ID_OVERLAP'; column_name = 'n_matching_spine';
+    description = 'Distinct file keys that appear in the spine'; notes = ''; output;
+  sheet_name = 'ID_OVERLAP'; column_name = 'pct_overlap';
+    description = 'n_matching_spine / n_in_file * 100 (rounded to 0.1)'; notes = ''; output;
+  sheet_name = 'ID_OVERLAP'; column_name = 'status';
+    description = 'ok or key_absent_in_target';
+    notes = 'key_absent_in_target when the target spine file lacks the required key column'; output;
+run;
 
 /* KEY legend for header_matrix.xlsx */
 data work.key_legend_hdr;
   length sheet_name $20 column_name $50 description $200 notes $250;
-  infile datalines dsd dlm='|' truncover;
-  input sheet_name $ column_name $ description $ notes $;
-  datalines;
-HEADER_LONG|s_code|Source code (s01-s20)|
-HEADER_LONG|sheet_name|Sheet name (blank for CSV)|
-HEADER_LONG|col_name|SAS column name as imported|
-HEADER_LONG|col_type|SAS column type: char or num|
-HEADER_LONG|col_label|SAS column label (original header where name was changed)|
-HEADER_LONG|col_len|SAS column length in bytes|
-HEADER_LONG|original_header|Raw column name from source (CSV: parsed from first line; XLSX: engine label)|
-HEADER_MATRIX|col_name|Column name (one row per distinct column across all files)|Rows sorted alphabetically by col_name
-HEADER_MATRIX|(s_code columns)|Cell value = col_type (char / num) or blank if column absent|One column per source file or file-sheet combination
-;
+  sheet_name = 'HEADER_LONG'; column_name = 's_code';
+    description = 'Source code (s01-s20)'; notes = ''; output;
+  sheet_name = 'HEADER_LONG'; column_name = 'sheet_name';
+    description = 'Sheet name (blank for CSV)'; notes = ''; output;
+  sheet_name = 'HEADER_LONG'; column_name = 'col_name';
+    description = 'SAS column name as imported'; notes = ''; output;
+  sheet_name = 'HEADER_LONG'; column_name = 'col_type';
+    description = 'SAS column type: char or num'; notes = ''; output;
+  sheet_name = 'HEADER_LONG'; column_name = 'col_label';
+    description = 'SAS column label (original header where name was changed)'; notes = ''; output;
+  sheet_name = 'HEADER_LONG'; column_name = 'col_len';
+    description = 'SAS column length in bytes'; notes = ''; output;
+  sheet_name = 'HEADER_LONG'; column_name = 'original_header';
+    description = 'Raw column name from source (CSV: parsed from first line; XLSX: engine label)'; notes = ''; output;
+  sheet_name = 'HEADER_MATRIX'; column_name = 'col_name';
+    description = 'Column name (one row per distinct column across all files)';
+    notes = 'Rows sorted alphabetically by col_name'; output;
+  sheet_name = 'HEADER_MATRIX'; column_name = '(s_code columns)';
+    description = 'Cell value = col_type (char / num) or blank if column absent';
+    notes = 'One column per source file or file-sheet combination'; output;
+run;
 
 /* Build work.header_wide via PROC TRANSPOSE
    id = s_code (or s_code_sheet for multi-sheet XLSX)
