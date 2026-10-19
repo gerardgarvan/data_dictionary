@@ -194,7 +194,7 @@ libname _doc clear;
   %let _p = &qc_path.\source_inventory.xlsx;
   %if %sysfunc(fileexist(&_p)) %then %do;
     %let _rc     = %sysfunc(filename(_fref, &_p));
-    %let _del_rc = %sysfunc(fdelete(_fref));
+    %let _del_rc = %sysfunc(fdelete(&_fref));
     %let _del_msg = %sysfunc(sysmsg());
     %let _rc     = %sysfunc(filename(_fref));
     %if &_del_rc = 0 %then
@@ -206,7 +206,7 @@ libname _doc clear;
   %let _p = &qc_path.\header_matrix.xlsx;
   %if %sysfunc(fileexist(&_p)) %then %do;
     %let _rc     = %sysfunc(filename(_fref, &_p));
-    %let _del_rc = %sysfunc(fdelete(_fref));
+    %let _del_rc = %sysfunc(fdelete(&_fref));
     %let _del_msg = %sysfunc(sysmsg());
     %let _rc     = %sysfunc(filename(_fref));
     %if &_del_rc = 0 %then
