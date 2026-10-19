@@ -6,6 +6,8 @@
 *.csv
 *.xlsx
 *.xls
+# Exception: SHA-256 baseline is config, not data
+!docs/source_guard_baseline.csv
 
 # SAS logs and output
 *.log

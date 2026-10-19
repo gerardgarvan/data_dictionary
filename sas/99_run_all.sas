@@ -7,7 +7,7 @@
 
   Pipeline :
     Phase 2  02_source_guard.sas    -- SHA-256 source guard + header inventory
-    Phase 3  03_import.sas          -- direct import of 8 raw sources
+    Phase 3  03_import.sas          -- direct import of 20 raw sources
     Phase 4  04_name_map.sas        -- original header to PCNR_ name map
     Phase 5  05_build_pcnr.sas      -- assemble PCNR_ on the spine
     Phase 6  06_profile.sas         -- %pdd_profile distribution engine

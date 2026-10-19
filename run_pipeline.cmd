@@ -42,6 +42,8 @@ goto :main
       -sysin "%_SAS_FILE%" ^
       -log "%_LOG_FILE%" ^
       -nosplash -icon -sasuser WORK ^
+      -config "%SAS_CFG%" ^
+      -encoding utf8 ^
       -set RUN_ALL 1
 
   set _EC=!ERRORLEVEL!
@@ -66,6 +68,7 @@ goto :main
 REM ---- Machine-specific SAS_EXE override ----
 if exist "%~dp0config.local.cmd" call "%~dp0config.local.cmd"
 if not defined SAS_EXE set "SAS_EXE=C:\Program Files\SAS94\SASFoundation\9.4\sas.exe"
+if not defined SAS_CFG set "SAS_CFG=C:\Program Files\SAS94\SASFoundation\9.4\nls\u8\sasv9.cfg"
 if not exist "%SAS_EXE%" (
   echo SAS_EXE not found: "%SAS_EXE%"
   echo SAS_EXE not found: "%SAS_EXE%" >> "%MASTER_LOG%"

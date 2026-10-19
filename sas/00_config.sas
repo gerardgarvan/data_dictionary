@@ -16,7 +16,6 @@
    Set before macros so options are active for the whole session.
    ===================================================================== */
 options validvarname=v7;
-options encoding='UTF-8';
 options mprint nofmterr nodate nonumber ps=max ls=200;
 
 /* ===== 2. PATH MACRO VARIABLES ==========================================
@@ -51,11 +50,41 @@ options nodlcreatedir;
    ===================================================================== */
 %macro pdd_lib;
   options dlcreatedir;
-  libname pdd "&out_root." access=rw;
+  libname pdd "&out_root.";
   options nodlcreatedir;
 %mend pdd_lib;
 
-/* ===== 5. IN_PIPELINE GUARD =============================================
+/* ===== 5. EARLY GUARD MACROS ============================================
+   %check_encoding -- aborts if SAS session is not UTF-8.
+     Call immediately after %include "00_config.sas" in each program.
+     UTF-8 is required for Base_Procedure_1 (esophagectomy rows).
+     Set via -config "...nls\u8\sasv9.cfg" on the sas.exe command line;
+     the run_pipeline.cmd driver does this automatically.
+   %check_pdd_lib  -- aborts if %pdd_lib failed to assign the pdd libref.
+     Call immediately after %pdd_lib; in each program so a bad P: path
+     stops the run with a clear message instead of cascading OBS=0 errors.
+   Both macros use %put ERROR + %abort cancel directly (no dependency on
+   %fail_out, which is defined per-program after this config is included).
+   ===================================================================== */
+%macro check_encoding;
+  %if %lowcase(&sysencoding) ne utf-8 %then %do;
+    %put ERROR: [00_config] SESSION ENCODING ERROR -- sysencoding=&sysencoding expected utf-8;
+    %put ERROR: [00_config] Add -config "C:\Program Files\SAS94\SASFoundation\9.4\nls\u8\sasv9.cfg" to the sas.exe call (run_pipeline.cmd does this automatically);
+    %abort cancel;
+  %end;
+  %put NOTE: [00_config] sysencoding = &sysencoding (UTF-8 confirmed);
+%mend check_encoding;
+
+%macro check_pdd_lib;
+  %if %sysfunc(libref(pdd)) ne 0 %then %do;
+    %put ERROR: [00_config] FATAL -- pdd library not assigned. Check out_root path and P: drive mapping;
+    %put ERROR: [00_config] out_root = &out_root;
+    %abort cancel;
+  %end;
+  %put NOTE: [00_config] pdd library assigned OK (&out_root);
+%mend check_pdd_lib;
+
+/* ===== 6. IN_PIPELINE GUARD =============================================
    0 = running standalone; the program redirects the log to its own file.
    1 = running under 99_run_all.sas, which owns the master log.
 
@@ -88,7 +117,7 @@ options nodlcreatedir;
 %mend _set_pipeline_default;
 %_set_pipeline_default;
 
-/* ===== 6. LOG ECHO BLOCK ================================================
+/* ===== 7. LOG ECHO BLOCK ================================================
    Echo every macro variable for log traceability.
    ===================================================================== */
 %put NOTE: [00_config] sas_path    = &sas_path;

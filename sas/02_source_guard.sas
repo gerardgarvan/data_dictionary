@@ -58,8 +58,12 @@
    &sas_path is not yet defined until config runs) */
 %include "C:\data_dictionary\sas\00_config.sas";
 
-/* Assign the pdd output library */
+/* Verify UTF-8 session before anything else */
+%check_encoding;
+
+/* Assign the pdd output library; abort immediately if it fails */
 %pdd_lib;
+%check_pdd_lib;
 
 /* Older-copy roots (local to this program only -- NOT added to 00_config.sas
    per project constraint; both searched non-recursively in SECTION 7) */
@@ -98,9 +102,35 @@
 /* Assert that a directory path exists; abort if not */
 %macro check_dir(path=, label=);
   %if %sysfunc(fileexist(&path)) = 0 %then %do;
-    %fail_out(msg=&label directory not found: &path);
+    %fail_out(msg=%str(&label directory not found: &path));
   %end;
 %mend check_dir;
+
+/* Print a NOTE that a pdd dataset was written, confirmed with rowcount > 0.
+   Prints WARNING instead of NOTE if dataset is missing or empty. */
+%macro _note_written_ds(ds=, label=);
+  %local _nw;
+  %let _nw = 0;
+  %if %sysfunc(exist(&ds)) %then %do;
+    proc sql noprint;
+      select count(*) into :_nw trimmed from &ds;
+    quit;
+    %if &_nw > 0 %then
+      %put NOTE: [02_source_guard] &label written (&_nw rows);
+    %else
+      %put WARNING: [02_source_guard] &label written but has 0 rows;
+  %end;
+  %else
+    %put WARNING: [02_source_guard] &label was NOT written;
+%mend _note_written_ds;
+
+/* Print a NOTE that a QC xlsx was written, confirmed via fileexist. */
+%macro _note_written_xlsx(path=, label=);
+  %if %sysfunc(fileexist(&path)) %then
+    %put NOTE: [02_source_guard] &label written;
+  %else
+    %put WARNING: [02_source_guard] &label was NOT written;
+%mend _note_written_xlsx;
 
 /* Begin log redirect immediately after macro definitions */
 %route_log;
@@ -222,14 +252,17 @@ run;
 /* Assert no FAILED hashes among the 20 required files */
 %macro assert_hashes_ok;
   %local n_failed;
-  %let n_failed = 0;
+  %let n_failed = -1;
   proc sql noprint;
     select count(*) into :n_failed trimmed
     from work.sha_results
     where sha256 = 'FAILED';
   quit;
+  %if &n_failed = -1 or &sqlrc > 0 %then %do;
+    %fail_out(msg=%str(assert_hashes_ok: SELECT INTO failed -- syserr=&syserr sqlrc=&sqlrc));
+  %end;
   %if &n_failed > 0 %then %do;
-    %fail_out(msg=SHA-256 FAILED for &n_failed files -- check that source files are accessible and not locked);
+    %fail_out(msg=%str(SHA-256 FAILED for &n_failed files -- check that source files are accessible and not locked));
   %end;
   %put NOTE: [02_source_guard] assert_hashes_ok passed -- all 20 SHA-256 values computed;
 %mend assert_hashes_ok;
@@ -300,7 +333,7 @@ run;
 %macro run_hash_guard;
   %local n_base_rows n_drift _baseline_path;
   %let n_base_rows   = 0;
-  %let n_drift       = 0;
+  %let n_drift       = -1;
   %let _baseline_path = C:\data_dictionary\docs\source_guard_baseline.csv;
 
   /* ---- Count existing data rows (skip header line firstobs=2) ---- */
@@ -346,8 +379,11 @@ run;
       where lowcase(strip(b.sha256_base)) ne lowcase(strip(r.sha256));
     quit;
 
+    %if &n_drift = -1 or &sqlrc > 0 %then %do;
+      %fail_out(msg=%str(run_hash_guard: drift SELECT INTO failed -- sqlrc=&sqlrc syserr=&syserr));
+    %end;
     %if &n_drift > 0 %then %do;
-      %fail_out(msg=SOURCE GUARD FAILED -- &n_drift files changed since baseline. Delete docs/source_guard_baseline.csv to reseed.);
+      %fail_out(msg=%str(SOURCE GUARD FAILED -- &n_drift files changed since baseline. Delete docs/source_guard_baseline.csv to reseed.));
     %end;
     %put NOTE: [02_source_guard] PASS -- all 20 SHA-256 values match baseline;
 
@@ -409,18 +445,21 @@ proc datasets lib=work nolist nowarn;
   delete _fl_s _fm_s _sha_s _old_s;
 quit;
 
-%put NOTE: [02_source_guard] pdd.source_inventory written;
+%_note_written_ds(ds=pdd.source_inventory, label=pdd.source_inventory)
 
 /* Assert exactly 20 rows */
 %macro assert_inventory_rows;
   %local n;
-  %let n = 0;
+  %let n = -1;
   proc sql noprint;
     select count(*) into :n trimmed
     from pdd.source_inventory;
   quit;
+  %if &n = -1 or &sqlrc > 0 %then %do;
+    %fail_out(msg=%str(assert_inventory_rows: SELECT INTO failed -- sqlrc=&sqlrc syserr=&syserr));
+  %end;
   %if &n ne 20 %then %do;
-    %fail_out(msg=source_inventory expected 20 rows, got &n);
+    %fail_out(msg=%str(source_inventory expected 20 rows, got &n));
   %end;
   %put NOTE: [02_source_guard] assert_inventory_rows passed -- 20 rows confirmed;
 %mend assert_inventory_rows;
@@ -770,7 +809,7 @@ data pdd.header_inventory;
   set work.hdr_all;
 run;
 
-%put NOTE: [02_source_guard] pdd.header_inventory written;
+%_note_written_ds(ds=pdd.header_inventory, label=pdd.header_inventory)
 
 /* ---- Benchmark NOTEs for header_inventory ---- */
 proc sql noprint;
@@ -1056,17 +1095,20 @@ data pdd.key_analysis;
     grain          = 'unique or multi-row (blank for NONE_DETECTED)';
 run;
 
-%put NOTE: [02_source_guard] pdd.key_analysis written;
+%_note_written_ds(ds=pdd.key_analysis, label=pdd.key_analysis)
 
 /* Assert pdd.key_analysis has at least one row */
 %macro assert_key_analysis;
   %local _nka;
-  %let _nka = 0;
+  %let _nka = -1;
   proc sql noprint;
     select count(*) into :_nka trimmed from pdd.key_analysis;
   quit;
+  %if &_nka = -1 or &sqlrc > 0 %then %do;
+    %fail_out(msg=%str(assert_key_analysis: SELECT INTO failed -- sqlrc=&sqlrc syserr=&syserr));
+  %end;
   %if &_nka = 0 %then %do;
-    %fail_out(msg=pdd.key_analysis has zero rows -- import loop or key detection failed);
+    %fail_out(msg=%str(pdd.key_analysis has zero rows -- import loop or key detection failed));
   %end;
   %put NOTE: [02_source_guard] assert_key_analysis passed -- &_nka rows;
 %mend assert_key_analysis;
@@ -1341,7 +1383,7 @@ data pdd.id_overlap;
     pct_overlap      = 'n_matching_spine / n_in_file * 100 (rounded to 0.1)';
 run;
 
-%put NOTE: [02_source_guard] pdd.id_overlap written;
+%_note_written_ds(ds=pdd.id_overlap, label=pdd.id_overlap)
 
 /* Log s04/s05 overlap NOTEs for PDD-D-18 decision */
 %macro _log_overlap_notes;
@@ -1357,8 +1399,8 @@ run;
 /* Assert pdd.id_overlap: has rows; s09 self-overlap >= 99.5 */
 %macro assert_overlap;
   %local _nov _s09self;
-  %let _nov    = 0;
-  %let _s09self = 0;
+  %let _nov     = -1;
+  %let _s09self = -1;
   proc sql noprint;
     select count(*) into :_nov trimmed from pdd.id_overlap;
     select max(pct_overlap) into :_s09self trimmed
@@ -1366,11 +1408,14 @@ run;
     where s_code = 's09' and spine_source = 's09'
       and key_column_type = 'PRECEDE_STUDY_ID';
   quit;
+  %if &_nov = -1 or &sqlrc > 0 %then %do;
+    %fail_out(msg=%str(assert_overlap: SELECT INTO failed -- sqlrc=&sqlrc syserr=&syserr));
+  %end;
   %if &_nov = 0 %then %do;
-    %fail_out(msg=pdd.id_overlap has zero rows -- overlap computation failed);
+    %fail_out(msg=%str(pdd.id_overlap has zero rows -- overlap computation failed));
   %end;
   %if %sysevalf(&_s09self < 99.5) %then %do;
-    %fail_out(msg=s09 self-overlap = &_s09self pct -- expected >= 99.5);
+    %fail_out(msg=%str(s09 self-overlap = &_s09self pct -- expected >= 99.5));
   %end;
   %put NOTE: [02_source_guard] assert_overlap passed -- &_nov rows s09 self-overlap=&_s09self.pct;
 %mend assert_overlap;
@@ -1527,7 +1572,7 @@ proc print data=pdd.id_overlap noobs; run;
 ods excel close;
 ods listing;
 
-%put NOTE: [02_source_guard] qc\source_inventory.xlsx written;
+%_note_written_xlsx(path=&qc_path.\source_inventory.xlsx, label=qc\source_inventory.xlsx)
 
 /* ---- Workbook 2: header_matrix.xlsx ---- */
 ods listing close;
@@ -1548,7 +1593,7 @@ proc print data=work.header_wide noobs; run;
 ods excel close;
 ods listing;
 
-%put NOTE: [02_source_guard] qc\header_matrix.xlsx written;
+%_note_written_xlsx(path=&qc_path.\header_matrix.xlsx, label=qc\header_matrix.xlsx)
 
 
 /* ============================================================
@@ -1561,37 +1606,40 @@ ods listing;
 
   /* ---- Four pdd datasets ---- */
   %if not %sysfunc(exist(pdd.source_inventory)) %then %do;
-    %fail_out(msg=OUTPUT MISSING -- pdd.source_inventory does not exist);
+    %fail_out(msg=%str(OUTPUT MISSING -- pdd.source_inventory does not exist));
   %end;
   %if not %sysfunc(exist(pdd.header_inventory)) %then %do;
-    %fail_out(msg=OUTPUT MISSING -- pdd.header_inventory does not exist);
+    %fail_out(msg=%str(OUTPUT MISSING -- pdd.header_inventory does not exist));
   %end;
   %if not %sysfunc(exist(pdd.key_analysis)) %then %do;
-    %fail_out(msg=OUTPUT MISSING -- pdd.key_analysis does not exist);
+    %fail_out(msg=%str(OUTPUT MISSING -- pdd.key_analysis does not exist));
   %end;
   %if not %sysfunc(exist(pdd.id_overlap)) %then %do;
-    %fail_out(msg=OUTPUT MISSING -- pdd.id_overlap does not exist);
+    %fail_out(msg=%str(OUTPUT MISSING -- pdd.id_overlap does not exist));
   %end;
 
   /* ---- pdd.source_inventory rowcount = 20 ---- */
-  %let _n_si = 0;
+  %let _n_si = -1;
   proc sql noprint;
     select count(*) into :_n_si trimmed from pdd.source_inventory;
   quit;
+  %if &_n_si = -1 or &sqlrc > 0 %then %do;
+    %fail_out(msg=%str(assert_outputs: rowcount SELECT INTO failed -- sqlrc=&sqlrc syserr=&syserr));
+  %end;
   %if &_n_si ne 20 %then %do;
-    %fail_out(msg=pdd.source_inventory rowcount = &_n_si -- expected 20);
+    %fail_out(msg=%str(pdd.source_inventory rowcount = &_n_si -- expected 20));
   %end;
 
   /* ---- source_inventory.xlsx ---- */
   %let _p = &qc_path.\source_inventory.xlsx;
   %if not %sysfunc(fileexist(&_p)) %then %do;
-    %fail_out(msg=OUTPUT MISSING -- qc\source_inventory.xlsx was not created);
+    %fail_out(msg=%str(OUTPUT MISSING -- qc\source_inventory.xlsx was not created));
   %end;
 
   /* ---- header_matrix.xlsx ---- */
   %let _p = &qc_path.\header_matrix.xlsx;
   %if not %sysfunc(fileexist(&_p)) %then %do;
-    %fail_out(msg=OUTPUT MISSING -- qc\header_matrix.xlsx was not created);
+    %fail_out(msg=%str(OUTPUT MISSING -- qc\header_matrix.xlsx was not created));
   %end;
 
   %put NOTE: [02_source_guard] PASS -- all Phase 2 outputs present;
