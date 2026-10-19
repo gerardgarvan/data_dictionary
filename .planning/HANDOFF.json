@@ -1,0 +1,72 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-10-19T14:13:34.099Z",
+  "phase": "2",
+  "phase_name": "Source guard and header inventory",
+  "phase_dir": ".planning/phases/02-source-guard-and-header-inventory",
+  "plan": 0,
+  "task": 0,
+  "total_tasks": 9,
+  "status": "ready_to_execute",
+  "completed_tasks": [],
+  "remaining_tasks": [
+    {"id": "02-01-T1", "name": "Program scaffold + 20-file list + FINFO metadata", "status": "not_started"},
+    {"id": "02-01-T2", "name": "certutil SHA-256 + two-branch hash baseline guard", "status": "not_started"},
+    {"id": "02-01-T3", "name": "pdd.source_inventory + older-copy hash comparison", "status": "not_started"},
+    {"id": "02-02-T1", "name": "Import loop (CSV+XLSX) + header inventory + re-check NOTEs", "status": "not_started"},
+    {"id": "02-02-T2", "name": "Candidate key + grain analysis + pdd.key_analysis", "status": "not_started"},
+    {"id": "02-02-T3", "name": "ID overlap vs s09 spine + pdd.id_overlap", "status": "not_started"},
+    {"id": "02-03-T1", "name": "ODS Excel QC workbooks (source_inventory.xlsx + header_matrix.xlsx)", "status": "not_started"},
+    {"id": "02-03-T2", "name": "Output assertions + log restore", "status": "not_started"},
+    {"id": "02-03-T3", "name": "Wire 02_source_guard.sas into 99_run_all.sas", "status": "not_started"}
+  ],
+  "blockers": [
+    {
+      "description": "PDD-D-17: how multi-row-per-patient files (s01 PACU_STAY, s08 COLONOSCOPY) enter PCNR_",
+      "type": "human_action",
+      "workaround": "Not blocking Phase 2 execution — decided after Phase 2 output is reviewed"
+    },
+    {
+      "description": "PDD-D-18: linkage path for crosswalk-keyed files (s04, s05)",
+      "type": "human_action",
+      "workaround": "Not blocking Phase 2 execution — decided after Phase 2 output is reviewed"
+    },
+    {
+      "description": "Phase 2 SAS execution requires P: drive mapped and SAS 9.4 installed",
+      "type": "external",
+      "workaround": "Run on the workstation with SAS and P: access"
+    }
+  ],
+  "human_actions_pending": [
+    {
+      "action": "After Phase 2 runs: review qc\\source_inventory.xlsx and qc\\header_matrix.xlsx with Gerard",
+      "context": "Output drives PDD-D-17 and PDD-D-18 decisions (grain of multi-row files, crosswalk linkage)",
+      "blocking": false
+    }
+  ],
+  "decisions": [
+    {
+      "decision": "raw_master macro now points to shared read-only folder",
+      "rationale": "Scope change — PCNR_ now covers all 20 files in the original shared folder, not the 8 in Gerard's personal staging area",
+      "phase": "1 (retroactive config update)"
+    },
+    {
+      "decision": "pdd.header_inventory (not pdd.header_matrix) is the authoritative dataset name",
+      "rationale": "Naming consistency with pdd.source_inventory; REQUIREMENTS.md updated to match",
+      "phase": "2"
+    },
+    {
+      "decision": "Hash baseline at C:\\data_dictionary\\docs\\source_guard_baseline.csv",
+      "rationale": "C: drive is git-tracked; no PHI (hashes/sizes/dates only); matches reference project pattern",
+      "phase": "2"
+    },
+    {
+      "decision": "raw_master_old path defined locally in 02_source_guard.sas",
+      "rationale": "Keeps 00_config.sas clean; older-copy comparison is Phase 2-specific",
+      "phase": "2"
+    }
+  ],
+  "uncommitted_files": [".planning/config.json"],
+  "next_action": "/gsd:execute-phase 2 (after /clear)",
+  "context_notes": "Phase 2 plans are fully verified and committed. The reference implementation in _reference_old/sas/19_raw_dir_inventory.sas contains working production patterns for certutil SHA-256, XLSX sheet enumeration, FINFO metadata, and candidate key detection. Executors should read it before writing any code. The two-branch seed-vs-guard pattern is the core of 02-01."
+}
