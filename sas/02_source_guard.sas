@@ -1852,8 +1852,16 @@ quit;
   %local _iqn n_psid_files _qnsc _qnsh _qnds _qnkvt
          _nin _nmatch_bef _nmatch_aft _s17enc_type _ndis;
 
+  /* spine_psid is deleted by the Section 9 cleanup; rebuild from src_s09 if needed */
   %if not %sysfunc(exist(work.spine_psid)) %then %do;
-    %put NOTE: [02_source_guard] _qc_normalisation_2022: work.spine_psid not found -- skipping;
+    %if %sysfunc(exist(work.src_s09)) %then %do;
+      %put NOTE: [02_source_guard] _qc_normalisation_2022: rebuilding work.spine_psid from work.src_s09;
+      %_build_spine(ds=work.src_s09, col=PRECEDE_STUDY_ID, out=work.spine_psid);
+    %end;
+  %end;
+
+  %if not %sysfunc(exist(work.spine_psid)) %then %do;
+    %put WARNING: [02_source_guard] _qc_normalisation_2022: work.spine_psid not found -- skipping (PDD-D-19 required check);
   %end;
   %else %do;
 
