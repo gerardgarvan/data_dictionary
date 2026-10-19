@@ -27,7 +27,7 @@ Plans:
 
 Plans:
 - [x] 02-01-PLAN.md — Program scaffold, 20-file list, FINFO metadata, certutil SHA-256, two-branch hash baseline guard, pdd.source_inventory (wave 1)
-- [ ] 02-02-PLAN.md — Import loop (CSV + XLSX), header inventory, candidate key + grain analysis, ID overlap vs s09 spine (wave 2)
+- [x] 02-02-PLAN.md — Import loop (CSV + XLSX), header inventory, candidate key + grain analysis, ID overlap vs s09 spine (wave 2)
 - [ ] 02-03-PLAN.md — ODS Excel QC workbooks (KEY sheet, UF colors), output assertions + log restore, wire into 99_run_all.sas (wave 3)
 
 ### Phase 3: Direct import of the 20 sources
