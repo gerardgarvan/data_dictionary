@@ -2099,8 +2099,8 @@ quit;
                               where=(ENCRYPTED_ENCOUNTER is not missing
                                      and &_s17kv is not missing
                                      and strip(&_s17kv) ne ''));
-            %if "&_s17enc_type" = "char" %then enc_key = strip(ENCRYPTED_ENCOUNTER);;
-            %else enc_key = strip(put(ENCRYPTED_ENCOUNTER, 20.));;
+            %if "&_s17enc_type" = "char" %then %do; enc_key = strip(ENCRYPTED_ENCOUNTER); %end;
+            %else %do; enc_key = strip(put(ENCRYPTED_ENCOUNTER, 20.)); %end;
             if prxmatch('/^\d+$/', strip(&_s17kv)) then
               norm_psid = cats('PRECEDE', put(input(strip(&_s17kv), ?? 8.), z5.));
             else norm_psid = strip(&_s17kv);
@@ -2112,8 +2112,8 @@ quit;
             set work.src_s17 (keep=ENCRYPTED_ENCOUNTER &_s17kv
                               where=(ENCRYPTED_ENCOUNTER is not missing
                                      and &_s17kv is not missing));
-            %if "&_s17enc_type" = "char" %then enc_key = strip(ENCRYPTED_ENCOUNTER);;
-            %else enc_key = strip(put(ENCRYPTED_ENCOUNTER, 20.));;
+            %if "&_s17enc_type" = "char" %then %do; enc_key = strip(ENCRYPTED_ENCOUNTER); %end;
+            %else %do; enc_key = strip(put(ENCRYPTED_ENCOUNTER, 20.)); %end;
             norm_psid = cats('PRECEDE', put(&_s17kv, z5.));
           run;
         %end;
@@ -2126,8 +2126,8 @@ quit;
                               where=(ENCRYPTED_ENCOUNTER is not missing
                                      and &_s09kv is not missing
                                      and strip(&_s09kv) ne ''));
-            %if "&_s09enc_type" = "char" %then enc_key = strip(ENCRYPTED_ENCOUNTER);;
-            %else enc_key = strip(put(ENCRYPTED_ENCOUNTER, 20.));;
+            %if "&_s09enc_type" = "char" %then %do; enc_key = strip(ENCRYPTED_ENCOUNTER); %end;
+            %else %do; enc_key = strip(put(ENCRYPTED_ENCOUNTER, 20.)); %end;
             ref_psid = strip(&_s09kv);
           run;
         %end;
@@ -2137,8 +2137,8 @@ quit;
             set work.src_s09 (keep=ENCRYPTED_ENCOUNTER &_s09kv
                               where=(ENCRYPTED_ENCOUNTER is not missing
                                      and &_s09kv is not missing));
-            %if "&_s09enc_type" = "char" %then enc_key = strip(ENCRYPTED_ENCOUNTER);;
-            %else enc_key = strip(put(ENCRYPTED_ENCOUNTER, 20.));;
+            %if "&_s09enc_type" = "char" %then %do; enc_key = strip(ENCRYPTED_ENCOUNTER); %end;
+            %else %do; enc_key = strip(put(ENCRYPTED_ENCOUNTER, 20.)); %end;
             ref_psid = strip(put(&_s09kv, 20.));
           run;
         %end;
@@ -2190,6 +2190,8 @@ quit;
 
   %end;
 %mend _qc_normalisation_2022;
+%if %sysmacexist(_qc_normalisation_2022) = 0 %then
+  %fail_out(msg=%str(_qc_normalisation_2022 failed to compile -- run aborted));
 %_qc_normalisation_2022;
 
 
