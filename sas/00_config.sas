@@ -112,7 +112,7 @@ options nodlcreatedir;
   %end;
   /* Detect batch driver: -set RUN_ALL 1 sets an OS env var readable by envlen/sysget. */
   %if %sysfunc(envlen(RUN_ALL)) > 0 %then %do;
-    %if %sysget(RUN_ALL) = 1 %then %let in_pipeline = 1;
+    %if "%sysget(RUN_ALL)" = "1" %then %let in_pipeline = 1;
   %end;
 %mend _set_pipeline_default;
 %_set_pipeline_default;

@@ -523,11 +523,12 @@ run;
 %macro import_all_files;
   %local n_files i j _scode _full _ftype _dsname
          fstatus freason nsheets _rawhdrs _s09rows
-         _dups _nb;
+         _dups _nb _file_skip_flag;
 
   %let n_files = 20;
 
   %do i = 1 %to &n_files;
+    %let _file_skip_flag = 0;
 
     /* ---- Read this file row into macro vars ---- */
     data _null_;
@@ -544,7 +545,7 @@ run;
     %if %length(&_ftype) = 0 %then %do;
       %fail_out(msg=%str(import loop: _ftype is blank for &_scode -- check file_list DATALINES));
     %end;
-    %if &_ftype ne csv and &_ftype ne xlsx %then %do;
+    %if "&_ftype" ne "csv" and "&_ftype" ne "xlsx" %then %do;
       %fail_out(msg=%str(import loop: unexpected ftype=&_ftype for &_scode -- expected csv or xlsx));
     %end;
 
@@ -556,114 +557,126 @@ run;
     %put NOTE: [02_source_guard] === importing file_id=&i s_code=&_scode ===;
 
     /* ============ CSV branch ============ */
-    %if &_ftype = csv %then %do;
+    %if "&_ftype" = "csv" %then %do;
 
-      options nosyntaxcheck noerrorabend;
+      /* nomprint suppresses SAS's internal PROC IMPORT sub-macro calls (e.g. %adlm)
+         from printing to the log; restore mprint immediately after run; */
+      options nosyntaxcheck noerrorabend nomprint;
       proc import datafile="&_full"
           out=work.&_dsname dbms=csv replace;
         guessingrows=max;
       run;
+      options mprint;
       %eval_import(target=work.&_dsname);
 
-      /* Guard: abort if import failed */
-      %if &fstatus = read-failed %then %do;
-        %fail_out(msg=%str(import FAILED for &_scode (csv) -- &freason -- path: &_full));
+      /* On failure: record read-failed, reset syscc, skip rest of this file */
+      %if "&fstatus" = "read-failed" %then %do;
+        %put WARNING: [02_source_guard] import FAILED for &_scode (csv) -- &freason -- path: &_full;
+        proc sql noprint;
+          insert into work.counts_all
+            (s_code, sheet_name, import_status, import_reason)
+          values ("&_scode", '', "read-failed", "&freason");
+        quit;
+        %let syscc = 0;
+        %let _file_skip_flag = 1;
       %end;
+      %else %do;
 
-      /* Capture raw first-line header (Pitfall 6 check) */
-      data _null_;
-        infile "&_full" obs=1 dsd dlm=',' truncover
-               lrecl=32767 encoding='utf-8';
-        input;
-        _line = _infile_;
-        call symputx('_rawhdrs', _line, 'G');
-        stop;
-      run;
-
-      /* Check original header for duplicate PRECEDE Study ID token */
-      %macro _check_dup_hdr;
-        %local _cnt;
-        %let _cnt = 0;
+        /* Capture raw first-line header (Pitfall 6 check) */
         data _null_;
-          _line = "&_rawhdrs";
-          /* count occurrences of the exact token PRECEDE Study ID */
-          _cnt = 0;
-          _pos = 1;
-          do while (_pos le length(_line));
-            _pos2 = index(substr(_line, _pos), 'PRECEDE Study ID');
-            if _pos2 > 0 then do;
-              _cnt + 1;
-              _pos = _pos + _pos2 + 15;
-            end;
-            else _pos = length(_line) + 1;
-          end;
-          call symputx('_cnt', _cnt, 'L');
+          infile "&_full" obs=1 dsd dlm=',' truncover
+                 lrecl=32767 encoding='utf-8';
+          input;
+          _line = _infile_;
+          call symputx('_rawhdrs', _line, 'L');
+          stop;
         run;
-        %if &_cnt > 1 %then %do;
-          %put WARNING: [02_source_guard] duplicate original header PRECEDE Study ID in &_scode;
+
+        /* Check original header for duplicate PRECEDE Study ID token */
+        %macro _check_dup_hdr;
+          %local _cnt;
+          %let _cnt = 0;
+          data _null_;
+            _line = "&_rawhdrs";
+            _cnt = 0;
+            _pos = 1;
+            do while (_pos le length(_line));
+              _pos2 = index(substr(_line, _pos), 'PRECEDE Study ID');
+              if _pos2 > 0 then do;
+                _cnt + 1;
+                _pos = _pos + _pos2 + 15;
+              end;
+              else _pos = length(_line) + 1;
+            end;
+            call symputx('_cnt', _cnt, 'L');
+          run;
+          %if &_cnt > 1 %then %do;
+            %put WARNING: [02_source_guard] duplicate original header PRECEDE Study ID in &_scode;
+          %end;
+        %mend _check_dup_hdr;
+        %_check_dup_hdr;
+
+        /* Accumulate header rows from dictionary.columns */
+        proc sql noprint;
+          insert into work.hdr_all
+            (s_code, sheet_name, col_name, col_type, col_label, col_len)
+          select "&_scode", '', name, type, label, length
+          from dictionary.columns
+          where libname='WORK' and memname=upcase("&_dsname");
+        quit;
+
+        /* Accumulate row/col counts from dictionary.tables */
+        proc sql noprint;
+          insert into work.counts_all
+            (s_code, sheet_name, row_count, col_count, original_header,
+             import_status, import_reason)
+          select "&_scode", '', nobs, nvar, "&_rawhdrs",
+                 "&fstatus", "&freason"
+          from dictionary.tables
+          where libname='WORK' and memname=upcase("&_dsname");
+        quit;
+
+        /* s15 / s17 check for STUDYID trailing digit (Pitfall 6 col_name) */
+        %if "&_scode" = "s15" or "&_scode" = "s17" %then %do;
+          %macro _check_studyid_digit;
+            %local _nd;
+            %let _nd = 0;
+            proc sql noprint;
+              select count(*) into :_nd trimmed
+              from dictionary.columns
+              where libname='WORK' and memname=upcase("&_dsname")
+                and prxmatch('/STUDYID\d+/i', strip(name)) > 0;
+            quit;
+            %if &_nd > 0 %then %do;
+              %put WARNING: [02_source_guard] duplicate PRECEDE_STUDY_ID header in &_scode;
+            %end;
+          %mend _check_studyid_digit;
+          %_check_studyid_digit;
         %end;
-      %mend _check_dup_hdr;
-      %_check_dup_hdr;
 
-      /* Accumulate header rows from dictionary.columns */
-      proc sql noprint;
-        insert into work.hdr_all
-          (s_code, sheet_name, col_name, col_type, col_label, col_len)
-        select "&_scode", '', name, type, label, length
-        from dictionary.columns
-        where libname='WORK' and memname=upcase("&_dsname");
-      quit;
+        /* s09 row count check */
+        %if "&_scode" = "s09" %then %do;
+          %macro _check_s09rows;
+            %let _s09rows = 0;
+            proc sql noprint;
+              select nobs into :_s09rows trimmed
+              from dictionary.tables
+              where libname='WORK' and memname='SRC_S09';
+            quit;
+            %put NOTE: [02_source_guard] s09 row count = &_s09rows. (expect ~41150);
+            %if %eval(&_s09rows < 41000 or &_s09rows > 42000) %then %do;
+              %put WARNING: [02_source_guard] s09 row count = &_s09rows. -- outside expected 41000-42000 range;
+            %end;
+          %mend _check_s09rows;
+          %_check_s09rows;
+        %end;
 
-      /* Accumulate row/col counts from dictionary.tables */
-      proc sql noprint;
-        insert into work.counts_all
-          (s_code, sheet_name, row_count, col_count, original_header,
-           import_status, import_reason)
-        select "&_scode", '', nobs, nvar, "&_rawhdrs",
-               "&fstatus", "&freason"
-        from dictionary.tables
-        where libname='WORK' and memname=upcase("&_dsname");
-      quit;
-
-      /* s15 / s17 check for STUDYID trailing digit (Pitfall 6 col_name) */
-      %if &_scode = s15 or &_scode = s17 %then %do;
-        %macro _check_studyid_digit;
-          %local _nd;
-          %let _nd = 0;
-          proc sql noprint;
-            select count(*) into :_nd trimmed
-            from dictionary.columns
-            where libname='WORK' and memname=upcase("&_dsname")
-              and prxmatch('/STUDYID\d+/i', strip(name)) > 0;
-          quit;
-          %if &_nd > 0 %then %do;
-            %put WARNING: [02_source_guard] duplicate PRECEDE_STUDY_ID header in &_scode;
-          %end;
-        %mend _check_studyid_digit;
-        %_check_studyid_digit;
-      %end;
-
-      /* s09 row count check */
-      %if &_scode = s09 %then %do;
-        %macro _check_s09rows;
-          %let _s09rows = 0;
-          proc sql noprint;
-            select nobs into :_s09rows trimmed
-            from dictionary.tables
-            where libname='WORK' and memname='SRC_S09';
-          quit;
-          %put NOTE: [02_source_guard] s09 row count = &_s09rows. (expect ~41150);
-          %if %eval(&_s09rows < 41000 or &_s09rows > 42000) %then %do;
-            %put WARNING: [02_source_guard] s09 row count = &_s09rows. -- outside expected 41000-42000 range;
-          %end;
-        %mend _check_s09rows;
-        %_check_s09rows;
-      %end;
+      %end;  /* end import-succeeded block */
 
     %end;  /* end CSV branch */
 
     /* ============ XLSX branch ============ */
-    %else %if &_ftype = xlsx %then %do;
+    %else %if "&_ftype" = "xlsx" %then %do;
 
       data _null_;
         _rc = libname('_xlw', "&_full", 'xlsx');
@@ -766,7 +779,7 @@ run;
 
               /* Compute nonblank_row_count for s19 BEFORE insert (no PROC SQL UPDATE) */
               %let _nb_count = .;
-              %if &_scode = s19 %then %do;
+              %if "&_scode" = "s19" %then %do;
                 %macro _s19_nonblank_pre;
                   %local _nb;
                   %let _nb = 0;
@@ -815,9 +828,11 @@ run;
 
       %end;  /* end libref ok */
 
-      /* Guard: abort if xlsx could not be opened or had no sheets */
-      %if &fstatus = read-failed %then %do;
-        %fail_out(msg=%str(import FAILED for &_scode (xlsx) -- &freason -- path: &_full));
+      /* On failure: log warning and continue to next file (read-failed row already inserted above) */
+      %if "&fstatus" = "read-failed" %then %do;
+        %put WARNING: [02_source_guard] import FAILED for &_scode (xlsx) -- &freason -- path: &_full;
+        %let syscc = 0;
+        %let _file_skip_flag = 1;
       %end;
 
     %end;  /* end XLSX branch */
@@ -1192,7 +1207,7 @@ quit;
       stop;
     run;
   %end;
-  %else %if &_coltype = char %then %do;
+  %else %if "&_coltype" = "char" %then %do;
     proc sql noprint;
       create table &out as
       select distinct strip(&col) as spine_key length=64
@@ -1271,7 +1286,7 @@ run;
     %let _nmatch = 0;
 
     /* n_in_file: distinct non-missing key values in the file */
-    %if &kvar_type = char %then %do;
+    %if "&kvar_type" = "char" %then %do;
       proc sql noprint;
         select count(distinct strip(&kvar)) into :_nin trimmed
         from &filedsn
@@ -1287,7 +1302,7 @@ run;
     %end;
 
     /* n_matching_spine: count matching the spine */
-    %if &kvar_type = char %then %do;
+    %if "&kvar_type" = "char" %then %do;
       proc sql noprint;
         select count(distinct strip(f.&kvar)) into :_nmatch trimmed
         from &filedsn f
@@ -1376,9 +1391,9 @@ run;
     %_get_col_type(ds=&_ov_ds, col=&_ov_kv, outmv=_ov_kvt);
 
     /* Select spine table based on key_column_type */
-    %if &_ov_kt = PRECEDE_STUDY_ID %then %let _spine_ds = work.spine_psid;
-    %else %if &_ov_kt = ENCRYPTED_MRN %then %let _spine_ds = work.spine_mrn;
-    %else %if &_ov_kt = ENCRYPTED_ENCOUNTER %then %let _spine_ds = work.spine_enc;
+    %if "&_ov_kt" = "PRECEDE_STUDY_ID" %then %let _spine_ds = work.spine_psid;
+    %else %if "&_ov_kt" = "ENCRYPTED_MRN" %then %let _spine_ds = work.spine_mrn;
+    %else %if "&_ov_kt" = "ENCRYPTED_ENCOUNTER" %then %let _spine_ds = work.spine_enc;
     %else %do;
       %put NOTE: [02_source_guard] no same-type spine for &_ov_kt in &_ov_sc -- using PSID spine (overlap expected low);
       %let _spine_ds = work.spine_psid;
@@ -1390,7 +1405,7 @@ run;
                       spine_src=s09);
 
     /* s04/s05: additional spine comparisons */
-    %if &_ov_sc = s04 or &_ov_sc = s05 %then %do;
+    %if "&_ov_sc" = "s04" or "&_ov_sc" = "s05" %then %do;
       %_compute_overlap(scode=&_ov_sc, sheet=&_ov_sh, ktype=&_ov_kt,
                         kvar=&_ov_kv, kvar_type=&_ov_kvt,
                         filedsn=&_ov_ds, spinedsn=work.spine_s16_mrn,
