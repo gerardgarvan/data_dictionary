@@ -185,6 +185,34 @@ libname _doc clear;
 %check_dir(path=&qc_path,     label=qc);
 %check_dir(path=&logs_path,   label=logs);
 
+/* Delete stale outputs so assert_outputs cannot pass on prior-run files */
+%macro _delete_stale_outputs;
+  %local _rc _fref _p;
+  %let _fref = _dso;
+
+  %let _p = &qc_path.\source_inventory.xlsx;
+  %if %sysfunc(fileexist(&_p)) %then %do;
+    %let _rc = %sysfunc(filename(_fref, &_p));
+    %let _rc = %sysfunc(fdelete(_fref));
+    %let _rc = %sysfunc(filename(_fref));
+    %put NOTE: [02_source_guard] deleted stale qc\source_inventory.xlsx (rc=&_rc);
+  %end;
+
+  %let _p = &qc_path.\header_matrix.xlsx;
+  %if %sysfunc(fileexist(&_p)) %then %do;
+    %let _rc = %sysfunc(filename(_fref, &_p));
+    %let _rc = %sysfunc(fdelete(_fref));
+    %let _rc = %sysfunc(filename(_fref));
+    %put NOTE: [02_source_guard] deleted stale qc\header_matrix.xlsx (rc=&_rc);
+  %end;
+
+  proc datasets lib=pdd nolist nowarn;
+    delete source_inventory header_inventory key_analysis id_overlap;
+  quit;
+  %put NOTE: [02_source_guard] deleted stale pdd outputs (source_inventory header_inventory key_analysis id_overlap);
+%mend _delete_stale_outputs;
+%_delete_stale_outputs;
+
 %put NOTE: [02_source_guard] Preconditions passed;
 
 
@@ -398,23 +426,62 @@ run;
       input s_code $ filename $ sha256_base $;
     run;
 
+    %local _n_base _n_curr _n_dup_base _n_dup_curr
+           _n_only_base _n_only_curr _n_fname _n_sha;
+    %let _n_base      = -1; %let _n_curr      = -1;
+    %let _n_dup_base  = -1; %let _n_dup_curr  = -1;
+    %let _n_only_base = -1; %let _n_only_curr = -1;
+    %let _n_fname     = -1; %let _n_sha       = -1;
+
     proc sql noprint;
-      select count(*) into :n_drift trimmed
-      from work._baseline_read b
-      inner join work.sha_results r
-        on upcase(strip(b.s_code)) = upcase(strip(r.s_code))
-      where lowcase(strip(b.sha256_base)) ne lowcase(strip(r.sha256));
+      select count(*) into :_n_base     trimmed from work._baseline_read;
+      select count(*) into :_n_curr     trimmed from work.sha_results;
+      select count(*) into :_n_dup_base trimmed
+        from (select s_code from work._baseline_read
+              group by s_code having count(*) > 1);
+      select count(*) into :_n_dup_curr trimmed
+        from (select s_code from work.sha_results
+              group by s_code having count(*) > 1);
+      select count(*) into :_n_only_base trimmed
+        from work._baseline_read b
+        where not exists (select 1 from work.sha_results r
+                          where upcase(strip(r.s_code)) = upcase(strip(b.s_code)));
+      select count(*) into :_n_only_curr trimmed
+        from work.sha_results r
+        where not exists (select 1 from work._baseline_read b
+                          where upcase(strip(b.s_code)) = upcase(strip(r.s_code)));
+      select count(*) into :_n_fname trimmed
+        from work._baseline_read b
+        inner join work.sha_results r
+          on upcase(strip(b.s_code)) = upcase(strip(r.s_code))
+        where lowcase(strip(b.filename)) ne lowcase(strip(r.filename));
+      select count(*) into :_n_sha trimmed
+        from work._baseline_read b
+        inner join work.sha_results r
+          on upcase(strip(b.s_code)) = upcase(strip(r.s_code))
+        where lowcase(strip(b.sha256_base)) ne lowcase(strip(r.sha256));
     quit;
 
-    %if &n_drift = -1 or &sqlrc > 0 %then %do;
-      %fail_out(msg=%str(run_hash_guard: drift SELECT INTO failed -- sqlrc=&sqlrc syserr=&syserr));
-    %end;
-    %if &n_drift > 0 %then %do;
-      %fail_out(msg=%str(SOURCE GUARD FAILED -- &n_drift files changed since baseline. Delete docs/source_guard_baseline.csv to reseed.));
-    %end;
-    %put NOTE: [02_source_guard] PASS -- all 20 SHA-256 values match baseline;
+    %put NOTE: [02_source_guard] run_hash_guard: n_baseline=&_n_base n_current=&_n_curr n_dup_base=&_n_dup_base n_dup_curr=&_n_dup_curr n_only_base=&_n_only_base n_only_curr=&_n_only_curr n_fname_mismatch=&_n_fname n_sha_mismatch=&_n_sha;
 
-    /* Clean up temporary baseline read dataset */
+    %if &_n_base ne 20 %then
+      %fail_out(msg=%str(run_hash_guard: baseline has &_n_base rows -- expected 20));
+    %if &_n_curr ne 20 %then
+      %fail_out(msg=%str(run_hash_guard: current scan has &_n_curr rows -- expected 20));
+    %if &_n_dup_base > 0 %then
+      %fail_out(msg=%str(run_hash_guard: &_n_dup_base duplicate s_code(s) in baseline));
+    %if &_n_dup_curr > 0 %then
+      %fail_out(msg=%str(run_hash_guard: &_n_dup_curr duplicate s_code(s) in current scan));
+    %if &_n_only_base > 0 %then
+      %fail_out(msg=%str(run_hash_guard: &_n_only_base s_code(s) in baseline not found in current scan));
+    %if &_n_only_curr > 0 %then
+      %fail_out(msg=%str(run_hash_guard: &_n_only_curr s_code(s) in current scan not found in baseline));
+    %if &_n_fname > 0 %then
+      %fail_out(msg=%str(run_hash_guard: &_n_fname filename(s) changed since baseline));
+    %if &_n_sha > 0 %then
+      %fail_out(msg=%str(SOURCE GUARD FAILED -- &_n_sha file(s) changed since baseline. Delete docs/source_guard_baseline.csv to reseed.));
+    %put NOTE: [02_source_guard] PASS -- all 20 SHA-256 values and filenames match baseline;
+
     proc datasets lib=work nolist nowarn;
       delete _baseline_read;
     quit;
@@ -1515,7 +1582,9 @@ run;
           call symputx('_ov_ds_tmp', strip(sheet_ds), 'L');
       run;
       %if %length(&_ov_ds_tmp) > 0 %then %let _ov_ds = &_ov_ds_tmp;
-      %else %let _ov_ds = work.src_&_ov_sc._s1;  /* fallback */
+      %else %do;
+        %fail_out(msg=%str(overlap_loop: sheet_map lookup returned nothing for s_code=&_ov_sc sheet=&_ov_sh -- cannot determine work dataset));
+      %end;
     %end;
 
     /* Get col type for normalisation */
@@ -1537,9 +1606,9 @@ run;
 
     /* s04/s05: additional spine comparisons */
     %if "&_ov_sc" = "s04" or "&_ov_sc" = "s05" %then %do;
-      /* s16 crosswalk */
-      %if "&_spine_s16_mrn_status" = "absent" %then %do;
-        %put NOTE: [02_source_guard] s16 lacks key column -- &_ov_sc s16 crosswalk recording key_absent_in_target;
+      /* s16 crosswalk: spine is ENCRYPTED_MRN; skip if spine absent or key type mismatch */
+      %if "&_spine_s16_mrn_status" ne "ok" or "&_ov_kt" ne "ENCRYPTED_MRN" %then %do;
+        %put NOTE: [02_source_guard] s16 crosswalk key_absent_in_target for &_ov_sc: spine_status=&_spine_s16_mrn_status source_key=&_ov_kt;
         proc sql noprint;
           insert into work.overlap_all
             (s_code, sheet_name, key_column_type, key_var_name, spine_source, status)
@@ -1553,9 +1622,9 @@ run;
                           spine_src=s16, status=ok);
       %end;
 
-      /* s17 crosswalk */
-      %if "&_spine_s17_psid_status" = "absent" %then %do;
-        %put NOTE: [02_source_guard] s17 lacks key column -- &_ov_sc s17 crosswalk recording key_absent_in_target;
+      /* s17 crosswalk: spine is PRECEDE_STUDY_ID; skip if spine absent or key type mismatch */
+      %if "&_spine_s17_psid_status" ne "ok" or "&_ov_kt" ne "PRECEDE_STUDY_ID" %then %do;
+        %put NOTE: [02_source_guard] s17 crosswalk key_absent_in_target for &_ov_sc: spine_status=&_spine_s17_psid_status source_key=&_ov_kt;
         proc sql noprint;
           insert into work.overlap_all
             (s_code, sheet_name, key_column_type, key_var_name, spine_source, status)
@@ -1569,9 +1638,9 @@ run;
                           spine_src=s17, status=ok);
       %end;
 
-      /* s18 crosswalk */
-      %if "&_spine_s18_psid_status" = "absent" %then %do;
-        %put NOTE: [02_source_guard] s18 lacks key column -- &_ov_sc s18 crosswalk recording key_absent_in_target;
+      /* s18 crosswalk: spine is PRECEDE_STUDY_ID; skip if spine absent or key type mismatch */
+      %if "&_spine_s18_psid_status" ne "ok" or "&_ov_kt" ne "PRECEDE_STUDY_ID" %then %do;
+        %put NOTE: [02_source_guard] s18 crosswalk key_absent_in_target for &_ov_sc: spine_status=&_spine_s18_psid_status source_key=&_ov_kt;
         proc sql noprint;
           insert into work.overlap_all
             (s_code, sheet_name, key_column_type, key_var_name, spine_source, status)
@@ -2368,6 +2437,31 @@ ods listing;
   %put NOTE: [02_source_guard] PASS -- all Phase 2 outputs present;
 %mend assert_outputs;
 %assert_outputs;
+
+/* Assert every s_code in pdd.source_inventory has import_status='profiled' */
+%macro assert_all_profiled;
+  %local _n_failed _failed_list;
+  %let _n_failed  = -1;
+  %let _failed_list = ;
+  proc sql noprint;
+    select count(*) into :_n_failed trimmed
+    from pdd.source_inventory
+    where import_status ne 'profiled';
+  quit;
+  %if &_n_failed = -1 or &sqlrc > 0 %then %do;
+    %fail_out(msg=%str(assert_all_profiled: SELECT INTO failed -- sqlrc=&sqlrc syserr=&syserr));
+  %end;
+  %if &_n_failed > 0 %then %do;
+    proc sql noprint;
+      select s_code into :_failed_list separated by ', '
+      from pdd.source_inventory
+      where import_status ne 'profiled';
+    quit;
+    %fail_out(msg=%str(assert_all_profiled: &_n_failed s_code(s) not profiled: &_failed_list));
+  %end;
+  %put NOTE: [02_source_guard] assert_all_profiled passed -- all 20 s_codes have import_status=profiled;
+%mend assert_all_profiled;
+%assert_all_profiled;
 
 
 /* ============================================================

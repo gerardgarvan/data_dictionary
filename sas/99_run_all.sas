@@ -104,7 +104,7 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
    PIPELINE COMPLETE
    ========================================================================= */
 %put NOTE: ============================================================;
-%put NOTE: 99_run_all.sas -- PIPELINE COMPLETE;
+%put NOTE: 99_run_all.sas -- PIPELINE COMPLETE (phases enabled: 2);
 %put NOTE: Logs are in: &logs_path;
 %put NOTE: Output is in: &out_root;
 %put NOTE: ============================================================;
