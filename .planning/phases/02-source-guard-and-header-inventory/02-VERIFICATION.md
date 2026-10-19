@@ -1,16 +1,17 @@
 ---
 phase: 02-source-guard-and-header-inventory
 verified: 2026-10-19T00:00:00Z
-status: passed
-score: 11/11 must-haves verified
-gaps: []
+status: in-progress
+score: 11/12 must-haves verified (live run not yet passed)
+gaps:
+  - Must-have 12: live run of run_pipeline.cmd not yet passed
 ---
 
 # Phase 2: Source Guard and Header Inventory — Verification Report
 
 **Phase Goal:** Source guard and header inventory — 02_source_guard.sas with SHA-256 baseline guard, per-file metadata, candidate key analysis, ID overlap against s09 spine, and QC Excel workbooks. Hash comparison against older copies. Done when all 4 pdd datasets exist, source_inventory.xlsx and header_matrix.xlsx written, and program wired into 99_run_all.sas.
 **Verified:** 2026-10-19
-**Status:** passed — 11/11 verified (PCM gap resolved: open-code %if wrapped in %macro _build_primary_spines)
+**Status:** in-progress — 11/12 verified; must-have 12 (live run) not yet passed
 **Re-verification:** No — initial verification
 
 ---
@@ -32,8 +33,9 @@ gaps: []
 | 9 | qc\source_inventory.xlsx and qc\header_matrix.xlsx written via ODS Excel with KEY sheet first and UF header colors | VERIFIED | Section 14 (lines 1507-1548); cx0021A5 in styles.uf_inventory; `ods excel options(sheet_name='KEY')` first in both workbooks before any data sheet |
 | 10 | 99_run_all.sas Phase 2 block uncommented; in_pipeline=1 preserved | VERIFIED | Lines 47-49: %include is active (not inside /* */); line 33: `%let in_pipeline = 1;` unchanged; Phases 3-7 remain commented |
 | 11 | No open-code %if outside a %macro...%mend block (PCM compliance) | VERIFIED | Wrapped in `%macro _build_primary_spines; ... %mend;` (formerly lines 1131-1141); called immediately after |
+| 12 | Live run of run_pipeline.cmd completes with exit=0; `qc\source_inventory.xlsx` and `qc\header_matrix.xlsx` exist on disk | NOT YET PASSED | Blocking — Phase 2 is not complete until this passes |
 
-**Score:** 11/11 truths verified
+**Score:** 11/12 truths verified
 
 ---
 
@@ -138,7 +140,11 @@ No anti-patterns found:
 
 ### Gaps Summary
 
-No gaps. All 11 must-haves verified. PCM compliance gap resolved: the open-code `%if`/`%else` block at former lines 1131-1141 is now wrapped in `%macro _build_primary_spines; ... %mend _build_primary_spines;` and called immediately after.
+One gap open: must-have 12 (live run).
+
+- Code verification complete: 11/11 static checks passed. PCM compliance gap resolved: the open-code `%if`/`%else` block at former lines 1131-1141 is now wrapped in `%macro _build_primary_spines; ... %mend _build_primary_spines;` and called immediately after.
+- Live run has not passed exit=0. Last attempted run (2026-10-19 ~12:26) used an older cached version of the macro; current code on disk has all fixes applied (quote sweep, ADLM suppression, per-file error recovery).
+- Phase 2 is **not complete** until must-have 12 passes.
 
 ---
 

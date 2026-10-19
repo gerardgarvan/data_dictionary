@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: PCNR_ raw layer and dictionary framework
-status: Phase complete — ready for verification
-last_updated: "2026-10-19T14:43:15.150Z"
+status: Phase 2 in progress — live run pending
+last_updated: "2026-10-19T00:00:00Z"
 progress:
   total_phases: 7
-  completed_phases: 2
+  completed_phases: 1
   total_plans: 5
   completed_plans: 5
 ---
@@ -15,22 +15,22 @@ progress:
 
 ## Current position
 
-Phase: 02 (source-guard-and-header-inventory) — COMPLETE
-Plan: 3 of 3 (all complete)
+Phase: 02 (source-guard-and-header-inventory) — IN PROGRESS
+Plan: 3 of 3 (code complete; live run blocking)
 | Field | Value |
 |-------|-------|
 | Milestone | v1.0 — PCNR_ raw layer and dictionary framework |
 | Phase | 02 — Source guard and header inventory |
-| Status | Phase complete — ready for verification |
+| Status | Phase 2 in progress — live run of run_pipeline.cmd not yet passed |
 | Last updated | 2026-10-19 |
-| Stopped at | Completed 02-03-PLAN.md |
+| Stopped at | Awaiting successful live run (exit=0, qc xlsx files present) |
 
 ## Milestone v1.0 phase checklist
 
 | Phase | Title | Status |
 |-------|-------|--------|
 | 1 | Repo and config scaffold | ✅ Complete |
-| 2 | Source guard and header inventory | ✅ Complete |
+| 2 | Source guard and header inventory | 🔄 In progress — live run pending |
 | 3 | Direct import of the 20 sources | ⬜ Not started |
 | 4 | Name map | ⬜ Not started |
 | 5 | Build PCNR_ on the spine | ⬜ Blocked (PDD-D-15, PDD-D-16, PDD-D-17, PDD-D-18) |
