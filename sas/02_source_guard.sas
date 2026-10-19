@@ -1698,6 +1698,7 @@ quit;
   %do _ibr = 1 %to 5;
     %let _br_sc  = %scan(&_br_files, &_ibr, %str( ));
     %let _br_ds  = work.src_&_br_sc;
+    %if "&_br_sc" = "s08" %then %let _br_ds = work.src_s08_s1;
     %let _br_type = ;
     %if %sysfunc(exist(&_br_ds)) %then %do;
       %_get_col_type(ds=&_br_ds, col=PRECEDE_STUDY_ID, outmv=_br_type, nofail=1);
@@ -1836,6 +1837,162 @@ quit;
   %end;
 %mend _log_id_patterns;
 %_log_id_patterns;
+
+
+/* ============================================================
+   SECTION 10c -- PDD-D-19 QC: 2022 ID normalisation overlap
+   For every file with PRECEDE_STUDY_ID, apply the normalisation rule:
+     all-digit IDs -> cats('PRECEDE', put(input(id, ?? 8.), z5.))
+     AAAAAAA99999 IDs -> unchanged
+   Log per file: n_in_file, n_matching_before, n_matching_after.
+   For s17: log n_disagreements among encounter-linked rows after
+   excluding the 6 ambiguous ENCRYPTED_ENCOUNTER values (PDD-D-20).
+   ============================================================ */
+%macro _qc_normalisation_2022;
+  %local _iqn n_psid_files _qnsc _qnsh _qnds _qnkvt
+         _nin _nmatch_bef _nmatch_aft _s17enc_type _ndis;
+
+  %if not %sysfunc(exist(work.spine_psid)) %then %do;
+    %put NOTE: [02_source_guard] _qc_normalisation_2022: work.spine_psid not found -- skipping;
+  %end;
+  %else %do;
+
+    %let n_psid_files = 0;
+    proc sql noprint;
+      select count(*) into :n_psid_files trimmed
+      from pdd.key_analysis
+      where key_column_type = 'PRECEDE_STUDY_ID';
+    quit;
+
+    data _null_;
+      set pdd.key_analysis(where=(key_column_type = 'PRECEDE_STUDY_ID'));
+      call symputx(cats('_qnsc', _n_), strip(s_code),    'G');
+      call symputx(cats('_qnsh', _n_), strip(sheet_name),'G');
+    run;
+
+    %do _iqn = 1 %to &n_psid_files;
+      %let _qnsc = &&_qnsc&_iqn;
+      %let _qnsh = &&_qnsh&_iqn;
+
+      /* Resolve dataset name: blank sheet_name = CSV; otherwise look up sheet_map */
+      %if %length(&_qnsh) = 0 %then %let _qnds = work.src_&_qnsc;
+      %else %do;
+        %let _qnds = work.src_&_qnsc._s1;
+        data _null_;
+          set work.sheet_map;
+          if s_code = "&_qnsc" and sheet_name = "&_qnsh" then
+            call symputx('_qnds', strip(sheet_ds), 'L');
+        run;
+      %end;
+
+      %if not %sysfunc(exist(&_qnds)) %then %do;
+        %put NOTE: [02_source_guard] _qc_normalisation_2022: &_qnds not found -- skipping &_qnsc &_qnsh;
+      %end;
+      %else %do;
+        %let _qnkvt = ;
+        %_get_col_type(ds=&_qnds, col=PRECEDE_STUDY_ID, outmv=_qnkvt, nofail=1);
+        %if %length(&_qnkvt) = 0 %then %do;
+          %put NOTE: [02_source_guard] _qc_normalisation_2022: &_qnsc &_qnsh has no PRECEDE_STUDY_ID -- skipping;
+        %end;
+        %else %do;
+          %let _nin        = 0;
+          %let _nmatch_bef = 0;
+          %let _nmatch_aft = 0;
+
+          %if "&_qnkvt" = "char" %then %do;
+            proc sql noprint;
+              select count(distinct strip(PRECEDE_STUDY_ID)) into :_nin trimmed
+              from &_qnds
+              where PRECEDE_STUDY_ID is not missing and strip(PRECEDE_STUDY_ID) ne '';
+
+              select count(distinct strip(f.PRECEDE_STUDY_ID)) into :_nmatch_bef trimmed
+              from &_qnds f
+              inner join work.spine_psid s
+                on strip(f.PRECEDE_STUDY_ID) = s.spine_key
+              where f.PRECEDE_STUDY_ID is not missing and strip(f.PRECEDE_STUDY_ID) ne '';
+
+              select count(distinct
+                case when prxmatch('/^\d+$/', strip(f.PRECEDE_STUDY_ID)) then
+                  cats('PRECEDE', put(input(strip(f.PRECEDE_STUDY_ID), ?? 8.), z5.))
+                else strip(f.PRECEDE_STUDY_ID) end
+              ) into :_nmatch_aft trimmed
+              from &_qnds f
+              inner join work.spine_psid s
+                on (case when prxmatch('/^\d+$/', strip(f.PRECEDE_STUDY_ID)) then
+                      cats('PRECEDE', put(input(strip(f.PRECEDE_STUDY_ID), ?? 8.), z5.))
+                    else strip(f.PRECEDE_STUDY_ID) end) = s.spine_key
+              where f.PRECEDE_STUDY_ID is not missing and strip(f.PRECEDE_STUDY_ID) ne '';
+            quit;
+          %end;
+          %else %do;
+            /* Numeric PRECEDE_STUDY_ID: printed form is all-digit; apply normalisation */
+            proc sql noprint;
+              select count(distinct cats(strip(put(PRECEDE_STUDY_ID, 20.)))) into :_nin trimmed
+              from &_qnds
+              where PRECEDE_STUDY_ID is not missing;
+
+              select count(distinct cats(strip(put(f.PRECEDE_STUDY_ID, 20.)))) into :_nmatch_bef trimmed
+              from &_qnds f
+              inner join work.spine_psid s
+                on cats(strip(put(f.PRECEDE_STUDY_ID, 20.))) = s.spine_key
+              where f.PRECEDE_STUDY_ID is not missing;
+
+              select count(distinct
+                cats('PRECEDE', put(input(cats(strip(put(f.PRECEDE_STUDY_ID, 20.))), ?? 8.), z5.))
+              ) into :_nmatch_aft trimmed
+              from &_qnds f
+              inner join work.spine_psid s
+                on cats('PRECEDE', put(input(cats(strip(put(f.PRECEDE_STUDY_ID, 20.))), ?? 8.), z5.))
+                   = s.spine_key
+              where f.PRECEDE_STUDY_ID is not missing;
+            quit;
+          %end;
+
+          %put NOTE: [02_source_guard] _qc_normalisation_2022: &_qnsc &_qnsh n_in_file=&_nin n_matching_before=&_nmatch_bef n_matching_after=&_nmatch_aft;
+        %end;
+      %end;
+    %end;
+
+    /* s17 supplemental: normalised PSID vs spine for encounter-linked rows,
+       excluding the 6 ambiguous ENCRYPTED_ENCOUNTER values (PDD-D-20) */
+    %if %sysfunc(exist(work.src_s17)) %then %do;
+      %let _s17enc_type = ;
+      %let _qnkvt       = ;
+      %let _ndis        = 0;
+      %_get_col_type(ds=work.src_s17, col=ENCRYPTED_ENCOUNTER, outmv=_s17enc_type, nofail=1);
+      %_get_col_type(ds=work.src_s17, col=PRECEDE_STUDY_ID,    outmv=_qnkvt,       nofail=1);
+
+      %if %length(&_s17enc_type) > 0 and %length(&_qnkvt) > 0 %then %do;
+        proc sql noprint;
+          create table work._s17_ambig_enc as
+          select ENCRYPTED_ENCOUNTER
+          from work.src_s17
+          where ENCRYPTED_ENCOUNTER is not missing
+          group by ENCRYPTED_ENCOUNTER
+          having count(distinct PRECEDE_STUDY_ID) > 1;
+
+          select count(*) into :_ndis trimmed
+          from work.src_s17 f
+          where f.ENCRYPTED_ENCOUNTER is not missing
+            and f.PRECEDE_STUDY_ID    is not missing
+            and strip(f.PRECEDE_STUDY_ID) ne ''
+            and f.ENCRYPTED_ENCOUNTER not in
+                  (select ENCRYPTED_ENCOUNTER from work._s17_ambig_enc)
+            and (case when prxmatch('/^\d+$/', strip(f.PRECEDE_STUDY_ID)) then
+                   cats('PRECEDE', put(input(strip(f.PRECEDE_STUDY_ID), ?? 8.), z5.))
+                 else strip(f.PRECEDE_STUDY_ID) end)
+                not in (select spine_key from work.spine_psid);
+        quit;
+        %put NOTE: [02_source_guard] _qc_normalisation_2022: s17 encounter-linked normalised PSID not in s09 spine: n_disagreements=&_ndis;
+        proc datasets lib=work nolist nowarn; delete _s17_ambig_enc; quit;
+      %end;
+      %else
+        %put NOTE: [02_source_guard] _qc_normalisation_2022: s17 lacks ENCRYPTED_ENCOUNTER or PRECEDE_STUDY_ID -- s17 supplemental check skipped;
+    %end;
+
+  %end;
+%mend _qc_normalisation_2022;
+%_qc_normalisation_2022;
 
 
 /* ============================================================
