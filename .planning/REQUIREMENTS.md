@@ -38,9 +38,10 @@ Protects the read-only source layer and documents the raw variable universe acro
 | Hash comparison against older copies in `P:\PeCAN Master Data\Gerard\raw\master` where the same filename exists | Report as: identical / different / no older copy |
 | Header inventory reads directly from the 20 source files (not renamed copies, not the `g` library) | PDD-D-03: removes the xlsx conversion layer |
 | Header × file matrix across all 20 files | Stored in `pdd.header_inventory` and `qc\header_matrix.xlsx` |
-| Re-check prior expectations: ~701 CSV header instances, ~168 unique variables, ~41,150-row spine (s09) | These are expectations from the prior pipeline; Phase 2 establishes the authoritative counts |
+| Re-check prior expectations: ~701 CSV header instances, ~168 unique variables, ~41,150-row spine (s09) | Phase 2 authoritative: 148 distinct CSV headers (168 included VARnn names from xlsx copies); 41,150-row spine confirmed |
+| 2022 ID normalisation QC step (PDD-D-19) | Apply `cats('PRECEDE', put(input(id, ?? 8.), z5.))` normalisation to all-digit IDs; recompute overlap vs s09 per file; log n_in_file, n_matching_before, n_matching_after; for s17 log normalised-vs-spine disagreements (excluding 6 blank-encounter rows). Add to 02_source_guard.sas and re-run once to lock PDD-D-19 |
 
-**Blocks on:** PDD-D-17 (multi-row files) and PDD-D-18 (crosswalk-keyed files) are both **decided after** this phase based on its output.
+**Blocks on:** PDD-D-17 (grain confirmed by Phase 2; s01/s08 integration method pending Gerard in Phase 3). PDD-D-18 (s04/s05 pending Gerard confirmation). PDD-D-19 pending one verification run.
 
 ---
 
@@ -56,8 +57,10 @@ Imports raw data with full fidelity, no PROC IMPORT guessing.
 | Every INFILE uses `ENCODING='UTF-8'` | Required for esophagectomy descriptions in Base_Procedure_1 |
 | s19 (ALL_AIM2.xlsx Sheet1): drop rows where PRECEDE_STUDY_ID is missing or all data columns are blank/`NULL`; log kept/dropped counts | PDD-D-08 |
 | Output: `pdd.src_s01` … `pdd.src_s20` | Row counts reconciled in QC |
-| Multi-row files (s01 PACU_STAY, s08 COLONOSCOPY): import as-is; how they enter PCNR_ follows PDD-D-17 | **Blocks on PDD-D-17** for s01, s08 |
-| Crosswalk-keyed files (s04 ENCOUNTER Crypto, s05 MRN Crypto) and others not keyed on PRECEDE_STUDY_ID: import and assess; linkage method follows PDD-D-18 | **Blocks on PDD-D-18** for affected files |
+| Multi-row files (s01 PACU_STAY, s08 COLONOSCOPY): import as-is; how they enter PCNR_ follows PDD-D-17 integration-method decision (Gerard, Phase 3) | **Blocks on** s01/s08 integration-method decision |
+| Crosswalk-keyed files (s04 ENCOUNTER Crypto, s05 MRN Crypto): import and assess; linkage method follows PDD-D-18 (pending Gerard confirmation that s04/s05 are not dictionary variables) | **Blocks on PDD-D-18** for s04, s05 |
+| s06 (2018_2019_Precede_Database.xlsx, 3,987 columns): profile column groups by name prefix/suffix first; import scope follows PDD-D-21 (Gerard decides in Phase 3) | **Blocks on PDD-D-21** for s06 |
+| s17 2022 ID normalisation and blank-encounter handling: apply PDD-D-19 normalisation; set the 6 blank ENCRYPTED_ENCOUNTER values to missing for linkage per PDD-D-20; values stay unchanged in PCNR_ | PDD-D-19 (pending lock), PDD-D-20 |
 
 ---
 

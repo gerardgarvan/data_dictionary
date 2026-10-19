@@ -23,8 +23,8 @@ This project replaces the Master_Renamed_same_format_accross pipeline (`C:\Maste
 - **Reads the original shared sources directly.** It does not read the renamed `master_data_1..8.xlsx` copies or the `g` library. This removes the xlsx conversion layer, the SAS positional VAR## names, and the encoding loss introduced by the conversion.
 - The source folder is the shared, **strictly read-only** original: no program may write, rename, or create anything in it. Output stays under `P:\PeCAN Master Data\Gerard\data_dictionary`.
 - An older copy of some files exists at `P:\PeCAN Master Data\Gerard\raw\master` (the prior pipeline's staging area). Phase 2 hash-compares the shared originals against those copies where the same filename exists, to detect any silent modification.
-- The source files are overlapping variable sets over one population. PRECEDE_STUDY_ID is unique per row in the master datasets; some files (PACU_STAY, COLONOSCOPY) have multiple rows per patient. `2018_2022_X_MASTER_DATASET_20240402` (41,150 rows, s09) is the candidate spine — confirmed by Phase 2.
-- Prior findings (701 header instances across the original 8 files, ~168 unique variables, 41,150-row spine) are expectations to re-check in Phase 2, not established facts.
+- The source files are overlapping variable sets over one population. PRECEDE_STUDY_ID is unique per row in the master datasets; some files (PACU_STAY, COLONOSCOPY) have multiple rows per patient. `2018_2022_X_MASTER_DATASET_20240402` (41,150 rows, s09) is the **confirmed spine** (Phase 2).
+- Phase 2 authoritative counts: **148 distinct original headers** across the 7-CSV files (the earlier 168 counted SAS positional VARnn names from old xlsx copies — accepted unless header_matrix shows otherwise); 41,150-row spine confirmed.
 - Known hazards (found in original source files — verify in Phase 2):
   - PRECEDE_STUDY_ID and Base Procedure Code 1 were typed character in some files, numeric in others — re-confirm in Phase 2 on the shared-folder originals.
   - ALL_AIM2 uses `NULL` as a sentinel value; ~1,048,575 rows, mostly blank — re-confirm counts.
@@ -63,7 +63,7 @@ This project replaces the Master_Renamed_same_format_accross pipeline (`C:\Maste
 
 Older copies of some files exist at `P:\PeCAN Master Data\Gerard\raw\master` — Phase 2 compares hashes.
 
-## Locked decisions (2026-10-15)
+## Locked decisions (2026-10-15 / 2026-10-19)
 | ID | Decision |
 |----|----------|
 | PDD-D-01 | PCNR_ draws on **all 20** shared-folder files; files with a 1:1 PRECEDE_STUDY_ID grain are merged onto the s09 spine; multi-row files (s01, s08) and crosswalk-keyed files (s04, s05) follow PDD-D-17 / PDD-D-18 |
@@ -76,6 +76,9 @@ Older copies of some files exist at `P:\PeCAN Master Data\Gerard\raw\master` —
 | PDD-D-08 | ALL_AIM2 (s8): drop rows with missing PRECEDE_STUDY_ID or all columns blank/`NULL`; log the counts. Remaining rows gap-fill like any other source |
 | PDD-D-09 | Deliverable: **one workbook**. KEY sheet leftmost, then one sheet per family, plus NAME_MAP, SOURCES and QC sheets |
 | PDD-D-10 | LAB_, MED_ and INTRA_ are **separate data**, not re-prefixed master columns |
+| PDD-D-17 | **CLOSED (2026-10-19).** Every file is one row per PRECEDE_STUDY_ID (case) — confirmed by Phase 2. s01 (PACU_STAY) and s08 (COLONOSCOPY) are the only multi-row files. How they enter PCNR_ remains to be decided (aggregate, first/last, wide, or separate long table) — Gerard to decide in Phase 3. s18 has 2 duplicate/blank key rows (qc_s18_dup) to be reviewed in Phase 3 |
+| PDD-D-19 | **PENDING VERIFICATION.** 2022 ID normalisation: IDs that are all digits get the prefix `PRECEDE` via `cats('PRECEDE', put(input(id, ?? 8.), z5.))`. IDs already matching AAAAAAA99999 stay unchanged. A QC step must be added to 02_source_guard.sas and re-run once before this is locked (see 02-VERIFICATION.md for spec) |
+| PDD-D-20 | **LOCKED (2026-10-19).** The 6 s17 ENCRYPTED_ENCOUNTER values that map to >1 PRECEDE_STUDY_ID are treated as an encrypted blank: set to missing for linkage only. Values stay unchanged in PCNR_ |
 
 ## Open decisions
 | ID | Question | Owner |
@@ -86,8 +89,8 @@ Older copies of some files exist at `P:\PeCAN Master Data\Gerard\raw\master` —
 | PDD-D-14 | Source paths for LAB_, MED_, INTRA_ extracts and their linkage key | Gerard |
 | PDD-D-15 | Gap-fill tie-break order among non-spine sources when the spine is missing and several files disagree | Gerard |
 | PDD-D-16 | Whether gap-filled values are flagged per cell (e.g. a `PCNR_<var>_SRC` column) or only summarized in QC | Gerard |
-| PDD-D-17 | How multi-row-per-patient files (s01 PACU_STAY, s08 COLONOSCOPY) enter PCNR_: aggregate, first/last, wide, or a separate long table — decided after Phase 2 | Gerard |
-| PDD-D-18 | Files keyed on MRN/encounter rather than PRECEDE_STUDY_ID (s04, s05, possibly others): linkage path, whether s04/s05 are crosswalks, and whether they resolve the old 2022 ID mismatch — decided after Phase 2 | Gerard |
+| PDD-D-18 | s04/s05 are linkage/QC files with the same encryption as the masters and 100% match — **not dictionary variables**. Pending Gerard confirmation. Linkage path and whether they resolve the old 2022 ID mismatch to be decided in Phase 3 | Gerard |
+| PDD-D-21 | s06 has 3,987 columns. Phase 3 will profile column groups (by name prefix/suffix) first; Gerard to decide the scope of which columns enter PCNR_ | Gerard |
 
 ## Constraints
 - No PHI committed to git. Code and docs live in the repo; data, QC output and logs stay on P:.
