@@ -23,6 +23,12 @@ Plans:
 - Header × file matrix across all 20 files; inferred type per column
 - Re-check prior expectations: ~701 header instances, ~168 unique variables, ~41,150-row spine
 - **Done when:** source inventory, key/grain analysis, hash comparison, and header matrix are written to `pdd` library and `qc\`; PDD-D-17 and PDD-D-18 can be decided from the output
+- **Plans:** 3 plans
+
+Plans:
+- [ ] 02-01-PLAN.md — Program scaffold, 20-file list, FINFO metadata, certutil SHA-256, two-branch hash baseline guard, pdd.source_inventory (wave 1)
+- [ ] 02-02-PLAN.md — Import loop (CSV + XLSX), header inventory, candidate key + grain analysis, ID overlap vs s09 spine (wave 2)
+- [ ] 02-03-PLAN.md — ODS Excel QC workbooks (KEY sheet, UF colors), output assertions + log restore, wire into 99_run_all.sas (wave 3)
 
 ### Phase 3: Direct import of the 20 sources
 - `03_import.sas`: one data step per file with explicit INFORMATs/LENGTHs. IDs and codes read as character; no PROC IMPORT guessing.
