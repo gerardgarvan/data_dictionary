@@ -54,7 +54,7 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
    PHASE 3 -- Direct Import of 8 Raw Sources
    ========================================================================= */
 /*
-%put NOTE: ---- Phase 3: Direct import of 8 raw sources ---------------;
+%put NOTE: ---- Phase 3: Direct import of 20 raw sources ------------;
 %include "&sas_path.\03_import.sas";
 %put NOTE: ---- Phase 3 complete --------------------------------------;
 */

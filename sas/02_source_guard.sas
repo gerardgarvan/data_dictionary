@@ -1850,8 +1850,10 @@ quit;
    ============================================================ */
 %macro _qc_normalisation_2022;
   %local _iqn n_psid_files _qnsc _qnsh _qnkv _qnds _qnkvt
-         _nin _nmatch_bef _nmatch_aft _s17enc_type _s17kv _s17kvt
-         _s09kv _s09kvt _ndis _npairs;
+         _nin _nmatch_bef _nmatch_aft _n_oflow
+         _s17enc_type _s17kv _s17kvt
+         _s09enc_type _s09kv _s09kvt
+         _n_excl_s17 _n_excl_s09 _ndis _npairs;
 
   /* spine_psid is deleted by the Section 9 cleanup; rebuild from src_s09 if needed */
   %if not %sysfunc(exist(work.spine_psid)) %then %do;
@@ -1911,6 +1913,7 @@ quit;
           %let _nin        = -1;
           %let _nmatch_bef = -1;
           %let _nmatch_aft = -1;
+          %let _n_oflow    =  0;
 
           /* Build normalised key table in a DATA step (input() with ?? valid here) */
           %if "&_qnkvt" = "char" %then %do;
@@ -1932,22 +1935,27 @@ quit;
               orig_key = strip(put(&_qnkv, 20.));
               norm_key = cats('PRECEDE', put(&_qnkv, z5.));
             run;
+            /* Warn if any ID > 99999: z5. formats only 00001-99999 correctly */
+            proc sql noprint;
+              select count(*) into :_n_oflow trimmed
+              from work._qn_norm
+              where input(orig_key, 8.) > 99999;
+            quit;
+            %if &_n_oflow > 0 %then
+              %put WARNING: [02_source_guard] _qc_normalisation_2022: &_qnsc &_qnsh &_n_oflow numeric IDs > 99999 -- z5. normalisation truncated;
           %end;
 
           proc sql noprint;
             select count(distinct orig_key) into :_nin trimmed
             from work._qn_norm;
-            %if &sqlrc ne 0 or &syserr ge 4 %then %let _nin = -1;
 
             select count(distinct f.orig_key) into :_nmatch_bef trimmed
             from work._qn_norm f
             inner join work.spine_psid s on f.orig_key = s.spine_key;
-            %if &sqlrc ne 0 or &syserr ge 4 %then %let _nmatch_bef = -1;
 
             select count(distinct f.norm_key) into :_nmatch_aft trimmed
             from work._qn_norm f
             inner join work.spine_psid s on f.norm_key = s.spine_key;
-            %if &sqlrc ne 0 or &syserr ge 4 %then %let _nmatch_aft = -1;
           quit;
 
           proc datasets lib=work nolist nowarn; delete _qn_norm; quit;
@@ -1961,17 +1969,22 @@ quit;
     %end;
 
     /* s17 supplemental: per-pair comparison of normalised s17 PSID vs s09 PSID,
-       joined on ENCRYPTED_ENCOUNTER, excluding the 6 ambiguous values (PDD-D-20) */
+       joined on ENCRYPTED_ENCOUNTER, excluding encounters ambiguous in s17 (PDD-D-20)
+       OR in s09 (>1 PSID per encounter would create false many-to-many disagreements) */
     %if %sysfunc(exist(work.src_s17)) and %sysfunc(exist(work.src_s09)) %then %do;
       %let _s17enc_type = ;
+      %let _s09enc_type = ;
       %let _s17kv       = ;
       %let _s17kvt      = ;
       %let _s09kv       = ;
       %let _s09kvt      = ;
+      %let _n_excl_s17  = -1;
+      %let _n_excl_s09  = -1;
       %let _ndis        = -1;
       %let _npairs      = -1;
 
       %_get_col_type(ds=work.src_s17, col=ENCRYPTED_ENCOUNTER, outmv=_s17enc_type, nofail=1);
+      %_get_col_type(ds=work.src_s09, col=ENCRYPTED_ENCOUNTER, outmv=_s09enc_type, nofail=1);
 
       proc sql noprint;
         select strip(key_var_name) into :_s17kv trimmed
@@ -1988,9 +2001,10 @@ quit;
       %_get_col_type(ds=work.src_s17, col=&_s17kv, outmv=_s17kvt, nofail=1);
       %_get_col_type(ds=work.src_s09, col=&_s09kv, outmv=_s09kvt, nofail=1);
 
-      %if %length(&_s17enc_type) > 0 and %length(&_s17kvt) > 0 and %length(&_s09kvt) > 0 %then %do;
+      %if %length(&_s17enc_type) > 0 and %length(&_s09enc_type) > 0
+          and %length(&_s17kvt) > 0 and %length(&_s09kvt) > 0 %then %do;
 
-        /* Normalise s17 PSID to char in a DATA step */
+        /* Normalise s17 PSID and ENCRYPTED_ENCOUNTER to char in a DATA step */
         %if "&_s17kvt" = "char" %then %do;
           data work._qn_s17n (keep=enc_key norm_psid);
             length enc_key $64 norm_psid $64;
@@ -1998,7 +2012,8 @@ quit;
                               where=(ENCRYPTED_ENCOUNTER is not missing
                                      and &_s17kv is not missing
                                      and strip(&_s17kv) ne ''));
-            enc_key = strip(put(ENCRYPTED_ENCOUNTER, $64.));
+            %if "&_s17enc_type" = "char" %then enc_key = strip(ENCRYPTED_ENCOUNTER);;
+            %else enc_key = strip(put(ENCRYPTED_ENCOUNTER, 20.));;
             if prxmatch('/^\d+$/', strip(&_s17kv)) then
               norm_psid = cats('PRECEDE', put(input(strip(&_s17kv), ?? 8.), z5.));
             else norm_psid = strip(&_s17kv);
@@ -2010,12 +2025,13 @@ quit;
             set work.src_s17 (keep=ENCRYPTED_ENCOUNTER &_s17kv
                               where=(ENCRYPTED_ENCOUNTER is not missing
                                      and &_s17kv is not missing));
-            enc_key   = strip(put(ENCRYPTED_ENCOUNTER, $64.));
+            %if "&_s17enc_type" = "char" %then enc_key = strip(ENCRYPTED_ENCOUNTER);;
+            %else enc_key = strip(put(ENCRYPTED_ENCOUNTER, 20.));;
             norm_psid = cats('PRECEDE', put(&_s17kv, z5.));
           run;
         %end;
 
-        /* Normalise s09 PSID to char in a DATA step */
+        /* Normalise s09 PSID and ENCRYPTED_ENCOUNTER to char in a DATA step */
         %if "&_s09kvt" = "char" %then %do;
           data work._qn_s09n (keep=enc_key ref_psid);
             length enc_key $64 ref_psid $64;
@@ -2023,7 +2039,8 @@ quit;
                               where=(ENCRYPTED_ENCOUNTER is not missing
                                      and &_s09kv is not missing
                                      and strip(&_s09kv) ne ''));
-            enc_key  = strip(put(ENCRYPTED_ENCOUNTER, $64.));
+            %if "&_s09enc_type" = "char" %then enc_key = strip(ENCRYPTED_ENCOUNTER);;
+            %else enc_key = strip(put(ENCRYPTED_ENCOUNTER, 20.));;
             ref_psid = strip(&_s09kv);
           run;
         %end;
@@ -2033,40 +2050,51 @@ quit;
             set work.src_s09 (keep=ENCRYPTED_ENCOUNTER &_s09kv
                               where=(ENCRYPTED_ENCOUNTER is not missing
                                      and &_s09kv is not missing));
-            enc_key  = strip(put(ENCRYPTED_ENCOUNTER, $64.));
-            ref_psid = strip(put(&_s09kv, $64.));
+            %if "&_s09enc_type" = "char" %then enc_key = strip(ENCRYPTED_ENCOUNTER);;
+            %else enc_key = strip(put(ENCRYPTED_ENCOUNTER, 20.));;
+            ref_psid = strip(put(&_s09kv, 20.));
           run;
         %end;
 
-        /* Ambiguous ENCRYPTED_ENCOUNTER values in s17 (PDD-D-20) */
+        /* Encounters ambiguous in s17 (PDD-D-20) or in s09 (many-to-many guard) */
         proc sql noprint;
-          create table work._qn_ambig_enc as
-          select enc_key
-          from work._qn_s17n
-          group by enc_key
-          having count(distinct norm_psid) > 1;
+          create table work._qn_ambig_s17 as
+          select enc_key from work._qn_s17n
+          group by enc_key having count(distinct norm_psid) > 1;
 
-          /* Count pairs and disagreements */
+          create table work._qn_ambig_s09 as
+          select enc_key from work._qn_s09n
+          group by enc_key having count(distinct ref_psid) > 1;
+
+          select count(*) into :_n_excl_s17 trimmed from work._qn_ambig_s17;
+          select count(*) into :_n_excl_s09 trimmed from work._qn_ambig_s09;
+        quit;
+
+        /* Count pairs and disagreements after excluding ambiguous encounters from both sides */
+        proc sql noprint;
           select count(*),
                  sum(case when f.norm_psid ne r.ref_psid then 1 else 0 end)
           into :_npairs trimmed, :_ndis trimmed
           from work._qn_s17n f
           inner join work._qn_s09n r on f.enc_key = r.enc_key
-          where f.enc_key not in (select enc_key from work._qn_ambig_enc);
-          %if &sqlrc ne 0 or &syserr ge 4 %then %do;
-            %let _npairs = -1;
-            %let _ndis   = -1;
-          %end;
+          where f.enc_key not in (select enc_key from work._qn_ambig_s17)
+            and f.enc_key not in (select enc_key from work._qn_ambig_s09);
         quit;
+        %if &sqlrc ne 0 %then %do;
+          %let _npairs = -1;
+          %let _ndis   = -1;
+        %end;
 
         proc datasets lib=work nolist nowarn;
-          delete _qn_s17n _qn_s09n _qn_ambig_enc;
+          delete _qn_s17n _qn_s09n _qn_ambig_s17 _qn_ambig_s09;
         quit;
 
         %if &_ndis = -1 %then
           %put WARNING: [02_source_guard] _qc_normalisation_2022: s17 pair disagreement query failed;
+        %else %if &_npairs = 0 or %length(&_npairs) = 0 %then
+          %put WARNING: [02_source_guard] _qc_normalisation_2022: s17 pair comparison tested 0 pairs -- n_excl_s17_ambig=&_n_excl_s17 n_excl_s09_ambig=&_n_excl_s09;
         %else
-          %put NOTE: [02_source_guard] _qc_normalisation_2022: s17 encounter-linked PSID pair comparison: n_pairs=&_npairs n_disagreements=&_ndis;
+          %put NOTE: [02_source_guard] _qc_normalisation_2022: s17 encounter-linked PSID pair comparison: n_excl_s17_ambig=&_n_excl_s17 n_excl_s09_ambig=&_n_excl_s09 n_pairs=&_npairs n_disagreements=&_ndis;
 
       %end;
       %else
