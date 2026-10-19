@@ -2012,9 +2012,9 @@ quit;
               set &_qnds (keep=&_qnkv
                           where=(&_qnkv is not missing and strip(&_qnkv) ne ''));
               orig_key = strip(&_qnkv);
-              if prxmatch('/^\d+$/', orig_key) then
-                norm_key = cats('Precede', put(input(orig_key, ?? 8.), z5.));
-              else if prxmatch('/^\d+\./', orig_key) then
+              if prxmatch('/^\d+$/', strip(orig_key)) then
+                norm_key = cats('Precede', put(input(strip(orig_key), ?? 8.), z5.));
+              else if prxmatch('/^\d+\./', strip(orig_key)) then
                 norm_key = cats('Precede', put(input(scan(orig_key, 1, '.'), ?? 8.), z5.));
               else if length(orig_key) >= 7 and
                        lowcase(substr(orig_key, 1, 7)) = 'precede' then
@@ -2243,6 +2243,12 @@ quit;
     %do _idg = 1 %to 3;
       %let _dsc  = %scan(&_diag_files, &_idg, %str( ));
       %let _dds  = work.src_&_dsc;
+      %if %sysfunc(exist(work.sheet_map)) %then %do;
+        data _null_;
+          set work.sheet_map;
+          if s_code = "&_dsc" then call symputx('_dds', strip(sheet_ds), 'L');
+        run;
+      %end;
       %let _dkvt = ;
 
       %if not %sysfunc(exist(&_dds)) %then %do;
@@ -2264,8 +2270,8 @@ quit;
                          where=(PRECEDE_STUDY_ID is not missing
                                 and strip(PRECEDE_STUDY_ID) ne ''));
               orig_key    = strip(PRECEDE_STUDY_ID);
-              if prxmatch('/^\d+$/', orig_key) then
-                narrow_norm = cats('Precede', put(input(orig_key, ?? 8.), z5.));
+              if prxmatch('/^\d+$/', strip(orig_key)) then
+                narrow_norm = cats('Precede', put(input(strip(orig_key), ?? 8.), z5.));
               else narrow_norm = orig_key;
             run;
           %end;
