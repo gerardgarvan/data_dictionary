@@ -60,7 +60,7 @@ Next: Phase 03 — Direct import of the 20 sources
 | PDD-D-16 | Per-cell source flag | Phase 5 |
 | PDD-D-17 | **CLOSED.** Grain confirmed: every file is 1 row per case except s01 and s08. Integration method for s01/s08 still to be decided (Gerard, Phase 3). s18 has 2 dup/blank key rows (qc_s18_dup) for Phase 3 review | Phase 3 (s01, s08), Phase 5 (s01, s08) |
 | PDD-D-18 | s04/s05 appear to be linkage/QC files (same encryption, 100% match) — not dictionary variables. Pending Gerard confirmation | Phase 3 (s04, s05), Phase 5 (s04, s05) |
-| PDD-D-19 | 2022 ID normalisation — pending verification QC step in 02_source_guard.sas | Phase 3 import |
+| PDD-D-19 | **LOCKED (2026-10-19).** `cats('Precede', put(input(id,??8.),z5.))` — 9,001 pairs verified, ndis=0. Assert in 02_source_guard.sas. Phase 3 QC: 269 s18 + ~770 s01 IDs not in spine/s17 | — |
 | PDD-D-20 | **LOCKED.** 6 s17 ENCRYPTED_ENCOUNTER values that map to >1 PRECEDE_STUDY_ID → set to missing for linkage; unchanged in PCNR_ | Phase 3 (s17) |
 | PDD-D-21 | s06 has 3,987 columns — Phase 3 profiles column groups first; Gerard decides scope | Phase 3 (s06) |
 
@@ -68,7 +68,7 @@ Next: Phase 03 — Direct import of the 20 sources
 
 - PDD-D-15 and PDD-D-16 block Phase 5 only; Phases 1–4 and 6–7 can proceed.
 - PDD-D-17 grain question closed; s01/s08 integration method still open (Gerard, Phase 3).
-- PDD-D-18 pending Gerard confirmation; PDD-D-19 pending one more verification run.
+- PDD-D-18 pending Gerard confirmation; PDD-D-19 LOCKED (2026-10-19).
 - Repo lives at `C:\data_dictionary`; data/output at `P:\PeCAN Master Data\Gerard\data_dictionary\`.
 - Source files are strictly read-only at `P:\PeCAN Master Data\00 Shared Data\DSS Received Data\1 Data Files\Master Data`.
 - Older copies exist at `P:\PeCAN Master Data\Gerard\raw\master` for hash comparison only.

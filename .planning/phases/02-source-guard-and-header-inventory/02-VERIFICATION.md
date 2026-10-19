@@ -146,14 +146,13 @@ No anti-patterns found:
 | s04/s05 confirmed as linkage/QC files | Same encryption as the masters; 100% match. Not dictionary variables. Pending Gerard confirmation (PDD-D-18) |
 | 7-CSV distinct headers | 148 distinct original headers (not 168 — the earlier count included SAS positional VARnn names from old xlsx copies). Accepted unless header_matrix shows otherwise |
 | s06 column count | s06 (2018_2019_Precede_Database.xlsx) has 3,987 columns. Phase 3 will first profile column groups (by name prefix/suffix) before Gerard decides scope |
-| 2022 ID normalisation (PDD-D-19) | IDs that are all digits get prefix `PRECEDE`: `cats('PRECEDE', put(input(id, ?? 8.), z5.))`. IDs already matching AAAAAAA99999 stay unchanged. **Pending verification** — a QC step must be added to 02_source_guard and re-run before PDD-D-19 is locked |
-| PDD-D-19 verification spec | Apply normalisation to PRECEDE_STUDY_ID of every file; recompute overlap vs s09 spine; log per file: n_in_file, n_matching_before, n_matching_after. Expect s16/s17/s18 and 2022 parts of s01/s08/s20 to match ~100% after. For s17: confirm normalised ID = spine ID for every pair linked by ENCRYPTED_ENCOUNTER (excluding the 6 blank-encounter values); log count of disagreements |
+| 2022 ID normalisation (PDD-D-19) | **LOCKED 2026-10-19.** Prefix is `Precede` (mixed case, exact): `cats('Precede', put(input(id, ?? 8.), z5.))`. IDs already of the form `Precede99999` stay unchanged. Verified: 9,001 encounter-linked s17/s09 pairs; ci_match=9001, dig_match=9001, diff=0. Permanent assert in 02_source_guard.sas fails if `_ndis > 0`. Phase 3 QC items: 269 s18 IDs and ~770 s01 IDs that match neither the spine nor s17 |
 | s17 blank ENCRYPTED_ENCOUNTER | 6 s17 ENCRYPTED_ENCOUNTER values map to >1 PRECEDE_STUDY_ID — treated as encrypted blank; set to missing for linkage only. Values unchanged in PCNR_ (PDD-D-20) |
 | _bridge_analysis_2022 fix needed | Macro looked for `work.src_s08` — correct name is `work.src_s08_s1`. Fix before next run |
 
 ### Gaps Summary
 
-No gaps. Phase 2 complete. Pending action before locking PDD-D-19: add normalisation QC step to 02_source_guard.sas and run once (see PDD-D-19 verification spec above).
+No gaps. Phase 2 complete. PDD-D-19 locked 2026-10-19 after verification run confirmed ndis=0.
 
 ---
 

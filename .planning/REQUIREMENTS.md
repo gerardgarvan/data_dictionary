@@ -39,7 +39,7 @@ Protects the read-only source layer and documents the raw variable universe acro
 | Header inventory reads directly from the 20 source files (not renamed copies, not the `g` library) | PDD-D-03: removes the xlsx conversion layer |
 | Header × file matrix across all 20 files | Stored in `pdd.header_inventory` and `qc\header_matrix.xlsx` |
 | Re-check prior expectations: ~701 CSV header instances, ~168 unique variables, ~41,150-row spine (s09) | Phase 2 authoritative: 148 distinct CSV headers (168 included VARnn names from xlsx copies); 41,150-row spine confirmed |
-| 2022 ID normalisation QC step (PDD-D-19) | Apply `cats('PRECEDE', put(input(id, ?? 8.), z5.))` normalisation to all-digit IDs; recompute overlap vs s09 per file; log n_in_file, n_matching_before, n_matching_after; for s17 log normalised-vs-spine disagreements (excluding 6 blank-encounter rows). Add to 02_source_guard.sas and re-run once to lock PDD-D-19 |
+| 2022 ID normalisation QC assert (PDD-D-19 LOCKED) | `cats('Precede', put(input(id, ?? 8.), z5.))` normalisation applied to all-digit IDs; overlap logged per file (n_in_file, n_matching_before, n_matching_after); permanent assert fails if s17/s09 pair disagreements > 0. Verified 2026-10-19: 9,001 pairs, ndis=0 |
 
 **Blocks on:** PDD-D-17 (grain confirmed by Phase 2; s01/s08 integration method pending Gerard in Phase 3). PDD-D-18 (s04/s05 pending Gerard confirmation). PDD-D-19 pending one verification run.
 

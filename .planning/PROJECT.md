@@ -77,7 +77,7 @@ Older copies of some files exist at `P:\PeCAN Master Data\Gerard\raw\master` —
 | PDD-D-09 | Deliverable: **one workbook**. KEY sheet leftmost, then one sheet per family, plus NAME_MAP, SOURCES and QC sheets |
 | PDD-D-10 | LAB_, MED_ and INTRA_ are **separate data**, not re-prefixed master columns |
 | PDD-D-17 | **CLOSED (2026-10-19).** Every file is one row per PRECEDE_STUDY_ID (case) — confirmed by Phase 2. s01 (PACU_STAY) and s08 (COLONOSCOPY) are the only multi-row files. How they enter PCNR_ remains to be decided (aggregate, first/last, wide, or separate long table) — Gerard to decide in Phase 3. s18 has 2 duplicate/blank key rows (qc_s18_dup) to be reviewed in Phase 3 |
-| PDD-D-19 | **PENDING VERIFICATION.** 2022 ID normalisation: IDs that are all digits get the prefix `PRECEDE` via `cats('PRECEDE', put(input(id, ?? 8.), z5.))`. IDs already matching AAAAAAA99999 stay unchanged. A QC step must be added to 02_source_guard.sas and re-run once before this is locked (see 02-VERIFICATION.md for spec) |
+| PDD-D-19 | **LOCKED (2026-10-19).** 2022 ID normalisation: all-digit IDs get prefix `Precede` (mixed case, exact) via `cats('Precede', put(input(id, ?? 8.), z5.))`. IDs already of the form `Precede99999` stay unchanged. Verified: all 9,001 encounter-linked s17/s09 pairs agree after normalisation (ci_match=9001, dig_match=9001, diff=0). Assert added to 02_source_guard.sas: fails if `_ndis > 0`. Phase 3 QC items: 269 s18 IDs and ~770 s01 IDs that match neither the spine nor s17 |
 | PDD-D-20 | **LOCKED (2026-10-19).** The 6 s17 ENCRYPTED_ENCOUNTER values that map to >1 PRECEDE_STUDY_ID are treated as an encrypted blank: set to missing for linkage only. Values stay unchanged in PCNR_ |
 
 ## Open decisions
