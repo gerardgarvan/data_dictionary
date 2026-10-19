@@ -134,6 +134,31 @@
     %put WARNING: [02_source_guard] &label was NOT written;
 %mend _note_written_xlsx;
 
+/* Determine SAS type of a column in a WORK dataset.
+   nofail=0 (default): %fail_out if column not found.
+   nofail=1: emit NOTE and leave outmv blank (use for target-spine columns
+             that may legitimately be absent from certain files). */
+%macro _get_col_type(ds=, col=, outmv=, nofail=0);
+  %local _tp _memname;
+  %let _tp = ;
+  /* Strip libref so memname matches dictionary.columns */
+  %let _memname = %upcase(%scan(&ds, -1, .));
+  proc sql noprint;
+    select type into :_tp trimmed
+    from dictionary.columns
+    where libname='WORK' and memname="&_memname" and upcase(name)=upcase("&col");
+  quit;
+  %if %length(&_tp) = 0 %then %do;
+    %if &nofail = 1 %then %do;
+      %put NOTE: [02_source_guard] _get_col_type: column &col not found in &ds (memname=&_memname) -- returning blank type;
+    %end;
+    %else %do;
+      %fail_out(msg=%str(_get_col_type: column &col not found in &ds (memname=&_memname) -- type lookup returned no rows; cannot proceed));
+    %end;
+  %end;
+  %let &outmv = &_tp;
+%mend _get_col_type;
+
 /* Begin log redirect immediately after macro definitions */
 %route_log;
 
@@ -501,7 +526,7 @@ quit;
 /* Accumulator: one row per file x sheet x column */
 data work.hdr_all;
   length s_code $4 sheet_name $200 col_name $32 col_type $4
-         col_label $256 col_len 8 original_header $32767;
+         col_label $256 col_len 8 original_header $256 original_header_trunc 8;
   stop;
 run;
 
@@ -618,12 +643,13 @@ run;
 
         /* Parse raw CSV header into per-column original names (by varnum) */
         data work._hdr_raw;
-          length raw_col_name $32767 raw_line $32767;
+          length raw_col_name $32767 raw_line $32767 raw_trunc 8;
           raw_line = symget('_rawhdrs');
           varnum   = 0;
           _pos     = 1;
           do while (_pos le length(raw_line));
             varnum + 1;
+            raw_col_name = '';
             if substr(raw_line, _pos, 1) = '"' then do;
               _end = index(substr(raw_line, _pos + 1), '"');
               if _end = 0 then _end = length(raw_line) - _pos;
@@ -644,18 +670,21 @@ run;
               end;
             end;
             raw_col_name = strip(raw_col_name);
+            raw_trunc = (length(raw_col_name) > 256);
+            if raw_trunc then raw_col_name = substr(raw_col_name, 1, 256);
             output;
           end;
-          keep varnum raw_col_name;
+          keep varnum raw_col_name raw_trunc;
         run;
 
         /* Accumulate header rows from dictionary.columns */
         proc sql noprint;
           insert into work.hdr_all
             (s_code, sheet_name, col_name, col_type, col_label, col_len,
-             original_header)
+             original_header, original_header_trunc)
           select "&_scode", '', d.name, d.type, d.label, d.length,
-                 coalesce(strip(r.raw_col_name), '') as original_header
+                 coalesce(r.raw_col_name, '')  as original_header,
+                 coalesce(r.raw_trunc,    0)   as original_header_trunc
           from dictionary.columns d
           left join work._hdr_raw r on d.varnum = r.varnum
           where d.libname='WORK' and d.memname=upcase("&_dsname");
@@ -810,9 +839,9 @@ run;
               proc sql noprint;
                 insert into work.hdr_all
                   (s_code, sheet_name, col_name, col_type, col_label, col_len,
-                   original_header)
+                   original_header, original_header_trunc)
                 select "&_scode", "&&_sh&j", name, type, label, length,
-                       label as original_header
+                       label as original_header, 0 as original_header_trunc
                 from dictionary.columns
                 where libname='WORK' and memname=upcase("&_sh_ds");
               quit;
@@ -886,7 +915,9 @@ run;
 /* ---- Write pdd.header_inventory ---- */
 data pdd.header_inventory;
   set work.hdr_all;
-  label original_header = 'Raw column name from source file header (CSV: parsed from first line; XLSX: engine label)';
+  label
+    original_header       = 'Raw column name from source file header (CSV: parsed from first line; XLSX: engine label)'
+    original_header_trunc = 'Flag: 1 if original_header was truncated to 256 chars';
 run;
 
 %_note_written_ds(ds=pdd.header_inventory, label=pdd.header_inventory)
@@ -1277,27 +1308,7 @@ quit;
    s04/s05 also compared against s16/s17/s18 spines.
    ============================================================ */
 
-/* ---- Determine type of each s09 key column ---- */
-%macro _get_col_type(ds=, col=, outmv=, nofail=0);
-  %local _tp _memname;
-  %let _tp = ;
-  /* Strip libref so memname matches dictionary.columns (e.g. work.src_s06_s1 -> SRC_S06_S1) */
-  %let _memname = %upcase(%scan(&ds, -1, .));
-  proc sql noprint;
-    select type into :_tp trimmed
-    from dictionary.columns
-    where libname='WORK' and memname="&_memname" and upcase(name)=upcase("&col");
-  quit;
-  %if %length(&_tp) = 0 %then %do;
-    %if &nofail = 1 %then %do;
-      %put NOTE: [02_source_guard] _get_col_type: column &col not found in &ds (memname=&_memname) -- returning blank type;
-    %end;
-    %else %do;
-      %fail_out(msg=%str(_get_col_type: column &col not found in &ds (memname=&_memname) -- type lookup returned no rows; cannot proceed));
-    %end;
-  %end;
-  %let &outmv = &_tp;
-%mend _get_col_type;
+/* _get_col_type defined in SECTION 1 */
 
 /* ---- Build spine lookup tables from src_s09 ---- */
 %macro _build_spine(ds=, col=, out=, result_mv=);
