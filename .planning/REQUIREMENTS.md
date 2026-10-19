@@ -27,18 +27,24 @@ The repository skeleton must be in place before any SAS program runs.
 ### PDD-02 — Source guard and header inventory
 **Roadmap phase:** Phase 2
 
-Protects the read-only source layer and documents the raw variable universe.
+Protects the read-only source layer and documents the raw variable universe across all 20 files.
 
 | Requirement | Detail |
 |-------------|--------|
-| `02_source_guard.sas` computes SHA-256 of all 8 `raw\master` files and stores the baseline | Run fails with an ERROR if any checksum changes |
-| Header inventory reads directly from the 8 source files (not the renamed xlsx copies, not the `g` library) | PDD-D-03: removes the xlsx conversion layer |
-| Inventory output: file × header matrix, inferred type, row count | Stored in `pdd` library and/or `qc\` |
-| Inventory reproduces **701** CSV header instances and approximately **168** unique variables | QC acceptance criterion |
+| `02_source_guard.sas` computes SHA-256 of all 20 shared-folder files and stores the baseline | Run fails with an ERROR if any checksum changes; shared folder is strictly read-only |
+| Per-file metadata: SHA-256, file size, last-modified date, row count, column count; for xlsx files: sheet list with row/column counts per sheet | Stored in `pdd.source_inventory` and `qc\source_inventory.xlsx` |
+| Candidate key analysis per file: identify PRECEDE_STUDY_ID, ENCRYPTED_MRN, ENCRYPTED_ENCOUNTER, or other ID columns; test whether the key is unique per row (grain = patient) or has multiple rows per patient | Drives PDD-D-17 and PDD-D-18 |
+| ID overlap: for each candidate key per file, count how many values match the s09 spine | Quantifies linkage coverage |
+| Hash comparison against older copies in `P:\PeCAN Master Data\Gerard\raw\master` where the same filename exists | Report as: identical / different / no older copy |
+| Header inventory reads directly from the 20 source files (not renamed copies, not the `g` library) | PDD-D-03: removes the xlsx conversion layer |
+| Header × file matrix across all 20 files | Stored in `pdd.header_matrix` and `qc\header_matrix.xlsx` |
+| Re-check prior expectations: ~701 CSV header instances, ~168 unique variables, ~41,150-row spine (s09) | These are expectations from the prior pipeline; Phase 2 establishes the authoritative counts |
+
+**Blocks on:** PDD-D-17 (multi-row files) and PDD-D-18 (crosswalk-keyed files) are both **decided after** this phase based on its output.
 
 ---
 
-### PDD-03 — Direct import of the 8 sources
+### PDD-03 — Direct import of the 20 sources
 **Roadmap phase:** Phase 3
 
 Imports raw data with full fidelity, no PROC IMPORT guessing.
@@ -48,9 +54,10 @@ Imports raw data with full fidelity, no PROC IMPORT guessing.
 | `03_import.sas`: one DATA step per file with explicit INFORMATs and LENGTHs | PDD-D-02: values exactly as in source |
 | PRECEDE_STUDY_ID and Base Procedure Code 1 read as **character** in all files | Avoids numeric/character type conflict hazard |
 | Every INFILE uses `ENCODING='UTF-8'` | Required for esophagectomy descriptions in Base_Procedure_1 |
-| s8 (ALL_AIM2.xlsx Sheet1): drop rows where PRECEDE_STUDY_ID is missing or all data columns are blank/`NULL`; log kept/dropped counts | PDD-D-08 |
-| Duplicate "PRECEDE Study ID" column in s6/s7 dropped after confirming equality to PRECEDE_STUDY_ID | Documents the confirmation in QC |
-| Output: `pdd.src_s1` … `pdd.src_s8`, each with one row per PRECEDE_STUDY_ID | Row counts reconciled in QC |
+| s19 (ALL_AIM2.xlsx Sheet1): drop rows where PRECEDE_STUDY_ID is missing or all data columns are blank/`NULL`; log kept/dropped counts | PDD-D-08 |
+| Output: `pdd.src_s01` … `pdd.src_s20` | Row counts reconciled in QC |
+| Multi-row files (s01 PACU_STAY, s08 COLONOSCOPY): import as-is; how they enter PCNR_ follows PDD-D-17 | **Blocks on PDD-D-17** for s01, s08 |
+| Crosswalk-keyed files (s04 ENCOUNTER Crypto, s05 MRN Crypto) and others not keyed on PRECEDE_STUDY_ID: import and assess; linkage method follows PDD-D-18 | **Blocks on PDD-D-18** for affected files |
 
 ---
 
@@ -75,15 +82,15 @@ Assembles the integrated PCNR_ analytic dataset.
 
 | Requirement | Detail |
 |-------------|--------|
-| `05_build_pcnr.sas`: start from `pdd.src_s3` (41,150 rows = spine) | PDD-D-01, PDD-D-04 |
-| Left-join s1, s2, s4–s8 on PRECEDE_STUDY_ID | PDD-D-01 |
+| `05_build_pcnr.sas`: start from `pdd.src_s09` (spine, confirmed by Phase 2) | PDD-D-01, PDD-D-04 |
+| Left-join 1:1 PRECEDE_STUDY_ID files on the spine; multi-row files (s01, s08) and crosswalk-keyed files (s04, s05) integrated per PDD-D-17 / PDD-D-18 | **Blocks on PDD-D-17, PDD-D-18** for those files |
 | Spine value wins for overlapping variables; other files gap-fill where spine is missing | PDD-D-05 |
-| Tie-break order among gap-fill sources (s1, s2, s4–s8) follows PDD-D-15 once resolved | **Blocks on PDD-D-15 (open)** |
+| Tie-break order among gap-fill sources follows PDD-D-15 once resolved | **Blocks on PDD-D-15 (open)** |
 | Per-cell source flag (`PCNR_<var>_SRC`) follows PDD-D-16 once resolved | **Blocks on PDD-D-16 (open)** |
 | Type-conflicting columns kept as character; no recoding | PDD-D-02 |
 | `NULL` sentinel in ALL_AIM2 retained as-is | PDD-D-02 |
 | QC output: gap-fill counts per variable; non-missing disagreements written to `qc\pcnr_conflicts` | PDD-D-05 |
-| Output: `pdd.pcnr` with exactly 41,150 rows and every variable from the inventory | QC sign-off required |
+| Output: `pdd.pcnr` with one row per spine patient and every variable from the inventory | Row count confirmed by Phase 2; QC sign-off required |
 
 ---
 
@@ -158,3 +165,5 @@ This is where `?`, `NULL`, and `Unknown` cleaning and recoding happens (PDD-D-02
 | PDD-D-14 | PDD-10, PDD-11, PDD-12 | LAB_/MED_/INTRA_ paths and linkage keys |
 | PDD-D-15 | PDD-05 | Gap-fill tie-break order among non-spine sources |
 | PDD-D-16 | PDD-05 | Per-cell source flag vs. QC-only summary |
+| PDD-D-17 | PDD-03 (s01, s08), PDD-05 (s01, s08) | Multi-row-per-patient files (PACU_STAY, COLONOSCOPY): aggregate, first/last, wide, or separate long table |
+| PDD-D-18 | PDD-03 (s04, s05), PDD-05 (s04, s05) | Crosswalk-keyed files (ENCOUNTER/MRN Crypto): linkage path, whether they resolve old 2022 ID mismatch |

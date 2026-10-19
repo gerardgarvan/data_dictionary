@@ -31,9 +31,9 @@ Plan: Not started
 |-------|-------|--------|
 | 1 | Repo and config scaffold | ✅ Complete |
 | 2 | Source guard and header inventory | ⬜ Not started |
-| 3 | Direct import of the 8 sources | ⬜ Not started |
+| 3 | Direct import of the 20 sources | ⬜ Not started |
 | 4 | Name map | ⬜ Not started |
-| 5 | Build PCNR_ on the spine | ⬜ Blocked (PDD-D-15, PDD-D-16) |
+| 5 | Build PCNR_ on the spine | ⬜ Blocked (PDD-D-15, PDD-D-16, PDD-D-17, PDD-D-18) |
 | 6 | Distribution engine | ⬜ Not started |
 | 7 | Dictionary workbook writer | ⬜ Not started |
 
@@ -58,9 +58,13 @@ Plan: Not started
 | PDD-D-14 | LAB_/MED_/INTRA_ paths | Phases 10–12 |
 | PDD-D-15 | Gap-fill tie-break order | Phase 5 |
 | PDD-D-16 | Per-cell source flag | Phase 5 |
+| PDD-D-17 | Multi-row-per-patient files (PACU_STAY, COLONOSCOPY) — integration method | Phase 3 (s01, s08), Phase 5 (s01, s08) — decided after Phase 2 |
+| PDD-D-18 | MRN/encounter-keyed files (ENCOUNTER/MRN Crypto) — linkage path | Phase 3 (s04, s05), Phase 5 (s04, s05) — decided after Phase 2 |
 
 ## Notes
 
 - PDD-D-15 and PDD-D-16 block Phase 5 only; Phases 1–4 and 6–7 can proceed.
+- PDD-D-17 and PDD-D-18 block Phases 3 and 5 for the affected files only; Phase 2 produces the data needed to decide them.
 - Repo lives at `C:\data_dictionary`; data/output at `P:\PeCAN Master Data\Gerard\data_dictionary\`.
-- Sources are read-only at `P:\PeCAN Master Data\Gerard\raw\master`.
+- Source files are strictly read-only at `P:\PeCAN Master Data\00 Shared Data\DSS Received Data\1 Data Files\Master Data`.
+- Older copies exist at `P:\PeCAN Master Data\Gerard\raw\master` for hash comparison only.

@@ -15,27 +15,34 @@ Plans:
 - [x] 01-02-PLAN.md — Create run_pipeline.cmd and sas/99_run_all.sas (batch driver + pipeline runner skeleton)
 
 ### Phase 2: Source guard and header inventory
-- `02_source_guard.sas`: SHA-256 baseline of the 8 raw\master files; fails the run if any file changes
-- Header inventory from the raw CSV/XLSX headers (not the renamed copies): file × header matrix, inferred type, row count
-- **Done when:** the inventory reproduces 701 CSV header instances and about 168 unique variables
+- `02_source_guard.sas`: SHA-256 baseline of all 20 shared-folder files; run fails with ERROR if any checksum changes; shared folder is strictly read-only
+- Per-file metadata: SHA-256, file size, modified date, row count, column count; sheet list for xlsx files
+- Candidate key analysis: PRECEDE_STUDY_ID, ENCRYPTED_MRN, ENCRYPTED_ENCOUNTER, or other; grain (unique vs. multi-row per patient)
+- ID overlap: match counts against the s09 spine candidate for each candidate key
+- Hash comparison of shared-folder files against older copies in `P:\PeCAN Master Data\Gerard\raw\master` (identical / different / no older copy)
+- Header × file matrix across all 20 files; inferred type per column
+- Re-check prior expectations: ~701 header instances, ~168 unique variables, ~41,150-row spine
+- **Done when:** source inventory, key/grain analysis, hash comparison, and header matrix are written to `pdd` library and `qc\`; PDD-D-17 and PDD-D-18 can be decided from the output
 
-### Phase 3: Direct import of the 8 sources
-- `03_import.sas`: one data step per CSV with explicit INFORMATs/LENGTHs. IDs and codes read as character; no PROC IMPORT guessing.
+### Phase 3: Direct import of the 20 sources
+- `03_import.sas`: one data step per file with explicit INFORMATs/LENGTHs. IDs and codes read as character; no PROC IMPORT guessing.
 - `ENCODING='UTF-8'` on every infile; check the Base_Procedure_1 esophagectomy rows render correctly
-- s8 (ALL_AIM2): read Sheet1, drop blank/no-ID rows (PDD-D-08), log kept/dropped counts
-- Drop the duplicate "PRECEDE Study ID" column in s6/s7 after confirming it equals PRECEDE_STUDY_ID
-- **Done when:** each `pdd.src_s1..s8` has one row per PRECEDE_STUDY_ID and the row counts are reconciled in QC
+- s19 (ALL_AIM2): read Sheet1, drop blank/no-ID rows (PDD-D-08), log kept/dropped counts
+- Multi-row files (s01 PACU_STAY, s08 COLONOSCOPY): import as-is; integration method follows PDD-D-17
+- Crosswalk-keyed files (s04, s05) and other non-PRECEDE_STUDY_ID-keyed files: import and stage; linkage follows PDD-D-18
+- **Done when:** `pdd.src_s01`…`pdd.src_s20` exist; row counts reconciled in QC; **blocks on PDD-D-17 and PDD-D-18 for affected files**
 
 ### Phase 4: Name map
 - `04_name_map.sas`: original header → cleaned name → `PCNR_` name (≤32 chars, collision-checked) → label
 - **Done when:** NAME_MAP has no duplicates or truncation collisions, and Gerard has reviewed it
 
 ### Phase 5: Build PCNR_ on the spine
-- `05_build_pcnr.sas`: start from s3 (41,150 rows), then left-join s1, s2, s4–s8 on PRECEDE_STUDY_ID
+- `05_build_pcnr.sas`: start from s09 (spine confirmed by Phase 2), left-join 1:1 PRECEDE_STUDY_ID files
+- Multi-row files (s01, s08) and crosswalk-keyed files (s04, s05) integrated per PDD-D-17 / PDD-D-18
 - Overlapping variables: spine value first, gap-fill from the other files (PDD-D-05; tie-break waits on PDD-D-15)
 - Values exactly as in source (PDD-D-02); type-conflicting columns kept as character
 - QC: gap-fill counts per variable, non-missing disagreements written to `qc\pcnr_conflicts`
-- **Done when:** `pdd.pcnr` is 41,150 rows, contains every variable from the inventory, and QC has signed off
+- **Done when:** `pdd.pcnr` has one row per spine patient, contains every variable from the inventory, and QC has signed off; **blocks on PDD-D-17 and PDD-D-18 for s01, s04, s05, s08**
 
 ### Phase 6: Distribution engine (reusable macro)
 - `%pdd_profile(lib=, ds=, prefix=, family=)`: classifies each variable by distinct-value count and computes distributions per PDD-D-06
@@ -62,7 +69,14 @@ Each phase repeats Phases 2–7 for its family: source guard, import, name map, 
 
 Phases 8–13 have no fixed order. Whichever gate clears first runs first, except PCND_, which depends on its inputs.
 
+## Open decisions (phase gates)
+| ID | Blocks | Description |
+|----|--------|-------------|
+| PDD-D-15 | Phase 5 | Gap-fill tie-break order among non-spine sources |
+| PDD-D-16 | Phase 5 | Per-cell source flag vs. QC-only summary |
+| PDD-D-17 | Phase 3 (s01, s08), Phase 5 (s01, s08) | Multi-row-per-patient files — aggregate / first-last / wide / separate long table — decided after Phase 2 |
+| PDD-D-18 | Phase 3 (s04, s05), Phase 5 (s04, s05) | MRN/encounter-keyed crosswalk files — linkage path and ID mismatch resolution — decided after Phase 2 |
+
 ## Not in scope (v1.0)
-- Cohort restriction (all 41,150 patients are profiled)
+- Cohort restriction (all spine patients are profiled)
 - Recoding or cleaning PCNR_ values
-- Resolving the 2022 raw-file ID mismatch (prior PCM-D-16); revisit only if a family's source needs it
