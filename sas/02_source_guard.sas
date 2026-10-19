@@ -2190,9 +2190,13 @@ quit;
 
   %end;
 %mend _qc_normalisation_2022;
-%if %sysmacexist(_qc_normalisation_2022) = 0 %then
-  %fail_out(msg=%str(_qc_normalisation_2022 failed to compile -- run aborted));
-%_qc_normalisation_2022;
+%macro _run_qc_norm_2022;
+  %if %sysmacexist(_qc_normalisation_2022) = 0 %then %do;
+    %fail_out(msg=%str(_qc_normalisation_2022 failed to compile -- see errors above));
+  %end;
+  %_qc_normalisation_2022;
+%mend _run_qc_norm_2022;
+%_run_qc_norm_2022;
 
 
 /* ============================================================
