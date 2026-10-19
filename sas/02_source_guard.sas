@@ -877,11 +877,16 @@ proc sql noprint;
     from pdd.header_inventory
     where s_code in ('s03','s07','s09','s10','s12','s15','s17')
       and sheet_name='';
+  select count(distinct col_label) into :_ndist7_lbl trimmed
+    from pdd.header_inventory
+    where s_code in ('s03','s07','s09','s10','s12','s15','s17')
+      and sheet_name='';
   select count(*) into :_nrows_all trimmed from pdd.header_inventory;
   select count(distinct col_name) into :_ndist_all trimmed from pdd.header_inventory;
 quit;
 %put NOTE: [02_source_guard] header_inventory 7-CSV rows = &_nrows7. (expect ~701);
 %put NOTE: [02_source_guard] 7-CSV distinct col_name = &_ndist7. (expect ~168);
+%put NOTE: [02_source_guard] 7-CSV distinct original_header (col_label) = &_ndist7_lbl. (expect ~168);
 %put NOTE: [02_source_guard] header_inventory all-20 total rows = &_nrows_all.;
 %put NOTE: [02_source_guard] all-20 distinct col_name = &_ndist_all.;
 
@@ -1127,11 +1132,11 @@ run;
 %mend grain_test;
 %grain_test;
 
-/* Log s01 and s08 grain as informational NOTEs */
+/* Log grain for every file x key as informational NOTEs */
 %macro _log_grain_notes;
   data _null_;
     set work.key_grain_base;
-    if s_code in ('s01','s08') and key_column_type ne 'NONE_DETECTED' then
+    if key_column_type ne 'NONE_DETECTED' then
       put 'NOTE: [02_source_guard] grain info: ' s_code= key_column_type= grain= n_rows= n_distinct=;
   run;
 %mend _log_grain_notes;
@@ -1185,13 +1190,18 @@ quit;
 
 /* ---- Determine type of each s09 key column ---- */
 %macro _get_col_type(ds=, col=, outmv=);
-  %local _tp;
+  %local _tp _memname;
   %let _tp = ;
+  /* Strip libref so memname matches dictionary.columns (e.g. work.src_s06_s1 -> SRC_S06_S1) */
+  %let _memname = %upcase(%scan(&ds, -1, .));
   proc sql noprint;
     select type into :_tp trimmed
     from dictionary.columns
-    where libname='WORK' and memname=upcase("&ds") and upcase(name)=upcase("&col");
+    where libname='WORK' and memname="&_memname" and upcase(name)=upcase("&col");
   quit;
+  %if %length(&_tp) = 0 %then %do;
+    %fail_out(msg=%str(_get_col_type: column &col not found in &ds (memname=&_memname) -- type lookup returned no rows; cannot proceed));
+  %end;
   %let &outmv = &_tp;
 %mend _get_col_type;
 
