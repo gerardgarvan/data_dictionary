@@ -1381,3 +1381,224 @@ proc datasets lib=work nolist nowarn;
 quit;
 
 %put NOTE: [02_source_guard] === Plan 02 sections complete ===;
+
+
+/* ============================================================
+   SECTION 13 -- Build display datasets for QC workbooks
+   work.key_legend_inv  : KEY sheet for source_inventory.xlsx
+   work.key_legend_hdr  : KEY sheet for header_matrix.xlsx
+   work.header_wide     : wide header matrix (PROC TRANSPOSE)
+   ============================================================ */
+
+/* KEY legend for source_inventory.xlsx */
+data work.key_legend_inv;
+  length sheet_name $20 column_name $50 description $200 notes $250;
+  infile datalines dsd dlm='|' truncover;
+  input sheet_name $ column_name $ description $ notes $;
+  datalines;
+SOURCES|file_id|Sequential file identifier (1-20)|
+SOURCES|s_code|Source code (s01-s20)|
+SOURCES|filename|Source file name|
+SOURCES|ftype|File type: csv or xlsx|
+SOURCES|full_path|Full path in shared source folder (read-only)|
+SOURCES|file_size|File size in bytes|
+SOURCES|mod_date|Last-modified date string from OS|Raw locale-dependent string; not parsed to SAS date
+SOURCES|sha256|SHA-256 checksum from certutil|FAILED sentinel if certutil could not hash the file
+SOURCES|sha256_old|SHA-256 of older copy or NO_OLD_COPY sentinel|
+SOURCES|old_copy_folder|Older-copy root that matched: master / raw / blank|
+SOURCES|old_copy_status|identical / different / no_older_copy|
+SOURCES|row_count|Imported row count from import loop|
+SOURCES|col_count|Imported column count from import loop|
+SOURCES|sheet_list|Comma-separated XLSX sheet names (blank for CSV)|
+SOURCES|import_status|profiled or read-failed|
+SOURCES|import_reason|Failure or warning reason from import step|
+SOURCES|nonblank_row_count|Rows with at least one non-blank/non-missing value (s19 only)|
+KEY_ANALYSIS|s_code|Source code (s01-s20)|
+KEY_ANALYSIS|sheet_name|Sheet name (blank for CSV)|
+KEY_ANALYSIS|key_column_type|Key type detected|PRECEDE_STUDY_ID / ENCRYPTED_MRN / ENCRYPTED_ENCOUNTER / UNENC_MRN / UNENC_ENCOUNTER / RECORD_ID / NONE_DETECTED
+KEY_ANALYSIS|key_var_name|SAS variable name of the candidate key column|
+KEY_ANALYSIS|match_basis|How the key was matched: name / loose / label / none|
+KEY_ANALYSIS|n_rows|Total row count of imported table|
+KEY_ANALYSIS|n_distinct|Count of distinct non-missing key values|
+KEY_ANALYSIS|grain|unique or multi-row (blank for NONE_DETECTED)|
+ID_OVERLAP|s_code|Source code (s01-s20)|
+ID_OVERLAP|sheet_name|Sheet name (blank for CSV)|
+ID_OVERLAP|key_column_type|Key type|
+ID_OVERLAP|key_var_name|SAS variable name of the key column|
+ID_OVERLAP|spine_source|Spine dataset used: s09 / s16 / s17 / s18|
+ID_OVERLAP|n_in_file|Distinct non-missing key values in this file|
+ID_OVERLAP|n_matching_spine|Distinct file keys that appear in the spine|
+ID_OVERLAP|pct_overlap|n_matching_spine / n_in_file * 100 (rounded to 0.1)|
+;
+
+/* KEY legend for header_matrix.xlsx */
+data work.key_legend_hdr;
+  length sheet_name $20 column_name $50 description $200 notes $250;
+  infile datalines dsd dlm='|' truncover;
+  input sheet_name $ column_name $ description $ notes $;
+  datalines;
+HEADER_LONG|s_code|Source code (s01-s20)|
+HEADER_LONG|sheet_name|Sheet name (blank for CSV)|
+HEADER_LONG|col_name|SAS column name as imported|
+HEADER_LONG|col_type|SAS column type: char or num|
+HEADER_LONG|col_label|SAS column label (original header where name was changed)|
+HEADER_LONG|col_len|SAS column length in bytes|
+HEADER_MATRIX|col_name|Column name (one row per distinct column across all files)|Rows sorted alphabetically by col_name
+HEADER_MATRIX|(s_code columns)|Cell value = col_type (char / num) or blank if column absent|One column per source file or file-sheet combination
+;
+
+/* Build work.header_wide via PROC TRANSPOSE
+   id = s_code (or s_code_sheet for multi-sheet XLSX)
+   For multi-sheet files the s_code alone would collapse sheets;
+   build a combined s_code_sheet label for the id variable.
+   The id value must be a valid SAS name (max 32 chars).
+   Combine: cats(s_code, '_', compress(sheet_name,' ')) for xlsx;
+   for csv (sheet_name='') just use s_code.
+*/
+data work.hdr_inv_prep;
+  set pdd.header_inventory;
+  length hdr_src $32;
+  if sheet_name = '' then
+    hdr_src = s_code;
+  else
+    hdr_src = substr(cats(s_code, '_', compress(sheet_name,' _-')), 1, 32);
+  /* normalised sort key: compress upcase for duplicate detection */
+  length col_name_sort $32;
+  col_name_sort = compress(upcase(col_name), ' _');
+run;
+
+proc sort data=work.hdr_inv_prep out=work.hdr_inv_sorted;
+  by col_name hdr_src;
+run;
+
+proc transpose data=work.hdr_inv_sorted
+    out=work.header_wide (drop=_name_)
+    prefix=src_;
+  by col_name;
+  id hdr_src;
+  var col_type;
+run;
+
+%put NOTE: [02_source_guard] work.header_wide built via PROC TRANSPOSE;
+
+
+/* ============================================================
+   SECTION 14 -- ODS Excel QC workbooks
+   Workbook 1: qc\source_inventory.xlsx
+   Workbook 2: qc\header_matrix.xlsx
+   KEY sheet is FIRST (leftmost) in each workbook (PDD-D-09).
+   UF header style: background cx0021A5, white bold text.
+   ============================================================ */
+
+/* Register template in WORK path so it does not persist across sessions */
+ods path(prepend) work.templat(update);
+proc template;
+  define style styles.uf_inventory;
+    parent = styles.pearl;
+    class header /
+      backgroundcolor = cx0021A5
+      color           = white
+      fontweight      = bold;
+  end;
+run;
+
+/* ---- Workbook 1: source_inventory.xlsx ---- */
+ods listing close;
+ods excel file="&qc_path.\source_inventory.xlsx"
+    style=styles.uf_inventory
+    options(sheet_interval='proc' frozen_headers='on' autofilter='all');
+
+/* KEY sheet MUST be first (PDD-D-09) */
+ods excel options(sheet_name='KEY');
+proc print data=work.key_legend_inv noobs; run;
+
+ods excel options(sheet_name='SOURCES');
+proc print data=pdd.source_inventory noobs; run;
+
+ods excel options(sheet_name='KEY_ANALYSIS');
+proc print data=pdd.key_analysis noobs; run;
+
+ods excel options(sheet_name='ID_OVERLAP');
+proc print data=pdd.id_overlap noobs; run;
+
+ods excel close;
+ods listing;
+
+%put NOTE: [02_source_guard] qc\source_inventory.xlsx written;
+
+/* ---- Workbook 2: header_matrix.xlsx ---- */
+ods listing close;
+ods excel file="&qc_path.\header_matrix.xlsx"
+    style=styles.uf_inventory
+    options(sheet_interval='proc' frozen_headers='on' autofilter='all');
+
+/* KEY sheet MUST be first (PDD-D-09) */
+ods excel options(sheet_name='KEY');
+proc print data=work.key_legend_hdr noobs; run;
+
+ods excel options(sheet_name='HEADER_LONG');
+proc print data=pdd.header_inventory noobs; run;
+
+ods excel options(sheet_name='HEADER_MATRIX');
+proc print data=work.header_wide noobs; run;
+
+ods excel close;
+ods listing;
+
+%put NOTE: [02_source_guard] qc\header_matrix.xlsx written;
+
+
+/* ============================================================
+   SECTION 15 -- %assert_outputs: final output-existence assertions
+   Verifies all four pdd datasets and both QC workbooks exist.
+   No literal quotes inside %sysfunc(fileexist()) -- path via macro var.
+   ============================================================ */
+%macro assert_outputs;
+  %local _p _n_si;
+
+  /* ---- Four pdd datasets ---- */
+  %if not %sysfunc(exist(pdd.source_inventory)) %then %do;
+    %fail_out(msg=OUTPUT MISSING -- pdd.source_inventory does not exist);
+  %end;
+  %if not %sysfunc(exist(pdd.header_inventory)) %then %do;
+    %fail_out(msg=OUTPUT MISSING -- pdd.header_inventory does not exist);
+  %end;
+  %if not %sysfunc(exist(pdd.key_analysis)) %then %do;
+    %fail_out(msg=OUTPUT MISSING -- pdd.key_analysis does not exist);
+  %end;
+  %if not %sysfunc(exist(pdd.id_overlap)) %then %do;
+    %fail_out(msg=OUTPUT MISSING -- pdd.id_overlap does not exist);
+  %end;
+
+  /* ---- pdd.source_inventory rowcount = 20 ---- */
+  %let _n_si = 0;
+  proc sql noprint;
+    select count(*) into :_n_si trimmed from pdd.source_inventory;
+  quit;
+  %if &_n_si ne 20 %then %do;
+    %fail_out(msg=pdd.source_inventory rowcount = &_n_si -- expected 20);
+  %end;
+
+  /* ---- source_inventory.xlsx ---- */
+  %let _p = &qc_path.\source_inventory.xlsx;
+  %if not %sysfunc(fileexist(&_p)) %then %do;
+    %fail_out(msg=OUTPUT MISSING -- qc\source_inventory.xlsx was not created);
+  %end;
+
+  /* ---- header_matrix.xlsx ---- */
+  %let _p = &qc_path.\header_matrix.xlsx;
+  %if not %sysfunc(fileexist(&_p)) %then %do;
+    %fail_out(msg=OUTPUT MISSING -- qc\header_matrix.xlsx was not created);
+  %end;
+
+  %put NOTE: [02_source_guard] PASS -- all Phase 2 outputs present;
+%mend assert_outputs;
+%assert_outputs;
+
+
+/* ============================================================
+   SECTION 16 -- %restore_log (MUST be the last executable line)
+   Standalone: closes the PROC PRINTTO redirect.
+   Pipeline (in_pipeline=1): no-op.
+   ============================================================ */
+%restore_log;
