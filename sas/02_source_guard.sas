@@ -1128,17 +1128,20 @@ quit;
 %mend _build_spine;
 
 /* Build the three primary spine tables from s09 */
-%if %sysfunc(exist(work.src_s09)) %then %do;
-  %_build_spine(ds=work.src_s09, col=PRECEDE_STUDY_ID, out=work.spine_psid);
-  %_build_spine(ds=work.src_s09, col=ENCRYPTED_MRN,    out=work.spine_mrn);
-  %_build_spine(ds=work.src_s09, col=ENCRYPTED_ENCOUNTER, out=work.spine_enc);
-%end;
-%else %do;
-  %put WARNING: [02_source_guard] work.src_s09 not found -- spine tables will be empty;
-  data work.spine_psid work.spine_mrn work.spine_enc;
-    length spine_key $64; stop;
-  run;
-%end;
+%macro _build_primary_spines;
+  %if %sysfunc(exist(work.src_s09)) %then %do;
+    %_build_spine(ds=work.src_s09, col=PRECEDE_STUDY_ID, out=work.spine_psid);
+    %_build_spine(ds=work.src_s09, col=ENCRYPTED_MRN,    out=work.spine_mrn);
+    %_build_spine(ds=work.src_s09, col=ENCRYPTED_ENCOUNTER, out=work.spine_enc);
+  %end;
+  %else %do;
+    %put WARNING: [02_source_guard] work.src_s09 not found -- spine tables will be empty;
+    data work.spine_psid work.spine_mrn work.spine_enc;
+      length spine_key $64; stop;
+    run;
+  %end;
+%mend _build_primary_spines;
+%_build_primary_spines;
 
 /* Build secondary spines for s04/s05 crosswalk testing */
 %macro _build_secondary_spines;
