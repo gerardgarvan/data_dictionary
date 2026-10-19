@@ -1929,8 +1929,11 @@ quit;
 /* ============================================================
    SECTION 10c -- PDD-D-19 QC: 2022 ID normalisation overlap
    For every file with PRECEDE_STUDY_ID, apply the normalisation rule:
-     all-digit IDs -> cats('Precede', put(input(id, ?? 8.), z5.))
-     AAAAAAA99999 IDs -> unchanged
+     char, all-digit            -> cats('Precede', put(input(id, ?? 8.), z5.))
+     char, digit.decimal form   -> strip decimal suffix, then above
+     char, 7-char prefix (case-insensitive 'Precede') -> 'Precede' + suffix
+     char, other                -> unchanged (already canonical or foreign format)
+     numeric                    -> cats('Precede', put(id, z5.))
    Log per file: n_in_file, n_matching_before, n_matching_after.
    For s17: log n_disagreements among encounter-linked rows after
    excluding the 6 ambiguous ENCRYPTED_ENCOUNTER values (PDD-D-20).
@@ -2011,6 +2014,11 @@ quit;
               orig_key = strip(&_qnkv);
               if prxmatch('/^\d+$/', orig_key) then
                 norm_key = cats('Precede', put(input(orig_key, ?? 8.), z5.));
+              else if prxmatch('/^\d+\./', orig_key) then
+                norm_key = cats('Precede', put(input(scan(orig_key, 1, '.'), ?? 8.), z5.));
+              else if length(orig_key) >= 7 and
+                       lowcase(substr(orig_key, 1, 7)) = 'precede' then
+                norm_key = cats('Precede', substr(orig_key, 8));
               else norm_key = orig_key;
             run;
           %end;
@@ -2175,9 +2183,12 @@ quit;
         %end;
 
         /* PDD-D-19 assert (LOCKED 2026-10-19): normalised s17 PSID must equal s09 PSID
-           for every encounter-linked pair.  Fail immediately if any disagreement remains. */
+           for every encounter-linked pair.  Normalisation rule: strip spaces and decimal
+           suffixes; all-digit or case-insensitive 7-char 'Precede' prefix
+           -> cats('Precede', z5-digit-part); numeric SAS type -> cats('Precede', z5.).
+           Fail immediately if any disagreement remains. */
         %if &_ndis > 0 %then %do;
-          %fail_out(msg=%str(PDD-D-19 ASSERT FAILED: &_ndis s17/s09 PSID pair disagreements after cats('Precede',...) normalisation -- expected 0));
+          %fail_out(msg=%str(PDD-D-19 ASSERT FAILED: &_ndis s17/s09 PSID pair disagreements after extended Precede normalisation (strip/decimal/case-prefix) -- expected 0));
         %end;
 
         proc datasets lib=work nolist nowarn;
@@ -2205,6 +2216,132 @@ quit;
   %_qc_normalisation_2022;
 %mend _run_qc_norm_2022;
 %_run_qc_norm_2022;
+
+
+/* ============================================================
+   SECTION 10d -- Unmatched-ID diagnostics for s01/s08/s20
+   For each file: log key_var_name and SAS type; then, for IDs
+   that did not match spine_psid under the narrow (all-digit-only)
+   rule, log top-10 char-class pattern counts and distinct 7-char
+   prefix values among letter-starting IDs.
+   Counts only -- no ID values logged (no PHI).
+   ============================================================ */
+%macro _diag_unmatched_ids;
+  %local _diag_files _idg _dsc _dds _dkvt _n_unmat _n_pfx;
+  %let _diag_files = s01 s08 s20;
+
+  /* Rebuild spine_psid if the Section 9 cleanup removed it */
+  %if not %sysfunc(exist(work.spine_psid)) %then %do;
+    %if %sysfunc(exist(work.src_s09)) %then
+      %_build_spine(ds=work.src_s09, col=PRECEDE_STUDY_ID, out=work.spine_psid);
+  %end;
+
+  %if not %sysfunc(exist(work.spine_psid)) %then %do;
+    %put WARNING: [02_source_guard] _diag_unmatched_ids: spine_psid unavailable -- section 10d skipped;
+  %end;
+  %else %do;
+    %do _idg = 1 %to 3;
+      %let _dsc  = %scan(&_diag_files, &_idg, %str( ));
+      %let _dds  = work.src_&_dsc;
+      %let _dkvt = ;
+
+      %if not %sysfunc(exist(&_dds)) %then %do;
+        %put NOTE: [02_source_guard] _diag_unmatched_ids: &_dds not found -- skipping &_dsc;
+      %end;
+      %else %do;
+        %_get_col_type(ds=&_dds, col=PRECEDE_STUDY_ID, outmv=_dkvt, nofail=1);
+        %if %length(&_dkvt) = 0 %then %do;
+          %put NOTE: [02_source_guard] _diag_unmatched_ids: &_dsc has no PRECEDE_STUDY_ID -- skipping;
+        %end;
+        %else %do;
+          %put NOTE: [02_source_guard] _diag_unmatched_ids: &_dsc key_var_name=PRECEDE_STUDY_ID type=&_dkvt;
+
+          /* Narrow-norm table: all-digit check only (no prefix/decimal extension) */
+          %if "&_dkvt" = "char" %then %do;
+            data work._diag_norm;
+              length orig_key $64 narrow_norm $64;
+              set &_dds (keep=PRECEDE_STUDY_ID
+                         where=(PRECEDE_STUDY_ID is not missing
+                                and strip(PRECEDE_STUDY_ID) ne ''));
+              orig_key    = strip(PRECEDE_STUDY_ID);
+              if prxmatch('/^\d+$/', orig_key) then
+                narrow_norm = cats('Precede', put(input(orig_key, ?? 8.), z5.));
+              else narrow_norm = orig_key;
+            run;
+          %end;
+          %else %do;
+            data work._diag_norm;
+              length orig_key $64 narrow_norm $64;
+              set &_dds (keep=PRECEDE_STUDY_ID where=(PRECEDE_STUDY_ID is not missing));
+              orig_key    = strip(put(PRECEDE_STUDY_ID, 20.));
+              narrow_norm = cats('Precede', put(PRECEDE_STUDY_ID, z5.));
+            run;
+          %end;
+
+          /* IDs unmatched by narrow rule (neither raw nor narrow_norm in spine) */
+          proc sql noprint;
+            create table work._diag_unmat as
+            select distinct orig_key length=64
+            from work._diag_norm
+            where narrow_norm not in (select spine_key from work.spine_psid)
+              and orig_key   not in (select spine_key from work.spine_psid);
+          quit;
+
+          %let _n_unmat = 0;
+          proc sql noprint;
+            select count(*) into :_n_unmat trimmed from work._diag_unmat;
+          quit;
+          %put NOTE: [02_source_guard] _diag_unmatched_ids: &_dsc n_unmatched_after_narrow_norm=&_n_unmat;
+
+          %if &_n_unmat > 0 %then %do;
+
+            /* Top-10 char-class patterns (A=letter, 9=digit, other chars kept) */
+            proc sql noprint;
+              create table work._diag_pat as
+              select
+                compress(
+                  prxchange('s/[0-9]/9/', -1,
+                    prxchange('s/[A-Za-z]/A/', -1, orig_key)
+                  )
+                , ' ') as pattern length=64,
+                count(*) as n_ids
+              from work._diag_unmat
+              group by calculated pattern
+              order by n_ids desc;
+            quit;
+            data _null_;
+              set work._diag_pat (obs=10);
+              put 'NOTE: [02_source_guard] _diag_unmatched_ids: &_dsc char_pattern=' pattern ' n=' n_ids;
+            run;
+            proc datasets lib=work nolist nowarn; delete _diag_pat; quit;
+
+            /* Distinct 7-char prefix values among letter-starting unmatched IDs */
+            proc sql noprint;
+              create table work._diag_pfx as
+              select distinct substr(orig_key, 1, 7) as prefix7 length=7
+              from work._diag_unmat
+              where prxmatch('/^[A-Za-z]/', orig_key) > 0;
+            quit;
+            %let _n_pfx = 0;
+            proc sql noprint;
+              select count(*) into :_n_pfx trimmed from work._diag_pfx;
+            quit;
+            %put NOTE: [02_source_guard] _diag_unmatched_ids: &_dsc n_distinct_7char_prefix=&_n_pfx;
+            data _null_;
+              set work._diag_pfx;
+              put 'NOTE: [02_source_guard] _diag_unmatched_ids: &_dsc prefix7=' prefix7;
+            run;
+            proc datasets lib=work nolist nowarn; delete _diag_pfx; quit;
+
+          %end;
+
+          proc datasets lib=work nolist nowarn; delete _diag_norm _diag_unmat; quit;
+        %end;
+      %end;
+    %end;
+  %end;
+%mend _diag_unmatched_ids;
+%_diag_unmatched_ids;
 
 
 /* ============================================================
