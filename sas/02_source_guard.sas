@@ -58,12 +58,10 @@
    &sas_path is not yet defined until config runs) */
 %include "C:\data_dictionary\sas\00_config.sas";
 
-/* Verify UTF-8 session before anything else */
-%check_encoding;
-
-/* Assign the pdd output library; abort immediately if it fails */
+/* Assign the pdd output library.
+   %check_encoding and %check_pdd_lib are called below, after %fail_out
+   is defined (Section 1), so they can call %fail_out on failure. */
 %pdd_lib;
-%check_pdd_lib;
 
 /* Older-copy roots (local to this program only -- NOT added to 00_config.sas
    per project constraint; both searched non-recursively in SECTION 7) */
@@ -98,6 +96,10 @@
   %put ERROR: [02_source_guard] &msg;
   %abort cancel;
 %mend fail_out;
+
+/* Encoding and library checks -- placed here so %fail_out is available */
+%check_encoding;
+%check_pdd_lib;
 
 /* Assert that a directory path exists; abort if not */
 %macro check_dir(path=, label=);

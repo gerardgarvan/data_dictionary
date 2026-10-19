@@ -63,23 +63,23 @@ options nodlcreatedir;
    %check_pdd_lib  -- aborts if %pdd_lib failed to assign the pdd libref.
      Call immediately after %pdd_lib; in each program so a bad P: path
      stops the run with a clear message instead of cascading OBS=0 errors.
-   Both macros use %put ERROR + %abort cancel directly (no dependency on
-   %fail_out, which is defined per-program after this config is included).
+   Both macros call %fail_out, so they MUST be called after %fail_out is
+   defined in the calling program (i.e. after Section 1 macros are compiled).
+   They are defined here so they are available to all programs via %include.
    ===================================================================== */
 %macro check_encoding;
-  %if %lowcase(&sysencoding) ne utf-8 %then %do;
-    %put ERROR: [00_config] SESSION ENCODING ERROR -- sysencoding=&sysencoding expected utf-8;
-    %put ERROR: [00_config] Add -config "C:\Program Files\SAS94\SASFoundation\9.4\nls\u8\sasv9.cfg" to the sas.exe call (run_pipeline.cmd does this automatically);
-    %abort cancel;
+  /* %put before the %if so the actual value is always visible in the log */
+  %put NOTE: [00_config] sysencoding = &sysencoding;
+  /* Quote both sides: unquoted utf-8 causes %EVAL to parse - as subtraction */
+  %if "%lowcase(&sysencoding)" ne "utf-8" %then %do;
+    %fail_out(msg=%str(SESSION ENCODING ERROR -- sysencoding=&sysencoding expected utf-8. Add -config ".../nls/u8/sasv9.cfg" to the sas.exe call; run_pipeline.cmd does this automatically));
   %end;
-  %put NOTE: [00_config] sysencoding = &sysencoding (UTF-8 confirmed);
+  %put NOTE: [00_config] sysencoding check passed (UTF-8 confirmed);
 %mend check_encoding;
 
 %macro check_pdd_lib;
   %if %sysfunc(libref(pdd)) ne 0 %then %do;
-    %put ERROR: [00_config] FATAL -- pdd library not assigned. Check out_root path and P: drive mapping;
-    %put ERROR: [00_config] out_root = &out_root;
-    %abort cancel;
+    %fail_out(msg=%str(FATAL -- pdd library not assigned. Check out_root path and P: drive mapping. out_root=&out_root));
   %end;
   %put NOTE: [00_config] pdd library assigned OK (&out_root);
 %mend check_pdd_lib;
