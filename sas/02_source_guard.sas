@@ -190,25 +190,29 @@ libname _doc clear;
   %local _rc _fref _p;
   %let _fref = _dso;
 
-  %local _del_rc;
+  %local _del_rc _del_msg;
   %let _p = &qc_path.\source_inventory.xlsx;
   %if %sysfunc(fileexist(&_p)) %then %do;
-    %let _rc    = %sysfunc(filename(_fref, &_p));
+    %let _rc     = %sysfunc(filename(_fref, &_p));
     %let _del_rc = %sysfunc(fdelete(_fref));
-    %let _rc    = %sysfunc(filename(_fref));
-    %put NOTE: [02_source_guard] deleted stale qc\source_inventory.xlsx (fdelete_rc=&_del_rc);
-    %if &_del_rc ne 0 %then
-      %fail_out(msg=%str(_delete_stale_outputs: fdelete source_inventory.xlsx failed (rc=&_del_rc) -- file may be open));
+    %let _del_msg = %sysfunc(sysmsg());
+    %let _rc     = %sysfunc(filename(_fref));
+    %if &_del_rc = 0 %then
+      %put NOTE: [02_source_guard] deleted stale qc\source_inventory.xlsx;
+    %else
+      %fail_out(msg=%str(_delete_stale_outputs: fdelete source_inventory.xlsx failed (rc=&_del_rc): &_del_msg));
   %end;
 
   %let _p = &qc_path.\header_matrix.xlsx;
   %if %sysfunc(fileexist(&_p)) %then %do;
-    %let _rc    = %sysfunc(filename(_fref, &_p));
+    %let _rc     = %sysfunc(filename(_fref, &_p));
     %let _del_rc = %sysfunc(fdelete(_fref));
-    %let _rc    = %sysfunc(filename(_fref));
-    %put NOTE: [02_source_guard] deleted stale qc\header_matrix.xlsx (fdelete_rc=&_del_rc);
-    %if &_del_rc ne 0 %then
-      %fail_out(msg=%str(_delete_stale_outputs: fdelete header_matrix.xlsx failed (rc=&_del_rc) -- file may be open));
+    %let _del_msg = %sysfunc(sysmsg());
+    %let _rc     = %sysfunc(filename(_fref));
+    %if &_del_rc = 0 %then
+      %put NOTE: [02_source_guard] deleted stale qc\header_matrix.xlsx;
+    %else
+      %fail_out(msg=%str(_delete_stale_outputs: fdelete header_matrix.xlsx failed (rc=&_del_rc): &_del_msg));
   %end;
 
   proc datasets lib=pdd nolist nowarn;
