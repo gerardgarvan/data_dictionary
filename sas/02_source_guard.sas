@@ -501,7 +501,7 @@ quit;
 /* Accumulator: one row per file x sheet x column */
 data work.hdr_all;
   length s_code $4 sheet_name $200 col_name $32 col_type $4
-         col_label $256 col_len 8;
+         col_label $256 col_len 8 original_header $32767;
   stop;
 run;
 
@@ -616,14 +616,52 @@ run;
         %mend _check_dup_hdr;
         %_check_dup_hdr;
 
+        /* Parse raw CSV header into per-column original names (by varnum) */
+        data work._hdr_raw;
+          length raw_col_name $32767 raw_line $32767;
+          raw_line = symget('_rawhdrs');
+          varnum   = 0;
+          _pos     = 1;
+          do while (_pos le length(raw_line));
+            varnum + 1;
+            if substr(raw_line, _pos, 1) = '"' then do;
+              _end = index(substr(raw_line, _pos + 1), '"');
+              if _end = 0 then _end = length(raw_line) - _pos;
+              raw_col_name = substr(raw_line, _pos + 1, _end - 1);
+              _pos = _pos + _end + 1;
+              if _pos le length(raw_line) and
+                 substr(raw_line, _pos, 1) = ',' then _pos + 1;
+            end;
+            else do;
+              _comma = index(substr(raw_line, _pos), ',');
+              if _comma = 0 then do;
+                raw_col_name = substr(raw_line, _pos);
+                _pos = length(raw_line) + 1;
+              end;
+              else do;
+                raw_col_name = substr(raw_line, _pos, _comma - 1);
+                _pos = _pos + _comma;
+              end;
+            end;
+            raw_col_name = strip(raw_col_name);
+            output;
+          end;
+          keep varnum raw_col_name;
+        run;
+
         /* Accumulate header rows from dictionary.columns */
         proc sql noprint;
           insert into work.hdr_all
-            (s_code, sheet_name, col_name, col_type, col_label, col_len)
-          select "&_scode", '', name, type, label, length
-          from dictionary.columns
-          where libname='WORK' and memname=upcase("&_dsname");
+            (s_code, sheet_name, col_name, col_type, col_label, col_len,
+             original_header)
+          select "&_scode", '', d.name, d.type, d.label, d.length,
+                 coalesce(strip(r.raw_col_name), '') as original_header
+          from dictionary.columns d
+          left join work._hdr_raw r on d.varnum = r.varnum
+          where d.libname='WORK' and d.memname=upcase("&_dsname");
         quit;
+
+        proc datasets lib=work nolist nowarn; delete _hdr_raw; quit;
 
         /* Accumulate row/col counts from dictionary.tables */
         proc sql noprint;
@@ -771,8 +809,10 @@ run;
             %if %sysfunc(exist(work.&_sh_ds)) %then %do;
               proc sql noprint;
                 insert into work.hdr_all
-                  (s_code, sheet_name, col_name, col_type, col_label, col_len)
-                select "&_scode", "&&_sh&j", name, type, label, length
+                  (s_code, sheet_name, col_name, col_type, col_label, col_len,
+                   original_header)
+                select "&_scode", "&&_sh&j", name, type, label, length,
+                       label as original_header
                 from dictionary.columns
                 where libname='WORK' and memname=upcase("&_sh_ds");
               quit;
@@ -846,6 +886,7 @@ run;
 /* ---- Write pdd.header_inventory ---- */
 data pdd.header_inventory;
   set work.hdr_all;
+  label original_header = 'Raw column name from source file header (CSV: parsed from first line; XLSX: engine label)';
 run;
 
 %_note_written_ds(ds=pdd.header_inventory, label=pdd.header_inventory)
@@ -877,16 +918,16 @@ proc sql noprint;
     from pdd.header_inventory
     where s_code in ('s03','s07','s09','s10','s12','s15','s17')
       and sheet_name='';
-  select count(distinct col_label) into :_ndist7_lbl trimmed
+  select count(distinct original_header) into :_ndist7_oh trimmed
     from pdd.header_inventory
     where s_code in ('s03','s07','s09','s10','s12','s15','s17')
-      and sheet_name='';
+      and sheet_name='' and original_header ne '';
   select count(*) into :_nrows_all trimmed from pdd.header_inventory;
   select count(distinct col_name) into :_ndist_all trimmed from pdd.header_inventory;
 quit;
 %put NOTE: [02_source_guard] header_inventory 7-CSV rows = &_nrows7. (expect ~701);
 %put NOTE: [02_source_guard] 7-CSV distinct col_name = &_ndist7. (expect ~168);
-%put NOTE: [02_source_guard] 7-CSV distinct original_header (col_label) = &_ndist7_lbl. (expect ~168);
+%put NOTE: [02_source_guard] 7-CSV distinct original_header = &_ndist7_oh. (expect ~168);
 %put NOTE: [02_source_guard] header_inventory all-20 total rows = &_nrows_all.;
 %put NOTE: [02_source_guard] all-20 distinct col_name = &_ndist_all.;
 
@@ -1179,6 +1220,54 @@ proc datasets lib=work nolist nowarn;
   delete key_grain_base;
 quit;
 
+/* QC: s18 duplicate or blank PRECEDE_STUDY_ID rows (pdd.qc_s18_dup) */
+%macro _check_s18_dup;
+  %local _ndup _s18ktype;
+  %let _s18ktype = ;
+  %let _ndup     = 0;
+  %if %sysfunc(exist(work.src_s18)) %then %do;
+    %_get_col_type(ds=work.src_s18, col=PRECEDE_STUDY_ID, outmv=_s18ktype, nofail=1);
+    %if %length(&_s18ktype) = 0 %then %do;
+      %put NOTE: [02_source_guard] s18 lacks PRECEDE_STUDY_ID -- skipping qc_s18_dup;
+    %end;
+    %else %if "&_s18ktype" = "char" %then %do;
+      proc sql noprint;
+        create table pdd.qc_s18_dup as
+        select PRECEDE_STUDY_ID
+        from work.src_s18
+        where missing(PRECEDE_STUDY_ID) or strip(PRECEDE_STUDY_ID) = ''
+           or PRECEDE_STUDY_ID in (
+             select PRECEDE_STUDY_ID from work.src_s18
+             group by PRECEDE_STUDY_ID having count(*) > 1
+           )
+        order by PRECEDE_STUDY_ID;
+        select count(*) into :_ndup trimmed from pdd.qc_s18_dup;
+      quit;
+      %put NOTE: [02_source_guard] qc_s18_dup: &_ndup duplicate or blank PRECEDE_STUDY_ID rows in s18;
+      %_note_written_ds(ds=pdd.qc_s18_dup, label=pdd.qc_s18_dup)
+    %end;
+    %else %do;
+      proc sql noprint;
+        create table pdd.qc_s18_dup as
+        select PRECEDE_STUDY_ID
+        from work.src_s18
+        where missing(PRECEDE_STUDY_ID)
+           or PRECEDE_STUDY_ID in (
+             select PRECEDE_STUDY_ID from work.src_s18
+             group by PRECEDE_STUDY_ID having count(*) > 1
+           )
+        order by PRECEDE_STUDY_ID;
+        select count(*) into :_ndup trimmed from pdd.qc_s18_dup;
+      quit;
+      %put NOTE: [02_source_guard] qc_s18_dup: &_ndup duplicate or blank PRECEDE_STUDY_ID rows in s18;
+      %_note_written_ds(ds=pdd.qc_s18_dup, label=pdd.qc_s18_dup)
+    %end;
+  %end;
+  %else
+    %put WARNING: [02_source_guard] work.src_s18 not found -- skipping qc_s18_dup;
+%mend _check_s18_dup;
+%_check_s18_dup;
+
 
 /* ============================================================
    SECTION 10 -- ID overlap against the s09 spine (pdd.id_overlap)
@@ -1189,7 +1278,7 @@ quit;
    ============================================================ */
 
 /* ---- Determine type of each s09 key column ---- */
-%macro _get_col_type(ds=, col=, outmv=);
+%macro _get_col_type(ds=, col=, outmv=, nofail=0);
   %local _tp _memname;
   %let _tp = ;
   /* Strip libref so memname matches dictionary.columns (e.g. work.src_s06_s1 -> SRC_S06_S1) */
@@ -1200,22 +1289,27 @@ quit;
     where libname='WORK' and memname="&_memname" and upcase(name)=upcase("&col");
   quit;
   %if %length(&_tp) = 0 %then %do;
-    %fail_out(msg=%str(_get_col_type: column &col not found in &ds (memname=&_memname) -- type lookup returned no rows; cannot proceed));
+    %if &nofail = 1 %then %do;
+      %put NOTE: [02_source_guard] _get_col_type: column &col not found in &ds (memname=&_memname) -- returning blank type;
+    %end;
+    %else %do;
+      %fail_out(msg=%str(_get_col_type: column &col not found in &ds (memname=&_memname) -- type lookup returned no rows; cannot proceed));
+    %end;
   %end;
   %let &outmv = &_tp;
 %mend _get_col_type;
 
 /* ---- Build spine lookup tables from src_s09 ---- */
-%macro _build_spine(ds=, col=, out=);
-  /* Check if column exists */
+%macro _build_spine(ds=, col=, out=, result_mv=);
   %local _coltype;
-  %_get_col_type(ds=&ds, col=&col, outmv=_coltype);
+  %_get_col_type(ds=&ds, col=&col, outmv=_coltype, nofail=1);
   %if %length(&_coltype) = 0 %then %do;
-    %put NOTE: [02_source_guard] column &col not found in &ds -- spine &out will be empty;
+    %put NOTE: [02_source_guard] column &col not found in &ds -- spine &out will be empty (key absent in target);
     data &out;
       length spine_key $64;
       stop;
     run;
+    %if %length(&result_mv) > 0 %then %let &result_mv = absent;
   %end;
   %else %if "&_coltype" = "char" %then %do;
     proc sql noprint;
@@ -1224,6 +1318,7 @@ quit;
       from &ds
       where &col is not missing and strip(&col) ne '';
     quit;
+    %if %length(&result_mv) > 0 %then %let &result_mv = ok;
   %end;
   %else %do;
     proc sql noprint;
@@ -1232,6 +1327,7 @@ quit;
       from &ds
       where &col is not missing;
     quit;
+    %if %length(&result_mv) > 0 %then %let &result_mv = ok;
   %end;
 %mend _build_spine;
 
@@ -1253,25 +1349,36 @@ quit;
 
 /* Build secondary spines for s04/s05 crosswalk testing */
 %macro _build_secondary_spines;
+  %global _spine_s16_mrn_status _spine_s17_psid_status _spine_s18_psid_status;
+  %let _spine_s16_mrn_status  = ok;
+  %let _spine_s17_psid_status = ok;
+  %let _spine_s18_psid_status = ok;
+
   /* s16 MRN spine */
   %if %sysfunc(exist(work.src_s16)) %then
-    %_build_spine(ds=work.src_s16, col=ENCRYPTED_MRN, out=work.spine_s16_mrn);
+    %_build_spine(ds=work.src_s16, col=ENCRYPTED_MRN,    out=work.spine_s16_mrn,
+                  result_mv=_spine_s16_mrn_status);
   %else %do;
     data work.spine_s16_mrn; length spine_key $64; stop; run;
+    %let _spine_s16_mrn_status = absent;
   %end;
 
   /* s17 study ID spine */
   %if %sysfunc(exist(work.src_s17)) %then
-    %_build_spine(ds=work.src_s17, col=PRECEDE_STUDY_ID, out=work.spine_s17_psid);
+    %_build_spine(ds=work.src_s17, col=PRECEDE_STUDY_ID, out=work.spine_s17_psid,
+                  result_mv=_spine_s17_psid_status);
   %else %do;
     data work.spine_s17_psid; length spine_key $64; stop; run;
+    %let _spine_s17_psid_status = absent;
   %end;
 
   /* s18 study ID spine */
   %if %sysfunc(exist(work.src_s18)) %then
-    %_build_spine(ds=work.src_s18, col=PRECEDE_STUDY_ID, out=work.spine_s18_psid);
+    %_build_spine(ds=work.src_s18, col=PRECEDE_STUDY_ID, out=work.spine_s18_psid,
+                  result_mv=_spine_s18_psid_status);
   %else %do;
     data work.spine_s18_psid; length spine_key $64; stop; run;
+    %let _spine_s18_psid_status = absent;
   %end;
 %mend _build_secondary_spines;
 %_build_secondary_spines;
@@ -1279,13 +1386,14 @@ quit;
 /* Accumulator for overlap results */
 data work.overlap_all;
   length s_code $4 sheet_name $200 key_column_type $30 key_var_name $32
-         spine_source $8 n_in_file 8 n_matching_spine 8 pct_overlap 8;
+         spine_source $8 n_in_file 8 n_matching_spine 8 pct_overlap 8
+         status $30;
   stop;
 run;
 
 /* Macro to compute one overlap row */
 %macro _compute_overlap(scode=, sheet=, ktype=, kvar=, kvar_type=,
-                         filedsn=, spinedsn=, spine_src=);
+                         filedsn=, spinedsn=, spine_src=, status=ok);
 
   %if not %sysfunc(exist(&filedsn)) %then %do;
     %put NOTE: [02_source_guard] &filedsn does not exist -- skipping overlap for &scode &sheet &ktype;
@@ -1334,7 +1442,8 @@ run;
     /* pct_overlap with divide-by-zero guard */
     data work._ov_row_;
       length s_code $4 sheet_name $200 key_column_type $30 key_var_name $32
-             spine_source $8 n_in_file 8 n_matching_spine 8 pct_overlap 8;
+             spine_source $8 n_in_file 8 n_matching_spine 8 pct_overlap 8
+             status $30;
       s_code           = "&scode";
       sheet_name       = "&sheet";
       key_column_type  = "&ktype";
@@ -1346,6 +1455,7 @@ run;
         pct_overlap = round(100 * &_nmatch / &_nin, 0.1);
       else
         pct_overlap = .;
+      status = "&status";
     run;
     proc append base=work.overlap_all data=work._ov_row_ force; run;
     proc datasets lib=work nolist nowarn; delete _ov_row_; quit;
@@ -1416,18 +1526,53 @@ run;
 
     /* s04/s05: additional spine comparisons */
     %if "&_ov_sc" = "s04" or "&_ov_sc" = "s05" %then %do;
-      %_compute_overlap(scode=&_ov_sc, sheet=&_ov_sh, ktype=&_ov_kt,
-                        kvar=&_ov_kv, kvar_type=&_ov_kvt,
-                        filedsn=&_ov_ds, spinedsn=work.spine_s16_mrn,
-                        spine_src=s16);
-      %_compute_overlap(scode=&_ov_sc, sheet=&_ov_sh, ktype=&_ov_kt,
-                        kvar=&_ov_kv, kvar_type=&_ov_kvt,
-                        filedsn=&_ov_ds, spinedsn=work.spine_s17_psid,
-                        spine_src=s17);
-      %_compute_overlap(scode=&_ov_sc, sheet=&_ov_sh, ktype=&_ov_kt,
-                        kvar=&_ov_kv, kvar_type=&_ov_kvt,
-                        filedsn=&_ov_ds, spinedsn=work.spine_s18_psid,
-                        spine_src=s18);
+      /* s16 crosswalk */
+      %if "&_spine_s16_mrn_status" = "absent" %then %do;
+        %put NOTE: [02_source_guard] s16 lacks key column -- &_ov_sc s16 crosswalk recording key_absent_in_target;
+        proc sql noprint;
+          insert into work.overlap_all
+            (s_code, sheet_name, key_column_type, key_var_name, spine_source, status)
+          values ("&_ov_sc", "&_ov_sh", "&_ov_kt", "&_ov_kv", "s16", "key_absent_in_target");
+        quit;
+      %end;
+      %else %do;
+        %_compute_overlap(scode=&_ov_sc, sheet=&_ov_sh, ktype=&_ov_kt,
+                          kvar=&_ov_kv, kvar_type=&_ov_kvt,
+                          filedsn=&_ov_ds, spinedsn=work.spine_s16_mrn,
+                          spine_src=s16, status=ok);
+      %end;
+
+      /* s17 crosswalk */
+      %if "&_spine_s17_psid_status" = "absent" %then %do;
+        %put NOTE: [02_source_guard] s17 lacks key column -- &_ov_sc s17 crosswalk recording key_absent_in_target;
+        proc sql noprint;
+          insert into work.overlap_all
+            (s_code, sheet_name, key_column_type, key_var_name, spine_source, status)
+          values ("&_ov_sc", "&_ov_sh", "&_ov_kt", "&_ov_kv", "s17", "key_absent_in_target");
+        quit;
+      %end;
+      %else %do;
+        %_compute_overlap(scode=&_ov_sc, sheet=&_ov_sh, ktype=&_ov_kt,
+                          kvar=&_ov_kv, kvar_type=&_ov_kvt,
+                          filedsn=&_ov_ds, spinedsn=work.spine_s17_psid,
+                          spine_src=s17, status=ok);
+      %end;
+
+      /* s18 crosswalk */
+      %if "&_spine_s18_psid_status" = "absent" %then %do;
+        %put NOTE: [02_source_guard] s18 lacks key column -- &_ov_sc s18 crosswalk recording key_absent_in_target;
+        proc sql noprint;
+          insert into work.overlap_all
+            (s_code, sheet_name, key_column_type, key_var_name, spine_source, status)
+          values ("&_ov_sc", "&_ov_sh", "&_ov_kt", "&_ov_kv", "s18", "key_absent_in_target");
+        quit;
+      %end;
+      %else %do;
+        %_compute_overlap(scode=&_ov_sc, sheet=&_ov_sh, ktype=&_ov_kt,
+                          kvar=&_ov_kv, kvar_type=&_ov_kvt,
+                          filedsn=&_ov_ds, spinedsn=work.spine_s18_psid,
+                          spine_src=s18, status=ok);
+      %end;
     %end;
 
   %end;  /* end overlap loop */
@@ -1446,7 +1591,8 @@ data pdd.id_overlap;
     spine_source     = 'Spine dataset used (s09 / s16 / s17 / s18)'
     n_in_file        = 'Distinct non-missing key values in this file'
     n_matching_spine = 'Distinct file keys that appear in the spine'
-    pct_overlap      = 'n_matching_spine / n_in_file * 100 (rounded to 0.1)';
+    pct_overlap      = 'n_matching_spine / n_in_file * 100 (rounded to 0.1)'
+    status           = 'ok or key_absent_in_target';
 run;
 
 %_note_written_ds(ds=pdd.id_overlap, label=pdd.id_overlap)
@@ -1535,6 +1681,7 @@ KEY_ANALYSIS|match_basis|How the key was matched: name / loose / label / none|
 KEY_ANALYSIS|n_rows|Total row count of imported table|
 KEY_ANALYSIS|n_distinct|Count of distinct non-missing key values|
 KEY_ANALYSIS|grain|unique or multi-row (blank for NONE_DETECTED)|
+KEY_ANALYSIS|PRECEDE_STUDY_ID|PRECEDE_STUDY_ID identifies a surgical case|s09: 41,150 IDs, 31,136 distinct ENCRYPTED_MRN
 ID_OVERLAP|s_code|Source code (s01-s20)|
 ID_OVERLAP|sheet_name|Sheet name (blank for CSV)|
 ID_OVERLAP|key_column_type|Key type|
@@ -1543,6 +1690,7 @@ ID_OVERLAP|spine_source|Spine dataset used: s09 / s16 / s17 / s18|
 ID_OVERLAP|n_in_file|Distinct non-missing key values in this file|
 ID_OVERLAP|n_matching_spine|Distinct file keys that appear in the spine|
 ID_OVERLAP|pct_overlap|n_matching_spine / n_in_file * 100 (rounded to 0.1)|
+ID_OVERLAP|status|ok or key_absent_in_target|key_absent_in_target when the target spine file lacks the required key column
 ;
 
 /* KEY legend for header_matrix.xlsx */
@@ -1557,6 +1705,7 @@ HEADER_LONG|col_name|SAS column name as imported|
 HEADER_LONG|col_type|SAS column type: char or num|
 HEADER_LONG|col_label|SAS column label (original header where name was changed)|
 HEADER_LONG|col_len|SAS column length in bytes|
+HEADER_LONG|original_header|Raw column name from source (CSV: parsed from first line; XLSX: engine label)|
 HEADER_MATRIX|col_name|Column name (one row per distinct column across all files)|Rows sorted alphabetically by col_name
 HEADER_MATRIX|(s_code columns)|Cell value = col_type (char / num) or blank if column absent|One column per source file or file-sheet combination
 ;
