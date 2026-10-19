@@ -44,11 +44,10 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
 /* =========================================================================
    PHASE 2 -- Source Guard and Header Inventory
    ========================================================================= */
-/*
 %put NOTE: ---- Phase 2: Source guard and header inventory -------------;
 %include "&sas_path.\02_source_guard.sas";
 %put NOTE: ---- Phase 2 complete --------------------------------------;
-*/
+
 
 
 /* =========================================================================
