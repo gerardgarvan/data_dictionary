@@ -1,13 +1,13 @@
-# Requirements: PeCAN Data Dictionary (PDD)
+﻿# Requirements: PeCAN Data Dictionary (PDD)
 
 Requirement IDs map one-to-one to roadmap phases within Milestone v1.0 and v1.x.
-Locked decisions are referenced by their original IDs (PDD-D-01 … PDD-D-16).
+Locked decisions are referenced by their original IDs (PDD-D-01 â€¦ PDD-D-16).
 
 ---
 
 ## Milestone v1.0: PCNR_ raw layer and dictionary framework
 
-### PDD-01 — Repo and config scaffold
+### PDD-01 â€” Repo and config scaffold
 **Roadmap phase:** Phase 1
 
 The repository skeleton must be in place before any SAS program runs.
@@ -24,7 +24,7 @@ The repository skeleton must be in place before any SAS program runs.
 
 ---
 
-### PDD-02 — Source guard and header inventory
+### PDD-02 â€” Source guard and header inventory
 **Roadmap phase:** Phase 2
 
 Protects the read-only source layer and documents the raw variable universe across all 20 files.
@@ -37,15 +37,15 @@ Protects the read-only source layer and documents the raw variable universe acro
 | ID overlap: for each candidate key per file, count how many values match the s09 spine | Quantifies linkage coverage |
 | Hash comparison against older copies in `P:\PeCAN Master Data\Gerard\raw\master` where the same filename exists | Report as: identical / different / no older copy |
 | Header inventory reads directly from the 20 source files (not renamed copies, not the `g` library) | PDD-D-03: removes the xlsx conversion layer |
-| Header × file matrix across all 20 files | Stored in `pdd.header_inventory` and `qc\header_matrix.xlsx` |
+| Header Ã— file matrix across all 20 files | Stored in `pdd.header_inventory` and `qc\header_matrix.xlsx` |
 | Re-check prior expectations: ~701 CSV header instances, ~168 unique variables, ~41,150-row spine (s09) | Phase 2 authoritative: 148 distinct CSV headers (168 included VARnn names from xlsx copies); 41,150-row spine confirmed |
-| 2022 ID normalisation QC assert (PDD-D-19 LOCKED) | `cats('Precede', put(input(strip(id), ?? 8.), z5.))` — all-digit IDs; already-`Precede99999` unchanged; permanent assert fails if s17/s09 pair disagreements > 0. Run 19:21: 9,001 pairs, ndis=0. `%pdd_norm_psid(in=, out=, idvar=PRECEDE_STUDY_ID)` in `00_config.sas` — identical rule for Phases 3-5. Phase 3 QC items: s01 274 not in spine (1 spine case no PACU row); s18 269 not in spine + 2 dup/blank rows (`pdd.qc_s18_dup`); s06 29 and s11 1 not in spine; s04/s05 4 not in spine |
+| 2022 ID normalisation QC assert (PDD-D-19 LOCKED) | `cats('Precede', put(input(strip(id), ?? 8.), z5.))` â€” all-digit IDs; already-`Precede99999` unchanged; permanent assert fails if s17/s09 pair disagreements > 0. Run 19:21: 9,001 pairs, ndis=0. `%pdd_norm_psid(in=, out=, idvar=PRECEDE_STUDY_ID)` in `00_config.sas` â€” identical rule for Phases 3-5. Phase 3 QC items: s01 274 not in spine (1 spine case no PACU row); s18 269 not in spine + 2 dup/blank rows (`pdd.qc_s18_dup`); s06 29 and s11 1 not in spine; s04/s05 4 not in spine |
 
 **Blocks on:** PDD-D-17 (grain confirmed by Phase 2; s01/s08 integration method pending Gerard in Phase 3). PDD-D-18 (s04/s05 pending Gerard confirmation).
 
 ---
 
-### PDD-03 — Direct import of the 20 sources
+### PDD-03 â€” Direct import of the 20 sources
 **Roadmap phase:** Phase 3
 
 Imports raw data with full fidelity, no PROC IMPORT guessing.
@@ -56,29 +56,29 @@ Imports raw data with full fidelity, no PROC IMPORT guessing.
 | PRECEDE_STUDY_ID and Base Procedure Code 1 read as **character** in all files | Avoids numeric/character type conflict hazard |
 | Every INFILE uses `ENCODING='UTF-8'` | Required for esophagectomy descriptions in Base_Procedure_1 |
 | s19 (ALL_AIM2.xlsx Sheet1): drop rows where PRECEDE_STUDY_ID is missing or all data columns are blank/`NULL`; log kept/dropped counts | PDD-D-08 |
-| Output: `pdd.src_s01` … `pdd.src_s20` | Row counts reconciled in QC |
-| Multi-row files (s01 PACU_STAY, s08 COLONOSCOPY): import as-is; how they enter PCNR_ follows PDD-D-17 integration-method decision (Gerard, Phase 3) | **Blocks on** s01/s08 integration-method decision |
+| Output: `pdd.src_s01` â€¦ `pdd.src_s20` | Row counts reconciled in QC |
+| s01 PACU_STAY and s08 COLONOSCOPY: import as-is; Phase 2 confirmed both are 1:1 per PRECEDE_STUDY_ID (s01 41,423 distinct, s08 3,456 distinct) -- join to spine like any other 1:1 file; 274 s01 IDs not in spine are a QC item | PDD-D-17 fully closed |
 | Crosswalk-keyed files (s04 ENCOUNTER Crypto, s05 MRN Crypto): import and assess; linkage method follows PDD-D-18 (pending Gerard confirmation that s04/s05 are not dictionary variables) | **Blocks on PDD-D-18** for s04, s05 |
 | s06 (2018_2019_Precede_Database.xlsx, 3,987 columns): profile column groups by name prefix/suffix first; import scope follows PDD-D-21 (Gerard decides in Phase 3) | **Blocks on PDD-D-21** for s06 |
 | s17 2022 ID normalisation and blank-encounter handling: apply PDD-D-19 normalisation; set the 6 blank ENCRYPTED_ENCOUNTER values to missing for linkage per PDD-D-20; values stay unchanged in PCNR_ | PDD-D-19 (pending lock), PDD-D-20 |
 
 ---
 
-### PDD-04 — Name map
+### PDD-04 â€” Name map
 **Roadmap phase:** Phase 4
 
 Establishes the authoritative variable naming contract for PCNR_.
 
 | Requirement | Detail |
 |-------------|--------|
-| `04_name_map.sas`: original header → cleaned name → `PCNR_` prefixed name | PDD-D-07 |
-| Names truncated to ≤ 32 characters (≤ 27 after the `PCNR_` prefix); full original name kept as the SAS label and in the NAME_MAP sheet | PDD-D-07 |
+| `04_name_map.sas`: original header â†’ cleaned name â†’ `PCNR_` prefixed name | PDD-D-07 |
+| Names truncated to â‰¤ 32 characters (â‰¤ 27 after the `PCNR_` prefix); full original name kept as the SAS label and in the NAME_MAP sheet | PDD-D-07 |
 | Collision detection: no two variables share the same `PCNR_` name | Logged as ERROR if any collision found |
 | Output: `pdd.name_map` and `qc\name_map.xlsx` for Gerard review | Phase gate requires Gerard sign-off |
 
 ---
 
-### PDD-05 — Build PCNR_ on the spine
+### PDD-05 â€” Build PCNR_ on the spine
 **Roadmap phase:** Phase 5
 
 Assembles the integrated PCNR_ analytic dataset.
@@ -97,7 +97,7 @@ Assembles the integrated PCNR_ analytic dataset.
 
 ---
 
-### PDD-06 — Distribution engine (reusable macro)
+### PDD-06 â€” Distribution engine (reusable macro)
 **Roadmap phase:** Phase 6
 
 Provides a single profiling macro reused by all seven families.
@@ -105,13 +105,13 @@ Provides a single profiling macro reused by all seven families.
 | Requirement | Detail |
 |-------------|--------|
 | `%pdd_profile(lib=, ds=, prefix=, family=)` macro in `sas/macros/` | Called by every family's build phase |
-| Classification logic per PDD-D-06: ≤ 20 distinct levels → count + % per level + missing count; numeric > 20 levels → N, missing, mean, SD, median, Q1/Q3, min, max; high-cardinality text → N distinct + top 10 | PDD-D-06 |
+| Classification logic per PDD-D-06: â‰¤ 20 distinct levels â†’ count + % per level + missing count; numeric > 20 levels â†’ N, missing, mean, SD, median, Q1/Q3, min, max; high-cardinality text â†’ N distinct + top 10 | PDD-D-06 |
 | Output: long-format profile table (variable, stat/level, value, n, pct) stored in `pdd` library | Standardized structure for the workbook writer |
 | Validation: sex and Patient_Type counts from `pdd.pcnr` match PROC FREQ; missing counts exact | QC acceptance criterion |
 
 ---
 
-### PDD-07 — Dictionary workbook writer
+### PDD-07 â€” Dictionary workbook writer
 **Roadmap phase:** Phase 7
 
 Produces the v1.0 deliverable workbook.
@@ -129,29 +129,29 @@ Produces the v1.0 deliverable workbook.
 
 ## Milestone v1.x: Remaining families
 
-Each phase below repeats the source-guard → import → name-map → build → profile → sheet cycle for its family. Phases have no fixed order; whichever gate clears first runs first, except PDD-13 which depends on its inputs.
+Each phase below repeats the source-guard â†’ import â†’ name-map â†’ build â†’ profile â†’ sheet cycle for its family. Phases have no fixed order; whichever gate clears first runs first, except PDD-13 which depends on its inputs.
 
-### PDD-08 — PCNC_ clinic data
+### PDD-08 â€” PCNC_ clinic data
 **Roadmap phase:** Phase 8
 **Gate:** PDD-D-11 (source location supplied by Gerard)
 
-### PDD-09 — CLK_ clock variables
+### PDD-09 â€” CLK_ clock variables
 **Roadmap phase:** Phase 9
 **Gate:** PDD-D-13 (source identified by Gerard)
 
-### PDD-10 — LAB_ pre-operative labs
+### PDD-10 â€” LAB_ pre-operative labs
 **Roadmap phase:** Phase 10
 **Gate:** PDD-D-14 (path and linkage key confirmed)
 
-### PDD-11 — MED_ medications
+### PDD-11 â€” MED_ medications
 **Roadmap phase:** Phase 11
 **Gate:** PDD-D-14 (path and linkage key confirmed)
 
-### PDD-12 — INTRA_ intra-operative
+### PDD-12 â€” INTRA_ intra-operative
 **Roadmap phase:** Phase 12
 **Gate:** PDD-D-14 (path and linkage key confirmed)
 
-### PDD-13 — PCND_ derived variables
+### PDD-13 â€” PCND_ derived variables
 **Roadmap phase:** Phase 13
 **Gate:** PDD-D-12 (definitions supplied by Gerard); depends on PCNR_ and all other resolved families.
 This is where `?`, `NULL`, and `Unknown` cleaning and recoding happens (PDD-D-02 defers all cleaning here).
@@ -170,3 +170,4 @@ This is where `?`, `NULL`, and `Unknown` cleaning and recoding happens (PDD-D-02
 | PDD-D-16 | PDD-05 | Per-cell source flag vs. QC-only summary |
 | PDD-D-17 | PDD-03 (s01, s08), PDD-05 (s01, s08) | Multi-row-per-patient files (PACU_STAY, COLONOSCOPY): aggregate, first/last, wide, or separate long table |
 | PDD-D-18 | PDD-03 (s04, s05), PDD-05 (s04, s05) | Crosswalk-keyed files (ENCOUNTER/MRN Crypto): linkage path, whether they resolve old 2022 ID mismatch |
+

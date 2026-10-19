@@ -1,8 +1,8 @@
----
+﻿---
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: PCNR_ raw layer and dictionary framework
-status: Phase 2 complete — Phase 3 planning next
+status: Phase 2 complete â€” Phase 3 planning next
 last_updated: "2026-10-19T00:00:00Z"
 progress:
   total_phases: 7
@@ -15,13 +15,13 @@ progress:
 
 ## Current position
 
-Phase: 02 (source-guard-and-header-inventory) — COMPLETE
-Next: Phase 03 — Direct import of the 20 sources
+Phase: 02 (source-guard-and-header-inventory) â€” COMPLETE
+Next: Phase 03 â€” Direct import of the 20 sources
 | Field | Value |
 |-------|-------|
-| Milestone | v1.0 — PCNR_ raw layer and dictionary framework |
-| Phase | 02 — Source guard and header inventory |
-| Status | Phase 2 complete — live run 2026-10-19 14:15 passed (exit=1, warnings only, no ERRORs) |
+| Milestone | v1.0 â€” PCNR_ raw layer and dictionary framework |
+| Phase | 02 â€” Source guard and header inventory |
+| Status | Phase 2 complete â€” live run 2026-10-19 14:15 passed (exit=1, warnings only, no ERRORs) |
 | Last updated | 2026-10-19 |
 | Stopped at | Phase 3 planning |
 
@@ -29,24 +29,24 @@ Next: Phase 03 — Direct import of the 20 sources
 
 | Phase | Title | Status |
 |-------|-------|--------|
-| 1 | Repo and config scaffold | ✅ Complete |
-| 2 | Source guard and header inventory | ✅ Complete — live run passed 2026-10-19 14:15 |
-| 3 | Direct import of the 20 sources | ⬜ Not started |
-| 4 | Name map | ⬜ Not started |
-| 5 | Build PCNR_ on the spine | ⬜ Blocked (PDD-D-15, PDD-D-16, PDD-D-17 closed, PDD-D-18 pending) |
-| 6 | Distribution engine | ⬜ Not started |
-| 7 | Dictionary workbook writer | ⬜ Not started |
+| 1 | Repo and config scaffold | âœ… Complete |
+| 2 | Source guard and header inventory | âœ… Complete â€” live run passed 2026-10-19 14:15 |
+| 3 | Direct import of the 20 sources | â¬œ Not started |
+| 4 | Name map | â¬œ Not started |
+| 5 | Build PCNR_ on the spine | â¬œ Blocked (PDD-D-15, PDD-D-16, PDD-D-17 closed, PDD-D-18 pending) |
+| 6 | Distribution engine | â¬œ Not started |
+| 7 | Dictionary workbook writer | â¬œ Not started |
 
 ## Milestone v1.x phase checklist (gated)
 
 | Phase | Title | Gate | Status |
 |-------|-------|------|--------|
-| 8 | PCNC_ clinic data | PDD-D-11 | ⬜ Gated |
-| 9 | CLK_ clock variables | PDD-D-13 | ⬜ Gated |
-| 10 | LAB_ pre-op labs | PDD-D-14 | ⬜ Gated |
-| 11 | MED_ medications | PDD-D-14 | ⬜ Gated |
-| 12 | INTRA_ intra-op | PDD-D-14 | ⬜ Gated |
-| 13 | PCND_ derived variables | PDD-D-12 + all inputs | ⬜ Gated |
+| 8 | PCNC_ clinic data | PDD-D-11 | â¬œ Gated |
+| 9 | CLK_ clock variables | PDD-D-13 | â¬œ Gated |
+| 10 | LAB_ pre-op labs | PDD-D-14 | â¬œ Gated |
+| 11 | MED_ medications | PDD-D-14 | â¬œ Gated |
+| 12 | INTRA_ intra-op | PDD-D-14 | â¬œ Gated |
+| 13 | PCND_ derived variables | PDD-D-12 + all inputs | â¬œ Gated |
 
 ## Open decisions
 
@@ -55,22 +55,23 @@ Next: Phase 03 — Direct import of the 20 sources
 | PDD-D-11 | PCNC_ source location | Phase 8 |
 | PDD-D-12 | PCND_ definitions | Phase 13 |
 | PDD-D-13 | CLK_ source | Phase 9 |
-| PDD-D-14 | LAB_/MED_/INTRA_ paths | Phases 10–12 |
+| PDD-D-14 | LAB_/MED_/INTRA_ paths | Phases 10â€“12 |
 | PDD-D-15 | Gap-fill tie-break order | Phase 5 |
 | PDD-D-16 | Per-cell source flag | Phase 5 |
-| PDD-D-17 | **CLOSED.** Grain confirmed: every file is 1 row per case except s01 and s08. Integration method for s01/s08 still to be decided (Gerard, Phase 3). s18 has 2 dup/blank key rows (qc_s18_dup) for Phase 3 review | Phase 3 (s01, s08), Phase 5 (s01, s08) |
-| PDD-D-18 | s04/s05 appear to be linkage/QC files (same encryption, 100% match) — not dictionary variables. Pending Gerard confirmation | Phase 3 (s04, s05), Phase 5 (s04, s05) |
-| PDD-D-19 | **LOCKED (2026-10-19).** `cats('Precede', put(input(strip(id),??8.),z5.))` — 9,001 pairs, ndis=0 (run 19:21). `%pdd_norm_psid` in `00_config.sas`. Phase 3 QC: s01 274 not in spine (1 spine case no PACU row); s18 269 not in spine, 2 dup/blank rows (`pdd.qc_s18_dup`); s06 29 and s11 1 not in spine; s04/s05 4 not in spine | — |
-| PDD-D-20 | **LOCKED.** 6 s17 ENCRYPTED_ENCOUNTER values that map to >1 PRECEDE_STUDY_ID → set to missing for linkage; unchanged in PCNR_ | Phase 3 (s17) |
-| PDD-D-21 | s06 has 3,987 columns — Phase 3 profiles column groups first; Gerard decides scope | Phase 3 (s06) |
+| PDD-D-17 | **FULLY CLOSED (discuss-3).** All 20 files are 1:1 per PRECEDE_STUDY_ID. s01 (41,423 distinct) and s08 (3,456 distinct) are NOT multi-row -- Phase 2 counts confirm 1:1 grain. 274 s01 IDs not in spine are a QC item. s18 has 2 dup/blank key rows (qc_s18_dup) for Phase 3 review | Phase 3 (s01, s08), Phase 5 (s01, s08) |
+| PDD-D-18 | s04/s05 appear to be linkage/QC files (same encryption, 100% match) â€” not dictionary variables. Pending Gerard confirmation | Phase 3 (s04, s05), Phase 5 (s04, s05) |
+| PDD-D-19 | **LOCKED (2026-10-19).** `cats('Precede', put(input(strip(id),??8.),z5.))` â€” 9,001 pairs, ndis=0 (run 19:21). `%pdd_norm_psid` in `00_config.sas`. Phase 3 QC: s01 274 not in spine (1 spine case no PACU row); s18 269 not in spine, 2 dup/blank rows (`pdd.qc_s18_dup`); s06 29 and s11 1 not in spine; s04/s05 4 not in spine | â€” |
+| PDD-D-20 | **LOCKED.** 6 s17 ENCRYPTED_ENCOUNTER values that map to >1 PRECEDE_STUDY_ID â†’ set to missing for linkage; unchanged in PCNR_ | Phase 3 (s17) |
+| PDD-D-21 | s06 has 3,987 columns â€” Phase 3 profiles column groups first; Gerard decides scope | Phase 3 (s06) |
 
 ## Notes
 
-- PDD-D-15 and PDD-D-16 block Phase 5 only; Phases 1–4 and 6–7 can proceed.
-- PDD-D-17 grain question closed; s01/s08 integration method still open (Gerard, Phase 3).
+- PDD-D-15 and PDD-D-16 block Phase 5 only; Phases 1â€“4 and 6â€“7 can proceed.
+- PDD-D-17 FULLY CLOSED: all 20 files are 1:1 per PRECEDE_STUDY_ID; s01/s08 are NOT multi-row (Phase 2 + discuss-3 confirmed).
 - PDD-D-18 pending Gerard confirmation; PDD-D-19 LOCKED (2026-10-19).
 - Repo lives at `C:\data_dictionary`; data/output at `P:\PeCAN Master Data\Gerard\data_dictionary\`.
 - Source files are strictly read-only at `P:\PeCAN Master Data\00 Shared Data\DSS Received Data\1 Data Files\Master Data`.
 - Older copies exist at `P:\PeCAN Master Data\Gerard\raw\master` for hash comparison only.
 - Phase 2 finding: 148 distinct CSV headers (not 168); spine 41,150 rows confirmed.
 - `_bridge_analysis_2022` fix committed (a99c259): `work.src_s08_s1` resolved via sheet_map in `_diag_unmatched_ids`; hardcoded override retained in `_bridge_analysis_2022`.
+
