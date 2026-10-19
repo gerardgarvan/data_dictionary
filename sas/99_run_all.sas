@@ -51,7 +51,7 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
 
 
 /* =========================================================================
-   PHASE 3 -- Direct Import of 8 Raw Sources
+   PHASE 3 -- Direct Import of 20 Raw Sources
    ========================================================================= */
 /*
 %put NOTE: ---- Phase 3: Direct import of 20 raw sources ------------;

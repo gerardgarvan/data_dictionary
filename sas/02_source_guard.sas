@@ -190,20 +190,25 @@ libname _doc clear;
   %local _rc _fref _p;
   %let _fref = _dso;
 
+  %local _del_rc;
   %let _p = &qc_path.\source_inventory.xlsx;
   %if %sysfunc(fileexist(&_p)) %then %do;
-    %let _rc = %sysfunc(filename(_fref, &_p));
-    %let _rc = %sysfunc(fdelete(_fref));
-    %let _rc = %sysfunc(filename(_fref));
-    %put NOTE: [02_source_guard] deleted stale qc\source_inventory.xlsx (rc=&_rc);
+    %let _rc    = %sysfunc(filename(_fref, &_p));
+    %let _del_rc = %sysfunc(fdelete(_fref));
+    %let _rc    = %sysfunc(filename(_fref));
+    %put NOTE: [02_source_guard] deleted stale qc\source_inventory.xlsx (fdelete_rc=&_del_rc);
+    %if &_del_rc ne 0 %then
+      %fail_out(msg=%str(_delete_stale_outputs: fdelete source_inventory.xlsx failed (rc=&_del_rc) -- file may be open));
   %end;
 
   %let _p = &qc_path.\header_matrix.xlsx;
   %if %sysfunc(fileexist(&_p)) %then %do;
-    %let _rc = %sysfunc(filename(_fref, &_p));
-    %let _rc = %sysfunc(fdelete(_fref));
-    %let _rc = %sysfunc(filename(_fref));
-    %put NOTE: [02_source_guard] deleted stale qc\header_matrix.xlsx (rc=&_rc);
+    %let _rc    = %sysfunc(filename(_fref, &_p));
+    %let _del_rc = %sysfunc(fdelete(_fref));
+    %let _rc    = %sysfunc(filename(_fref));
+    %put NOTE: [02_source_guard] deleted stale qc\header_matrix.xlsx (fdelete_rc=&_del_rc);
+    %if &_del_rc ne 0 %then
+      %fail_out(msg=%str(_delete_stale_outputs: fdelete header_matrix.xlsx failed (rc=&_del_rc) -- file may be open));
   %end;
 
   proc datasets lib=pdd nolist nowarn;
@@ -463,6 +468,15 @@ run;
     quit;
 
     %put NOTE: [02_source_guard] run_hash_guard: n_baseline=&_n_base n_current=&_n_curr n_dup_base=&_n_dup_base n_dup_curr=&_n_dup_curr n_only_base=&_n_only_base n_only_curr=&_n_only_curr n_fname_mismatch=&_n_fname n_sha_mismatch=&_n_sha;
+
+    %if &_n_base  = -1 %then %fail_out(msg=%str(run_hash_guard: baseline count query failed));
+    %if &_n_curr  = -1 %then %fail_out(msg=%str(run_hash_guard: current-scan count query failed));
+    %if &_n_dup_base  = -1 %then %fail_out(msg=%str(run_hash_guard: dup_base query failed));
+    %if &_n_dup_curr  = -1 %then %fail_out(msg=%str(run_hash_guard: dup_curr query failed));
+    %if &_n_only_base = -1 %then %fail_out(msg=%str(run_hash_guard: only_base query failed));
+    %if &_n_only_curr = -1 %then %fail_out(msg=%str(run_hash_guard: only_curr query failed));
+    %if &_n_fname     = -1 %then %fail_out(msg=%str(run_hash_guard: fname query failed));
+    %if &_n_sha       = -1 %then %fail_out(msg=%str(run_hash_guard: sha query failed));
 
     %if &_n_base ne 20 %then
       %fail_out(msg=%str(run_hash_guard: baseline has &_n_base rows -- expected 20));
