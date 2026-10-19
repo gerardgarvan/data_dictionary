@@ -37,7 +37,7 @@ Protects the read-only source layer and documents the raw variable universe acro
 | ID overlap: for each candidate key per file, count how many values match the s09 spine | Quantifies linkage coverage |
 | Hash comparison against older copies in `P:\PeCAN Master Data\Gerard\raw\master` where the same filename exists | Report as: identical / different / no older copy |
 | Header inventory reads directly from the 20 source files (not renamed copies, not the `g` library) | PDD-D-03: removes the xlsx conversion layer |
-| Header × file matrix across all 20 files | Stored in `pdd.header_matrix` and `qc\header_matrix.xlsx` |
+| Header × file matrix across all 20 files | Stored in `pdd.header_inventory` and `qc\header_matrix.xlsx` |
 | Re-check prior expectations: ~701 CSV header instances, ~168 unique variables, ~41,150-row spine (s09) | These are expectations from the prior pipeline; Phase 2 establishes the authoritative counts |
 
 **Blocks on:** PDD-D-17 (multi-row files) and PDD-D-18 (crosswalk-keyed files) are both **decided after** this phase based on its output.
