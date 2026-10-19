@@ -146,9 +146,9 @@ No anti-patterns found:
 | s04/s05 confirmed as linkage/QC files | Same encryption as the masters; 100% match. Not dictionary variables. Pending Gerard confirmation (PDD-D-18) |
 | 7-CSV distinct headers | 148 distinct original headers (not 168 — the earlier count included SAS positional VARnn names from old xlsx copies). Accepted unless header_matrix shows otherwise |
 | s06 column count | s06 (2018_2019_Precede_Database.xlsx) has 3,987 columns. Phase 3 will first profile column groups (by name prefix/suffix) before Gerard decides scope |
-| 2022 ID normalisation (PDD-D-19) | **LOCKED 2026-10-19.** Prefix is `Precede` (mixed case, exact): `cats('Precede', put(input(id, ?? 8.), z5.))`. IDs already of the form `Precede99999` stay unchanged. Verified: 9,001 encounter-linked s17/s09 pairs; ci_match=9001, dig_match=9001, diff=0. Permanent assert in 02_source_guard.sas fails if `_ndis > 0`. Phase 3 QC items: 269 s18 IDs and ~770 s01 IDs that match neither the spine nor s17 |
+| 2022 ID normalisation (PDD-D-19) | **LOCKED 2026-10-19.** `cats('Precede', put(input(strip(id), ?? 8.), z5.))` — all-digit IDs (text or numeric); already-`Precede99999` form unchanged. Run 19:21 confirms: s16/s17 9,215; s18 9,215/9,484; s01 41,149/41,423; s08 3,456/3,456; s20 41,150/41,150; 9,001 encounter-linked pairs, 0 disagreements. `strip()` fix (a99c259) resolved s01/s20 false negatives. `%pdd_norm_psid` added to `00_config.sas` for Phases 3-5. Phase 3 QC items: s01 274 IDs not in spine (1 spine case with no PACU row); s18 269 IDs not in spine, 2 dup/blank rows (`pdd.qc_s18_dup`); s06 29 and s11 1 IDs not in spine; s04/s05 4 IDs not in spine |
 | s17 blank ENCRYPTED_ENCOUNTER | 6 s17 ENCRYPTED_ENCOUNTER values map to >1 PRECEDE_STUDY_ID — treated as encrypted blank; set to missing for linkage only. Values unchanged in PCNR_ (PDD-D-20) |
-| _bridge_analysis_2022 fix needed | Macro looked for `work.src_s08` — correct name is `work.src_s08_s1`. Fix before next run |
+| _bridge_analysis_2022 fix | Macro looked for `work.src_s08` — correct name is `work.src_s08_s1`. Fixed in a99c259: `_diag_unmatched_ids` now uses sheet_map lookup; `_bridge_analysis_2022` hardcoded override retained |
 
 ### Gaps Summary
 

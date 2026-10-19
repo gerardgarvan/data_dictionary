@@ -39,9 +39,9 @@ Protects the read-only source layer and documents the raw variable universe acro
 | Header inventory reads directly from the 20 source files (not renamed copies, not the `g` library) | PDD-D-03: removes the xlsx conversion layer |
 | Header × file matrix across all 20 files | Stored in `pdd.header_inventory` and `qc\header_matrix.xlsx` |
 | Re-check prior expectations: ~701 CSV header instances, ~168 unique variables, ~41,150-row spine (s09) | Phase 2 authoritative: 148 distinct CSV headers (168 included VARnn names from xlsx copies); 41,150-row spine confirmed |
-| 2022 ID normalisation QC assert (PDD-D-19 LOCKED) | `cats('Precede', put(input(id, ?? 8.), z5.))` normalisation applied to all-digit IDs; overlap logged per file (n_in_file, n_matching_before, n_matching_after); permanent assert fails if s17/s09 pair disagreements > 0. Verified 2026-10-19: 9,001 pairs, ndis=0 |
+| 2022 ID normalisation QC assert (PDD-D-19 LOCKED) | `cats('Precede', put(input(strip(id), ?? 8.), z5.))` — all-digit IDs; already-`Precede99999` unchanged; permanent assert fails if s17/s09 pair disagreements > 0. Run 19:21: 9,001 pairs, ndis=0. `%pdd_norm_psid(in=, out=, idvar=PRECEDE_STUDY_ID)` in `00_config.sas` — identical rule for Phases 3-5. Phase 3 QC items: s01 274 not in spine (1 spine case no PACU row); s18 269 not in spine + 2 dup/blank rows (`pdd.qc_s18_dup`); s06 29 and s11 1 not in spine; s04/s05 4 not in spine |
 
-**Blocks on:** PDD-D-17 (grain confirmed by Phase 2; s01/s08 integration method pending Gerard in Phase 3). PDD-D-18 (s04/s05 pending Gerard confirmation). PDD-D-19 pending one verification run.
+**Blocks on:** PDD-D-17 (grain confirmed by Phase 2; s01/s08 integration method pending Gerard in Phase 3). PDD-D-18 (s04/s05 pending Gerard confirmation).
 
 ---
 

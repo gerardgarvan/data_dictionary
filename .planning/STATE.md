@@ -60,7 +60,7 @@ Next: Phase 03 — Direct import of the 20 sources
 | PDD-D-16 | Per-cell source flag | Phase 5 |
 | PDD-D-17 | **CLOSED.** Grain confirmed: every file is 1 row per case except s01 and s08. Integration method for s01/s08 still to be decided (Gerard, Phase 3). s18 has 2 dup/blank key rows (qc_s18_dup) for Phase 3 review | Phase 3 (s01, s08), Phase 5 (s01, s08) |
 | PDD-D-18 | s04/s05 appear to be linkage/QC files (same encryption, 100% match) — not dictionary variables. Pending Gerard confirmation | Phase 3 (s04, s05), Phase 5 (s04, s05) |
-| PDD-D-19 | **LOCKED (2026-10-19).** `cats('Precede', put(input(id,??8.),z5.))` — 9,001 pairs verified, ndis=0. Assert in 02_source_guard.sas. Phase 3 QC: 269 s18 + ~770 s01 IDs not in spine/s17 | — |
+| PDD-D-19 | **LOCKED (2026-10-19).** `cats('Precede', put(input(strip(id),??8.),z5.))` — 9,001 pairs, ndis=0 (run 19:21). `%pdd_norm_psid` in `00_config.sas`. Phase 3 QC: s01 274 not in spine (1 spine case no PACU row); s18 269 not in spine, 2 dup/blank rows (`pdd.qc_s18_dup`); s06 29 and s11 1 not in spine; s04/s05 4 not in spine | — |
 | PDD-D-20 | **LOCKED.** 6 s17 ENCRYPTED_ENCOUNTER values that map to >1 PRECEDE_STUDY_ID → set to missing for linkage; unchanged in PCNR_ | Phase 3 (s17) |
 | PDD-D-21 | s06 has 3,987 columns — Phase 3 profiles column groups first; Gerard decides scope | Phase 3 (s06) |
 
@@ -73,4 +73,4 @@ Next: Phase 03 — Direct import of the 20 sources
 - Source files are strictly read-only at `P:\PeCAN Master Data\00 Shared Data\DSS Received Data\1 Data Files\Master Data`.
 - Older copies exist at `P:\PeCAN Master Data\Gerard\raw\master` for hash comparison only.
 - Phase 2 finding: 148 distinct CSV headers (not 168); spine 41,150 rows confirmed.
-- `_bridge_analysis_2022` macro fix needed before next run: `work.src_s08` → `work.src_s08_s1`.
+- `_bridge_analysis_2022` fix committed (a99c259): `work.src_s08_s1` resolved via sheet_map in `_diag_unmatched_ids`; hardcoded override retained in `_bridge_analysis_2022`.
