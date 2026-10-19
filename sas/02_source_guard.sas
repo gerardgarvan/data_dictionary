@@ -532,10 +532,22 @@ run;
     /* ---- Read this file row into macro vars ---- */
     data _null_;
       set work.file_list(where=(file_id = &i));
-      call symputx('_scode',   s_code,   'G');
-      call symputx('_full',    full_path,'G');
-      call symputx('_ftype',   ftype,    'G');
+      call symputx('_scode',   s_code,   'L');
+      call symputx('_full',    full_path,'L');
+      call symputx('_ftype',   ftype,    'L');
     run;
+
+    /* Guard: abort if macro vars are blank or ftype is unexpected */
+    %if %length(&_scode) = 0 %then %do;
+      %fail_out(msg=%str(import loop: _scode is blank for file_id=&i -- file_list may be empty or misread));
+    %end;
+    %if %length(&_ftype) = 0 %then %do;
+      %fail_out(msg=%str(import loop: _ftype is blank for &_scode -- check file_list DATALINES));
+    %end;
+    %if &_ftype ne csv and &_ftype ne xlsx %then %do;
+      %fail_out(msg=%str(import loop: unexpected ftype=&_ftype for &_scode -- expected csv or xlsx));
+    %end;
+
     %let _dsname = src_&_scode;
     %let fstatus = ;
     %let freason = ;
@@ -552,6 +564,11 @@ run;
         guessingrows=max;
       run;
       %eval_import(target=work.&_dsname);
+
+      /* Guard: abort if import failed */
+      %if &fstatus = read-failed %then %do;
+        %fail_out(msg=%str(import FAILED for &_scode (csv) -- &freason -- path: &_full));
+      %end;
 
       /* Capture raw first-line header (Pitfall 6 check) */
       data _null_;
@@ -580,7 +597,7 @@ run;
             end;
             else _pos = length(_line) + 1;
           end;
-          call symputx('_cnt', _cnt, 'G');
+          call symputx('_cnt', _cnt, 'L');
         run;
         %if &_cnt > 1 %then %do;
           %put WARNING: [02_source_guard] duplicate original header PRECEDE Study ID in &_scode;
@@ -798,6 +815,11 @@ run;
 
       %end;  /* end libref ok */
 
+      /* Guard: abort if xlsx could not be opened or had no sheets */
+      %if &fstatus = read-failed %then %do;
+        %fail_out(msg=%str(import FAILED for &_scode (xlsx) -- &freason -- path: &_full));
+      %end;
+
     %end;  /* end XLSX branch */
 
   %end;  /* end file loop */
@@ -812,6 +834,23 @@ data pdd.header_inventory;
 run;
 
 %_note_written_ds(ds=pdd.header_inventory, label=pdd.header_inventory)
+
+/* Guard: abort if header_inventory is empty -- means import loop imported nothing */
+%macro assert_header_inventory_rows;
+  %local _nhi;
+  %let _nhi = -1;
+  proc sql noprint;
+    select count(*) into :_nhi trimmed from pdd.header_inventory;
+  quit;
+  %if &_nhi = -1 or &sqlrc > 0 %then %do;
+    %fail_out(msg=%str(assert_header_inventory_rows: SELECT INTO failed -- sqlrc=&sqlrc syserr=&syserr));
+  %end;
+  %if &_nhi = 0 %then %do;
+    %fail_out(msg=%str(pdd.header_inventory has 0 rows -- import loop produced no column metadata. Check source file access and import errors above.));
+  %end;
+  %put NOTE: [02_source_guard] assert_header_inventory_rows passed -- &_nhi rows;
+%mend assert_header_inventory_rows;
+%assert_header_inventory_rows;
 
 /* ---- Benchmark NOTEs for header_inventory ---- */
 proc sql noprint;
@@ -1031,7 +1070,7 @@ run;
       data _null_;
         set work.sheet_map;
         if s_code = "&_scode2" and sheet_name = "&_sheet2" then
-          call symputx('_dsref_tmp', strip(sheet_ds), 'G');
+          call symputx('_dsref_tmp', strip(sheet_ds), 'L');
       run;
       %if %length(&_dsref_tmp) > 0 %then %let _dsref = &_dsref_tmp;
       %else %let _dsref = work.src_&_scode2._s1;  /* fallback */
@@ -1327,7 +1366,7 @@ run;
       data _null_;
         set work.sheet_map;
         if s_code = "&_ov_sc" and sheet_name = "&_ov_sh" then
-          call symputx('_ov_ds_tmp', strip(sheet_ds), 'G');
+          call symputx('_ov_ds_tmp', strip(sheet_ds), 'L');
       run;
       %if %length(&_ov_ds_tmp) > 0 %then %let _ov_ds = &_ov_ds_tmp;
       %else %let _ov_ds = work.src_&_ov_sc._s1;  /* fallback */
