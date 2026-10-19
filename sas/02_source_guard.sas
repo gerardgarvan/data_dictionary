@@ -2093,27 +2093,29 @@ quit;
 
         /* Normalise s17 PSID and ENCRYPTED_ENCOUNTER to char in a DATA step */
         %if "&_s17kvt" = "char" %then %do;
-          data work._qn_s17n (keep=enc_key norm_psid);
-            length enc_key $64 norm_psid $64;
+          data work._qn_s17n (keep=enc_key norm_psid s17_raw);
+            length enc_key $64 norm_psid $64 s17_raw $20;
             set work.src_s17 (keep=ENCRYPTED_ENCOUNTER &_s17kv
                               where=(ENCRYPTED_ENCOUNTER is not missing
                                      and &_s17kv is not missing
                                      and strip(&_s17kv) ne ''));
             %if "&_s17enc_type" = "char" %then %do; enc_key = strip(ENCRYPTED_ENCOUNTER); %end;
             %else %do; enc_key = strip(put(ENCRYPTED_ENCOUNTER, 20.)); %end;
+            s17_raw = strip(&_s17kv);
             if prxmatch('/^\d+$/', strip(&_s17kv)) then
               norm_psid = cats('PRECEDE', put(input(strip(&_s17kv), ?? 8.), z5.));
             else norm_psid = strip(&_s17kv);
           run;
         %end;
         %else %do;
-          data work._qn_s17n (keep=enc_key norm_psid);
-            length enc_key $64 norm_psid $64;
+          data work._qn_s17n (keep=enc_key norm_psid s17_raw);
+            length enc_key $64 norm_psid $64 s17_raw $20;
             set work.src_s17 (keep=ENCRYPTED_ENCOUNTER &_s17kv
                               where=(ENCRYPTED_ENCOUNTER is not missing
                                      and &_s17kv is not missing));
             %if "&_s17enc_type" = "char" %then %do; enc_key = strip(ENCRYPTED_ENCOUNTER); %end;
             %else %do; enc_key = strip(put(ENCRYPTED_ENCOUNTER, 20.)); %end;
+            s17_raw = strip(put(&_s17kv, 20.));
             norm_psid = cats('PRECEDE', put(&_s17kv, z5.));
           run;
         %end;
@@ -2175,98 +2177,89 @@ quit;
         /* PDD-D-19 diagnostics -- only when all/most pairs disagree */
         %if %eval(&_ndis > 0 and &_npairs > 0) %then %do;
 
-          /* 1. Prefix distribution: first 7 chars of s09 IDs in matched pairs, and all s09 IDs */
+          /* Step 1: materialise the disagreeing pairs as a work table */
           proc sql noprint;
-            select substr(r.ref_psid,1,7), count(*)
-            into :_pfx_pair_1 - :_pfx_pair_99, :_pfx_pair_n_1 - :_pfx_pair_n_99
+            create table work._d19_pairs as
+            select f.enc_key,
+                   f.s17_raw,
+                   f.norm_psid,
+                   r.ref_psid
             from work._qn_s17n f
             inner join work._qn_s09n r on f.enc_key = r.enc_key
             where f.enc_key not in (select enc_key from work._qn_ambig_s17)
               and f.enc_key not in (select enc_key from work._qn_ambig_s09)
-            group by substr(r.ref_psid,1,7)
-            order by count(*) desc;
-            %let _npfx_pair = &sqlobs;
-
-            select substr(ref_psid,1,7), count(*)
-            into :_pfx_all_1 - :_pfx_all_99, :_pfx_all_n_1 - :_pfx_all_n_99
-            from work._qn_s09n
-            group by substr(ref_psid,1,7)
-            order by count(*) desc;
-            %let _npfx_all = &sqlobs;
+              and f.norm_psid ne r.ref_psid;
           quit;
 
-          %local _i;
-          %put NOTE: [02_source_guard] D-19 DIAG 1a: s09 ID prefix dist in matched pairs (&_npfx_pair distinct):;
-          %do _i = 1 %to &_npfx_pair;
-            %put NOTE: [02_source_guard]   prefix='&&_pfx_pair_&_i' n=&&_pfx_pair_n_&_i;
-          %end;
-          %put NOTE: [02_source_guard] D-19 DIAG 1b: s09 ID prefix dist all 41150 rows (&_npfx_all distinct):;
-          %do _i = 1 %to &_npfx_all;
-            %put NOTE: [02_source_guard]   prefix='&&_pfx_all_&_i' n=&&_pfx_all_n_&_i;
-          %end;
+          /* Step 2: compute diagnostic flags in a data step (?? safe here) */
+          data work._d19_pairs;
+            set work._d19_pairs;
+            length pfx $7;
+            pfx       = substr(ref_psid, 1, 7);
+            ci_match  = (upcase(ref_psid) = upcase(norm_psid));
+            dig_match = (length(ref_psid) >= 12 and length(norm_psid) >= 12 and
+                         substr(ref_psid, 8, 5) = put(input(s17_raw, ?? 8.), z5.));
+            if length(ref_psid) >= 12 and length(norm_psid) >= 12 then
+              diff = input(substr(ref_psid, 8, 5), ?? 8.) - input(s17_raw, ?? 8.);
+            else diff = .;
+            label pfx      = 'First 7 chars of s09 ID'
+                  ci_match = 'upcase(s09) = upcase(norm_s17)'
+                  dig_match= 'substr(s09,8,5) = put(s17_raw z5.)'
+                  diff     = 'input(substr(s09,8,5),8.) - input(s17_raw,8.)';
+          run;
 
-          /* 2. Case-insensitive match */
-          proc sql noprint;
-            select count(*) into :_n_case trimmed
-            from work._qn_s17n f
-            inner join work._qn_s09n r on f.enc_key = r.enc_key
-            where f.enc_key not in (select enc_key from work._qn_ambig_s17)
-              and f.enc_key not in (select enc_key from work._qn_ambig_s09)
-              and upcase(r.ref_psid) = upcase(f.norm_psid);
-          quit;
-          %put NOTE: [02_source_guard] D-19 DIAG 2: pairs matching on upcase: &_n_case / &_npairs;
+          /* Step 3a: prefix distribution in pairs */
+          proc freq data=work._d19_pairs noprint;
+            tables pfx      / missing out=work._d19_pfx_pairs(rename=(count=n_pairs));
+            tables ci_match  / missing out=work._d19_ci;
+            tables dig_match / missing out=work._d19_dig;
+            tables diff      / missing out=work._d19_diff(rename=(count=n_pairs));
+          run;
 
-          /* 3. Digit portion matches (substr s09 pos 8-12 = z5. of s17 numeric ID) */
-          proc sql noprint;
-            select count(*) into :_n_digit trimmed
-            from work._qn_s17n f
-            inner join work._qn_s09n r on f.enc_key = r.enc_key
-            where f.enc_key not in (select enc_key from work._qn_ambig_s17)
-              and f.enc_key not in (select enc_key from work._qn_ambig_s09)
-              and length(r.ref_psid) >= 12
-              and substr(r.ref_psid,8,5) = substr(f.norm_psid,8,5);
-          quit;
-          %put NOTE: [02_source_guard] D-19 DIAG 3: pairs where substr(s09,8,5)=substr(norm_s17,8,5) (digit match, prefix differs): &_n_digit / &_npairs;
+          /* Step 3b: prefix distribution across ALL src_s09 */
+          data work._d19_pfx_all_in;
+            set work._qn_s09n;
+            pfx = substr(ref_psid, 1, 7);
+          run;
+          proc freq data=work._d19_pfx_all_in noprint;
+            tables pfx / missing out=work._d19_pfx_all(rename=(count=n_all_s09));
+          run;
+          proc datasets lib=work nolist nowarn; delete _d19_pfx_all_in; quit;
 
-          /* 4. Top-5 offset distribution: input(substr(s09,8,5),5.) - input(substr(norm_s17,8,5),5.) */
-          proc sql noprint;
-            select calculated diff, count(*)
-            into :_off_1 - :_off_5, :_off_n_1 - :_off_n_5
-            from (select input(substr(r.ref_psid,8,5), ?? 5.) -
-                         input(substr(f.norm_psid,8,5), ?? 5.) as diff
-                  from work._qn_s17n f
-                  inner join work._qn_s09n r on f.enc_key = r.enc_key
-                  where f.enc_key not in (select enc_key from work._qn_ambig_s17)
-                    and f.enc_key not in (select enc_key from work._qn_ambig_s09)
-                    and length(r.ref_psid) >= 12
-                    and length(f.norm_psid) >= 12
-                    and input(substr(r.ref_psid,8,5), ?? 5.) is not missing
-                    and input(substr(f.norm_psid,8,5), ?? 5.) is not missing)
-            group by calculated diff
-            order by count(*) desc;
-            %let _noff = &sqlobs;
-          quit;
-          %put NOTE: [02_source_guard] D-19 DIAG 4: top-5 offset (s09_digit - s17_digit):;
-          %do _i = 1 %to %sysfunc(min(&_noff,5));
-            %put NOTE: [02_source_guard]   offset=&&_off_&_i n=&&_off_n_&_i;
-          %end;
+          /* Step 4: sort diff by count desc, keep top 5 for log */
+          proc sort data=work._d19_diff; by descending n_pairs; run;
 
-          /* 5. s09 IDs in pairs that are NOT from s03/s07/s10/s12/s15 blocks */
-          proc sql noprint;
-            select count(*) into :_n_s09_block trimmed
-            from work._qn_s17n f
-            inner join work._qn_s09n r on f.enc_key = r.enc_key
-            where f.enc_key not in (select enc_key from work._qn_ambig_s17)
-              and f.enc_key not in (select enc_key from work._qn_ambig_s09)
-              and substr(r.ref_psid,1,7) not in
-                  ('S03_PSI','S07_PSI','S10_PSI','S12_PSI','S15_PSI');
-          quit;
-          %put NOTE: [02_source_guard] D-19 DIAG 5: pairs where s09 ID NOT in s03/s07/s10/s12/s15 block: &_n_s09_block / &_npairs (expect 0);
+          /* Log to SAS log */
+          %put NOTE: [02_source_guard] D-19 DIAG 1a: s09 prefix dist in disagreeing pairs:;
+          data _null_;
+            set work._d19_pfx_pairs;
+            put "NOTE: [02_source_guard]   pfx='" pfx "' n=" n_pairs;
+          run;
+          %put NOTE: [02_source_guard] D-19 DIAG 1b: s09 prefix dist all src_s09:;
+          data _null_;
+            set work._d19_pfx_all;
+            put "NOTE: [02_source_guard]   pfx='" pfx "' n=" n_all_s09;
+          run;
+          %put NOTE: [02_source_guard] D-19 DIAG 2: ci_match distribution:;
+          data _null_;
+            set work._d19_ci;
+            put "NOTE: [02_source_guard]   ci_match=" ci_match " n=" count;
+          run;
+          %put NOTE: [02_source_guard] D-19 DIAG 3: dig_match distribution:;
+          data _null_;
+            set work._d19_dig;
+            put "NOTE: [02_source_guard]   dig_match=" dig_match " n=" count;
+          run;
+          %put NOTE: [02_source_guard] D-19 DIAG 4: top-5 offset (s09_digit - s17_raw):;
+          data _null_;
+            set work._d19_diff(obs=5);
+            put "NOTE: [02_source_guard]   diff=" diff " n=" n_pairs;
+          run;
 
         %end;
 
         proc datasets lib=work nolist nowarn;
-          delete _qn_s17n _qn_s09n _qn_ambig_s17 _qn_ambig_s09;
+          delete _qn_s17n _qn_s09n _qn_ambig_s17 _qn_ambig_s09 _d19_pairs;
         quit;
 
         %if &_ndis = -1 %then
@@ -2477,6 +2470,20 @@ proc print data=pdd.key_analysis noobs; run;
 
 ods excel options(sheet_name='ID_OVERLAP');
 proc print data=pdd.id_overlap noobs; run;
+
+/* QC_D19 sheet: written only when diagnostic tables exist (D-19 not yet locked) */
+%macro _write_d19_sheet;
+  %if %sysfunc(exist(work._d19_pfx_pairs)) %then %do;
+    ods excel options(sheet_name='QC_D19');
+    proc print data=work._d19_pfx_pairs    noobs label; title 'D-19 DIAG 1a: s09 prefix in disagreeing pairs'; run;
+    proc print data=work._d19_pfx_all      noobs label; title 'D-19 DIAG 1b: s09 prefix all src_s09'; run;
+    proc print data=work._d19_ci           noobs label; title 'D-19 DIAG 2: case-insensitive match'; run;
+    proc print data=work._d19_dig          noobs label; title 'D-19 DIAG 3: digit-portion match'; run;
+    proc print data=work._d19_diff(obs=5)  noobs label; title 'D-19 DIAG 4: top-5 offset (s09_digit - s17_raw)'; run;
+    title;
+  %end;
+%mend _write_d19_sheet;
+%_write_d19_sheet;
 
 ods excel close;
 ods listing;
