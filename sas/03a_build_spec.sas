@@ -731,6 +731,219 @@ data work.spec_typed;
 run;
 
 
+/* ============================================================
+   SECTION 5c.5 -- XLSX char-length measurement (s06/s08/s11/s19)
+   Runs AFTER spec_typed so forced-char rules are known.
+   Persists pdd.xlsx_char_lengths (file_code, sheet_name, src_name, max_len).
+   ============================================================ */
+
+/* Helper: resolve sheet name from source_inventory with known fallbacks */
+%macro _xlsx_sheet_name(fc=, outmv=);
+  %global &outmv;
+  %let &outmv = ;
+  %local _sn;
+  %let _sn = ;
+  proc sql noprint;
+    select strip(coalesce(sheet_name, '')) into :_sn trimmed
+    from pdd.source_inventory
+    where s_code = "&fc"
+    having count(*) > 0;
+  quit;
+  %if %length(%superq(_sn)) = 0 %then %do;
+    %if "&fc" = "s06" %then %let _sn = 2018_2019_PRECEDE_DATABASE;
+    %else %if "&fc" = "s08" %then %let _sn = Sheet1;
+    %else %if "&fc" = "s11" %then %let _sn = Sheet1;
+    %else %if "&fc" = "s19" %then %let _sn = Sheet1;
+    %put NOTE: [03a_build_spec] &fc sheet name fallback used: &_sn;
+  %end;
+  %else %put NOTE: [03a_build_spec] &fc sheet name from source_inventory: &_sn;
+  %let &outmv = &_sn;
+%mend _xlsx_sheet_name;
+
+/* Accumulator for all 4 XLSX files */
+data work._xlsx_char_lens_all;
+  length file_code $4 sheet_name $256 src_name $256 max_len 8;
+  stop;
+run;
+
+/* Measure max char lengths for one XLSX file.
+   Pass A: engine-character columns via _character_ array (retain _ml1-_ml5000).
+   Pass B: engine-numeric columns that spec forces to C (lengthn(cats(x))). */
+%macro _measure_xlsx_char_lens(fc=, fpath=, sheet=);
+  %local _librc _n_numforce _jnf;
+
+  libname _xlmsr "&fpath" xlsx;
+  %let _librc = %sysfunc(libref(_xlmsr));
+  %if &_librc ne 0 %then
+    %fail_out(msg=%str(_measure_xlsx_char_lens -- LIBNAME XLSX failed for &fc -- &fpath));
+
+  /* Pass A: engine-character columns.
+     5000-element retain array covers s06 (up to ~3987 char cols). */
+  data work._xlcl_a_&fc (keep=file_code sheet_name src_name max_len);
+    length file_code $4 sheet_name $256 src_name $256 max_len 8;
+    retain _ml1-_ml5000 0;
+    array _c {*} _character_;
+    array _m {5000} _ml1-_ml5000;
+    set _xlmsr."&sheet"n end=_eof;
+    do _j = 1 to dim(_c);
+      if lengthn(_c{_j}) > _m{_j} then _m{_j} = lengthn(_c{_j});
+    end;
+    if _eof then do;
+      file_code  = "&fc";
+      sheet_name = "&sheet";
+      do _j = 1 to dim(_c);
+        src_name = vname(_c{_j});
+        max_len  = _m{_j};
+        output;
+      end;
+    end;
+  run;
+
+  /* Pass B: engine-numeric columns forced to C in spec_typed.
+     Identify via dictionary.columns while _xlmsr is still assigned. */
+  %let _n_numforce = 0;
+  proc sql noprint;
+    select count(*) into :_n_numforce trimmed
+    from work.spec_typed s
+    inner join dictionary.columns d
+      on  upcase(d.libname)        = 'XLMSR'
+      and upcase(d.memname)        = upcase("&sheet")
+      and upcase(strip(d.name))    = upcase(strip(s.src_name))
+    where s.file_code = "&fc"
+      and s.sas_type  = 'C'
+      and d.type      = 'num';
+
+    select strip(s.src_name)
+    into :_nf_col1-:_nf_col999
+    from work.spec_typed s
+    inner join dictionary.columns d
+      on  upcase(d.libname)        = 'XLMSR'
+      and upcase(d.memname)        = upcase("&sheet")
+      and upcase(strip(d.name))    = upcase(strip(s.src_name))
+    where s.file_code = "&fc"
+      and s.sas_type  = 'C'
+      and d.type      = 'num'
+    order by s.col_order;
+  quit;
+
+  %put NOTE: [03a_build_spec] &fc engine-numeric forced-C cols: &_n_numforce;
+
+  %if &_n_numforce > 0 %then %do;
+    data work._xlcl_b_&fc (keep=file_code sheet_name src_name max_len);
+      length file_code $4 sheet_name $256 src_name $256 max_len 8;
+      retain _mnf1-_mnf&_n_numforce 0;
+      array _mnf {&_n_numforce} _mnf1-_mnf&_n_numforce;
+      set _xlmsr."&sheet"n end=_eof;
+      %do _jnf = 1 %to &_n_numforce;
+        if lengthn(cats(&&_nf_col&_jnf)) > _mnf{&_jnf}
+          then _mnf{&_jnf} = lengthn(cats(&&_nf_col&_jnf));
+      %end;
+      if _eof then do;
+        file_code  = "&fc";
+        sheet_name = "&sheet";
+        %do _jnf = 1 %to &_n_numforce;
+          src_name = "&&_nf_col&_jnf";
+          max_len  = _mnf{&_jnf};
+          output;
+        %end;
+      end;
+    run;
+
+    proc append base=work._xlcl_a_&fc data=work._xlcl_b_&fc; run;
+    proc datasets lib=work nolist nowarn; delete _xlcl_b_&fc; quit;
+  %end;
+
+  libname _xlmsr clear;
+
+  proc append base=work._xlsx_char_lens_all data=work._xlcl_a_&fc; run;
+  proc datasets lib=work nolist nowarn; delete _xlcl_a_&fc; quit;
+
+  %put NOTE: [03a_build_spec] &fc XLSX char-length measurement complete;
+%mend _measure_xlsx_char_lens;
+
+/* Run measurement for all 4 XLSX files */
+%macro _run_xlsx_measurement;
+  %local _n_xlsx _ix _xsc _xfp _xshmv _xsh_val;
+
+  proc sql noprint;
+    select count(*) into :_n_xlsx trimmed
+    from work.file_list
+    where ftype = 'xlsx';
+    select s_code, full_path
+    into :_xlsx_sc1-:_xlsx_sc999, :_xlsx_fp1-:_xlsx_fp999
+    from work.file_list
+    where ftype = 'xlsx'
+    order by file_id;
+  quit;
+
+  %do _ix = 1 %to &_n_xlsx;
+    %let _xsc    = &&_xlsx_sc&_ix;
+    %let _xfp    = &&_xlsx_fp&_ix;
+    %let _xshmv  = _xsh_&_xsc;
+    %_xlsx_sheet_name(fc=&_xsc, outmv=&_xshmv);
+    %let _xsh_val = &&&_xshmv;
+    %if %length(%superq(_xsh_val)) = 0 %then
+      %fail_out(msg=%str(_run_xlsx_measurement -- could not determine sheet name for &_xsc));
+    %_measure_xlsx_char_lens(fc=&_xsc, fpath=&_xfp, sheet=&_xsh_val);
+  %end;
+%mend _run_xlsx_measurement;
+%_run_xlsx_measurement;
+
+/* Persist pdd.xlsx_char_lengths */
+data pdd.xlsx_char_lengths;
+  length file_code $4 sheet_name $256 src_name $256 max_len 8;
+  set work._xlsx_char_lens_all;
+run;
+%_note_written_ds(ds=pdd.xlsx_char_lengths, label=pdd.xlsx_char_lengths);
+proc datasets lib=work nolist nowarn; delete _xlsx_char_lens_all; quit;
+
+/* Validate: log per-XLSX-file counts; fail if matched < in-spec */
+%macro _validate_xlsx_char_lens;
+  %local _n_xlsx_fc _ix _xfc _n_inspec _n_measured _n_matched;
+
+  proc sql noprint;
+    select count(*) into :_n_xlsx_fc trimmed
+    from work.file_list
+    where ftype = 'xlsx';
+    select s_code
+    into :_xlv_sc1-:_xlv_sc999
+    from work.file_list
+    where ftype = 'xlsx'
+    order by file_id;
+  quit;
+
+  %do _ix = 1 %to &_n_xlsx_fc;
+    %let _xfc      = &&_xlv_sc&_ix;
+    %let _n_inspec   = 0;
+    %let _n_measured = 0;
+    %let _n_matched  = 0;
+
+    proc sql noprint;
+      select count(*) into :_n_inspec trimmed
+      from work.spec_typed
+      where file_code = "&_xfc" and sas_type = 'C';
+
+      select count(*) into :_n_measured trimmed
+      from pdd.xlsx_char_lengths
+      where upcase(strip(file_code)) = upcase(strip("&_xfc"));
+
+      select count(*) into :_n_matched trimmed
+      from work.spec_typed s
+      inner join pdd.xlsx_char_lengths x
+        on  upcase(strip(x.file_code)) = upcase(strip(s.file_code))
+        and upcase(strip(x.src_name))  = upcase(strip(s.src_name))
+      where s.file_code = "&_xfc" and s.sas_type = 'C';
+    quit;
+
+    %put NOTE: [03a_build_spec] &_xfc XLSX char cols -- in-spec=&_n_inspec measured=&_n_measured matched=&_n_matched;
+
+    %if &_n_matched < &_n_inspec %then
+      %fail_out(msg=%str(&_xfc XLSX char cols matched=&_n_matched < in-spec=&_n_inspec -- check src_name join between spec_typed and xlsx_char_lengths));
+  %end;
+%mend _validate_xlsx_char_lens;
+%_validate_xlsx_char_lens;
+
+
 /* --- 5d. Numeric informat probing (CSV only; N-type cols after forced-char rules) ---
    For XLSX: trust engine; assign informat='best32.' and format=''.
    For CSV N columns: probe the source file for parse failures.
@@ -751,11 +964,15 @@ proc sql noprint;
     s.inferred_type,
     s.sas_type,
     s._forced_char_reason,
-    coalesce(r.max_len, 0) as raw_max_len
+    coalesce(r.max_len, 0) as raw_max_len,
+    coalesce(x.max_len, 0) as xlsx_max_len
   from work.spec_typed s
   left join pdd.raw_char_lengths r
     on  s.file_code = r.s_code
-    and s.col_order = r.col_order;
+    and s.col_order = r.col_order
+  left join pdd.xlsx_char_lengths x
+    on  upcase(strip(x.file_code)) = upcase(strip(s.file_code))
+    and upcase(strip(x.src_name))  = upcase(strip(s.src_name));
 quit;
 
 /* Determine if any CSV files have N-type columns requiring probing */
@@ -1014,6 +1231,7 @@ proc sql noprint;
     end as sas_type,
     s._forced_char_reason,
     s.raw_max_len,
+    s.xlsx_max_len,
     f.ftype,
     coalesce(p.parse_fail_best32, .) as parse_fail_best32,
     coalesce(p.best_informat, '') as best_informat,
@@ -1044,10 +1262,11 @@ data work.spec_final;
       if _is_id_col then length_ = max(raw_max_len + 4, 8);
       else               length_ = max(raw_max_len, 8);
     end;
-    else do; /* XLSX */
-      length_ = 64;
+    else do; /* XLSX: measured max from pdd.xlsx_char_lengths */
+      if _is_id_col then length_ = max(xlsx_max_len + 4, 8);
+      else               length_ = max(xlsx_max_len, 8);
     end;
-    informat = cats('$', put(length_, 8.), '.');
+    informat = cats('$', strip(put(length_, best32.)), '.');
     format   = '';
   end;
   else do; /* N */
@@ -1102,7 +1321,7 @@ data work.spec_final;
   rename length_ = length;
 
   keep file_code col_order src_name orig_col_name sas_name sas_type length
-       informat format notes;
+       informat format notes xlsx_max_len;
 run;
 
 proc datasets lib=work nolist nowarn;
@@ -1143,9 +1362,113 @@ quit;
 %_assert_col_order;
 
 
+/* --- 5f.2. Hard asserts on spec_final before CSV write --- */
+
+%macro _assert_spec_final;
+  %local _n1 _n2 _n3 _n4;
+
+  /* Assert 1: no missing or < 1 length */
+  %let _n1 = -1;
+  proc sql noprint;
+    select count(*) into :_n1 trimmed
+    from work.spec_final
+    where missing(length) or length < 1;
+  quit;
+  %if %length(&_n1) = 0 or &_n1 = -1 %then
+    %fail_out(msg=%str(_assert_spec_final assert1 -- count not populated));
+  %if &_n1 > 0 %then %do;
+    proc sql;
+      select file_code, count(*) as n
+      from work.spec_final
+      where missing(length) or length < 1
+      group by file_code;
+    quit;
+    %fail_out(msg=%str(&_n1 spec_final rows have missing or < 1 length -- counts by file_code shown above));
+  %end;
+  %put NOTE: [03a_build_spec] Assert 1 passed -- no missing or < 1 length;
+
+  /* Assert 2: no missing informat */
+  %let _n2 = -1;
+  proc sql noprint;
+    select count(*) into :_n2 trimmed
+    from work.spec_final
+    where missing(informat) or strip(informat) = '';
+  quit;
+  %if %length(&_n2) = 0 or &_n2 = -1 %then
+    %fail_out(msg=%str(_assert_spec_final assert2 -- count not populated));
+  %if &_n2 > 0 %then %do;
+    proc sql;
+      select file_code, count(*) as n
+      from work.spec_final
+      where missing(informat) or strip(informat) = ''
+      group by file_code;
+    quit;
+    %fail_out(msg=%str(&_n2 spec_final rows have missing informat -- counts by file_code shown above));
+  %end;
+  %put NOTE: [03a_build_spec] Assert 2 passed -- no missing informat;
+
+  /* Assert 3: every C row -- informat length extracted from $<n>. equals length */
+  %let _n3 = -1;
+  proc sql noprint;
+    select count(*) into :_n3 trimmed
+    from work.spec_final
+    where sas_type = 'C'
+      and input(compress(strip(informat), '$.'), best32.) ne length;
+  quit;
+  %if %length(&_n3) = 0 or &_n3 = -1 %then
+    %fail_out(msg=%str(_assert_spec_final assert3 -- count not populated));
+  %if &_n3 > 0 %then %do;
+    proc sql;
+      select file_code, sas_name, length, informat
+      from work.spec_final
+      where sas_type = 'C'
+        and input(compress(strip(informat), '$.'), best32.) ne length;
+    quit;
+    %fail_out(msg=%str(&_n3 C rows whose informat length does not equal length -- rows shown above));
+  %end;
+  %put NOTE: [03a_build_spec] Assert 3 passed -- all C row informat lengths match length;
+
+  /* Assert 4: XLSX C rows -- spec length >= measured xlsx_max_len */
+  %let _n4 = -1;
+  proc sql noprint;
+    select count(*) into :_n4 trimmed
+    from work.spec_final s
+    inner join work.file_list f on s.file_code = f.s_code
+    where f.ftype = 'xlsx'
+      and s.sas_type = 'C'
+      and s.length < s.xlsx_max_len;
+  quit;
+  %if %length(&_n4) = 0 or &_n4 = -1 %then
+    %fail_out(msg=%str(_assert_spec_final assert4 -- count not populated));
+  %if &_n4 > 0 %then %do;
+    proc sql;
+      select s.file_code, s.sas_name, s.xlsx_max_len, s.length, s.informat
+      from work.spec_final s
+      inner join work.file_list f on s.file_code = f.s_code
+      where f.ftype = 'xlsx' and s.sas_type = 'C' and s.length < s.xlsx_max_len;
+    quit;
+    %fail_out(msg=%str(&_n4 XLSX C columns whose spec length is below measured xlsx_max_len -- rows shown above));
+  %end;
+  %put NOTE: [03a_build_spec] Assert 4 passed -- all XLSX C lengths >= measured xlsx_max_len;
+
+%mend _assert_spec_final;
+%_assert_spec_final;
+
+
+/* --- 5f.3. 10-row sample of XLSX char columns --- */
+%put NOTE: [03a_build_spec] 10-row sample XLSX char cols (file_code sas_name xlsx_max_len length informat):;
+proc sql outobs=10;
+  select s.file_code, s.sas_name, s.xlsx_max_len, s.length, s.informat
+  from work.spec_final s
+  inner join work.file_list f on s.file_code = f.s_code
+  where f.ftype = 'xlsx' and s.sas_type = 'C'
+  order by s.file_code, s.col_order;
+quit;
+
+
 /* --- 5g. Persist pdd.import_spec --- */
 data pdd.import_spec;
-  set work.spec_final;
+  set work.spec_final (drop=xlsx_max_len);
 run;
 
 %_note_written_ds(ds=pdd.import_spec, label=pdd.import_spec);
@@ -1198,13 +1521,13 @@ data _null_;
   length _q_fc $10 _q_co $12 _q_sn $300 _q_oc $300 _q_nm $40 _q_st $4
          _q_le $12 _q_inf $34 _q_fmt $34 _q_no $600;
 
-  /* Numeric col_order and length don't need quoting */
-  _q_fc  = file_code;
+  /* All fields stripped before quoting -- no padded values in output */
+  _q_fc  = strip(file_code);
   _q_co  = strip(put(col_order, best32.));
   _q_sn  = '"' || tranwrd(strip(src_name),      '"', '""') || '"';
   _q_oc  = '"' || tranwrd(strip(orig_col_name),  '"', '""') || '"';
   _q_nm  = '"' || tranwrd(strip(sas_name),        '"', '""') || '"';
-  _q_st  = sas_type;
+  _q_st  = strip(sas_type);
   _q_le  = strip(put(length, best32.));
   _q_inf = '"' || tranwrd(strip(informat),        '"', '""') || '"';
   _q_fmt = '"' || tranwrd(strip(format),          '"', '""') || '"';

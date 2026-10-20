@@ -188,6 +188,15 @@ data work.spec_gen;
          encoding='utf-8' dsd dlm=',' missover firstobs=2 lrecl=32767;
   input file_code $ col_order src_name $ orig_col_name $ sas_name $
         sas_type $ length_ informat $ format $ notes $;
+  /* Strip all character fields to remove CSV padding */
+  file_code     = strip(file_code);
+  src_name      = strip(src_name);
+  orig_col_name = strip(orig_col_name);
+  sas_name      = strip(sas_name);
+  sas_type      = strip(sas_type);
+  informat      = strip(informat);
+  format        = strip(format);
+  notes         = strip(notes);
   /* Rename length_ -> length after read (length is a reserved word in step
      context but fine as a variable name after assignment) */
   rename length_ = spec_length;
@@ -212,6 +221,14 @@ options errors=20;
              encoding='utf-8' dsd dlm=',' missover firstobs=2 lrecl=32767;
       input file_code $ col_order src_name $ orig_col_name $ sas_name $
             sas_type $ length_ informat $ format $ notes $;
+      file_code     = strip(file_code);
+      src_name      = strip(src_name);
+      orig_col_name = strip(orig_col_name);
+      sas_name      = strip(sas_name);
+      sas_type      = strip(sas_type);
+      informat      = strip(informat);
+      format        = strip(format);
+      notes         = strip(notes);
       rename length_ = spec_length;
     run;
     options errors=20;
