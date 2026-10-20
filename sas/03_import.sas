@@ -318,6 +318,7 @@ run;
 
 /* Generate one DATA step per CSV file; emit all sections at last.file_code.
    Arrays buffer column metadata; type branching is DATA-step if/then/else. */
+%let _gen_chk_fail = 0;
 data _null_;
   array _sn  {2000} $32  _sn1-_sn2000;   /* sas_name */
   array _st  {2000} $1   _st1-_st2000;   /* sas_type */
@@ -328,7 +329,8 @@ data _null_;
   retain _sn1-_sn2000 ' ' _st1-_st2000 ' ' _sl1-_sl2000 0
          _si1-_si2000 ' ' _so1-_so2000 ' '
          _nc 0 _target _fpath ' ';
-  length line $2000 _lbl $512;
+  retain _chk_fail 0;
+  length line $2000;
 
   set work._spec_csv end=_last;
   by file_code;
@@ -355,29 +357,36 @@ data _null_;
 
   if last.file_code then do;
     /* DATA + INFILE -- single quotes around path: & and % do not expand */
-    line = cats('data ', strip(_target), ';');
+    line = catx(' ', 'data', strip(_target)) || ';';
+    if not prxmatch('/^data (pdd\.src_s\d\d|work\.src_s18_raw);$/', strip(line)) then do;
+      put 'ERROR: [03_import gen] unexpected DATA line: ' line;
+      _chk_fail + 1;
+    end;
     put line;
     put '  options errors=1;';
     line = cats("  infile '", strip(_fpath),
-                "' encoding='utf-8' dlm=',' dsd missover firstobs=2 lrecl=32767;");
+                "' encoding='utf-8' dlm=',' dsd truncover firstobs=2 lrecl=32767;");
     put line;
 
     /* LENGTH statement */
     put '  length';
     do _j = 1 to _nc;
-      if _st{_j} = 'C' then
-        line = cats('    ', _sn{_j}, ' $ ', strip(put(_sl{_j}, best8.)));
-      else
-        line = cats('    ', _sn{_j}, ' 8');
+      line = '    ' || catx(' ', strip(_sn{_j}),
+               ifc(_st{_j} = 'C',
+                   cats('$', strip(put(_sl{_j}, best8.))),
+                   strip(put(_sl{_j}, best8.))));
+      if not prxmatch('/^\S+ \$?\d+$/', strip(line)) then do;
+        put 'ERROR: [03_import gen] unexpected LENGTH entry: ' line;
+        _chk_fail + 1;
+      end;
       put line;
     end;
     put '  ;';
 
-    /* LABEL statement -- double any embedded double-quotes in orig_col_name */
+    /* LABEL statement -- single quotes: & and % in column headers do not expand */
     put '  label';
     do _j = 1 to _nc;
-      _lbl = tranwrd(strip(_so{_j}), '"', '""');
-      line = cats('    ', _sn{_j}, ' = "', strip(_lbl), '"');
+      line = '    ' || catx(' ', strip(_sn{_j}), '=', quote(strip(_so{_j}), "'"));
       put line;
     end;
     put '  ;';
@@ -407,7 +416,8 @@ data _null_;
     put 'options errors=20;';
     put ' ';
   end;
-  drop _j _lbl;
+  if _last then call symputx('_gen_chk_fail', _chk_fail, 'L');
+  drop _j;
 run;
 
 proc datasets lib=work nolist nowarn; delete _spec_csv; quit;
@@ -430,6 +440,12 @@ run;
   %put NOTE: [03_import] 03_generated_import.sas: &_gen_lines lines written (min expected &_gen_min);
 %mend _guard_gen_lines;
 %_guard_gen_lines;
+%macro _guard_gen_syntax;
+  %if &_gen_chk_fail > 0 %then
+    %fail_out(msg=%str(generator emitted &_gen_chk_fail malformed line(s) -- see ERROR above));
+  %put NOTE: [03_import] generator syntax check passed (0 malformed lines);
+%mend _guard_gen_syntax;
+%_guard_gen_syntax;
 
 /* Execute the generated CSV DATA steps */
 options errors=1;
