@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python tools\\sas_lint.py \"$CLAUDE_TOOL_INPUT_FILE_PATH\"",
+            "condition": "$CLAUDE_TOOL_INPUT_FILE_PATH matches '^sas\\\\.*\\.sas$'"
+          }
+        ]
+      }
+    ]
+  }
+}

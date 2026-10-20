@@ -16,6 +16,9 @@ C7  fdelete / fexist / fopen called with a string literal as fileref
 C8  prxmatch with $ anchor on a variable not wrapped in strip()
 C9  LIBNAME statement with engine placed after the path string (wrong order)
 C10 array _character_ / _numeric_ declared before SET/MERGE/INPUT in a DATA step
+C11 SAS macro keyword inside a quoted string on a PUT line (macro-in-put)
+C13 Macro called before its %macro definition within the same file
+C14 DATA or SET statement with no dataset name (bare "data ;" / "set ;")
 W2  Assert-style count query: reports dataset name and WHERE-clause columns for reviewer
 
 Usage
@@ -376,6 +379,87 @@ def check_assert_query_columns(path, lines):
     return hits
 
 
+# ── C11: macro keyword inside quoted string on a PUT line ─────────────────────
+#
+# Detects `put '... %if ...'` or `put "... %let ..."` patterns.
+# In a DATA step FILE context this writes macro code literally; the macro
+# processor does NOT execute it.  Flag so reviewers confirm the intent.
+
+_MACRO_KWD_IN_PUTSTR = re.compile(
+    r'\bput\b'
+    r'[^;]*'
+    r'(?:'
+        r"'[^']*%(?:if|else|do|end|let|macro|mend|abort)\b"
+        r'|'
+        r'"[^"]*%(?:if|else|do|end|let|macro|mend|abort)\b'
+    r')',
+    CI,
+)
+
+def check_macro_in_put(path, lines):
+    hits = []
+    for i, raw in enumerate(lines, 1):
+        if re.search(_MACRO_KWD_IN_PUTSTR, raw):
+            hits.append((path, i, 'C11',
+                'macro keyword inside a quoted string on a PUT line -- '
+                'the macro is NOT executed; confirm this is intentional code generation'))
+    return hits
+
+
+# ── C13: macro called before definition (same file) ──────────────────────────
+#
+# Only flags macros whose %macro definition appears later in the same file.
+# Macros defined in %included files are not reported (would require cross-file
+# analysis).
+
+_C13_BUILTIN = frozenset("""
+abort bquote copy display do else end eval global goto if include input left
+length let local lowcase macro mend nrbquote nrquote nrstr put qscan qsubstr
+qsysfunc qupcase quote resolve return run scan str substr superq syscall
+sysevalf sysfunc sysget sysmacdelete sysmacexist sysmaclist trim unquote
+upcase verify window
+""".split())
+
+def check_call_before_define(path, lines):
+    definition_lines = {}
+    for i, raw in enumerate(lines, 1):
+        for m in re.finditer(r'%macro\s+(\w+)', raw, CI):
+            name = m.group(1).lower()
+            if name not in definition_lines:
+                definition_lines[name] = i
+
+    hits = []
+    for i, raw in enumerate(lines, 1):
+        for m in re.finditer(r'%(\w+)\s*(?:\(|;)', raw, CI):
+            name = m.group(1).lower()
+            if name in _C13_BUILTIN:
+                continue
+            defn_line = definition_lines.get(name)
+            if defn_line is not None and defn_line > i:
+                hits.append((path, i, 'C13',
+                    f'%{name} called before its %macro definition '
+                    f'(defined at line {defn_line})'))
+    return hits
+
+
+# ── C14: bare DATA or SET with no dataset name ────────────────────────────────
+#
+# Catches `data ;` / `set ;` emitted by a broken code generator where the
+# dataset-name macro variable resolved to blank.
+
+_BARE_DATA_SET = re.compile(r'^\s*(data|set)\s*;', CI)
+
+def check_bare_data_set(path, lines):
+    hits = []
+    for i, raw in enumerate(lines, 1):
+        if re.search(_BARE_DATA_SET, raw):
+            kw = raw.strip().split()[0].upper()
+            hits.append((path, i, 'C14',
+                f'{kw} statement has no dataset name -- '
+                'the dataset-name macro variable likely resolved to blank'))
+    return hits
+
+
 def check_array_special_before_set(path, lines):
     hits = []
     in_data = False
@@ -413,6 +497,9 @@ CHECKS = [
     check_sql_no_sqlrc,
     check_libname_engine_after_path,
     check_array_special_before_set,
+    check_macro_in_put,
+    check_call_before_define,
+    check_bare_data_set,
     check_assert_query_columns,
 ]
 
