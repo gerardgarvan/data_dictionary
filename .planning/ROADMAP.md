@@ -40,7 +40,7 @@ Plans:
 - **Plans:** 3 plans
 
 Plans:
-- [ ] 03-01-PLAN.md — 03a_build_spec.sas: raw char-length pre-pass + import_spec.csv generation + s17 ambiguous-encounter extraction (wave 1)
+- [x] 03-01-PLAN.md — 03a_build_spec.sas: raw char-length pre-pass + import_spec.csv generation + s17 ambiguous-encounter extraction (wave 1)
 - [ ] 03-02-PLAN.md — 03_import.sas: spec-driven CSV + XLSX import of all 20 sources; s19 drop, s18 exclusion, s17 enc_for_linkage, s06 group profile (wave 2)
 - [ ] 03-03-PLAN.md — %pdd_norm_psid on all 20 + QC row-count reconciliation + wire into 99_run_all.sas (wave 3)
 

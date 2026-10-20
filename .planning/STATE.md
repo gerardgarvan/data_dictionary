@@ -1,29 +1,30 @@
-﻿---
+---
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: PCNR_ raw layer and dictionary framework
-status: Phase 2 complete â€” Phase 3 planning next
-last_updated: "2026-10-19T00:00:00Z"
+status: Ready to execute
+last_updated: "2026-10-20T00:48:09.976Z"
 progress:
   total_phases: 7
   completed_phases: 2
-  total_plans: 5
-  completed_plans: 5
+  total_plans: 8
+  completed_plans: 6
 ---
 
 # GSD State: PeCAN Data Dictionary (PDD)
 
 ## Current position
 
-Phase: 02 (source-guard-and-header-inventory) â€” COMPLETE
-Next: Phase 03 â€” Direct import of the 20 sources
+Phase: 03 (direct-import-of-the-20-sources) — EXECUTING
+Plan: 2 of 3
+Next: Phase 03 Plan 02 — 03_import.sas runtime import
 | Field | Value |
 |-------|-------|
-| Milestone | v1.0 â€” PCNR_ raw layer and dictionary framework |
-| Phase | 02 â€” Source guard and header inventory |
-| Status | Phase 2 complete â€” live run 2026-10-19 14:15 passed (exit=1, warnings only, no ERRORs) |
+| Milestone | v1.0 — PCNR_ raw layer and dictionary framework |
+| Phase | 03 — Direct import of the 20 sources |
+| Status | Plan 01 complete — 03a_build_spec.sas written; docs/import_spec_generated.csv committed (header only; SAS run required to populate) |
 | Last updated | 2026-10-19 |
-| Stopped at | Phase 3 planning |
+| Stopped at | Completed 03-01-PLAN.md |
 
 ## Milestone v1.0 phase checklist
 
@@ -31,7 +32,7 @@ Next: Phase 03 â€” Direct import of the 20 sources
 |-------|-------|--------|
 | 1 | Repo and config scaffold | âœ… Complete |
 | 2 | Source guard and header inventory | âœ… Complete â€” live run passed 2026-10-19 14:15 |
-| 3 | Direct import of the 20 sources | â¬œ Not started |
+| 3 | Direct import of the 20 sources | In progress — Plan 01 complete (03a_build_spec.sas); Plans 02-03 pending |
 | 4 | Name map | â¬œ Not started |
 | 5 | Build PCNR_ on the spine | â¬œ Blocked (PDD-D-15, PDD-D-16, PDD-D-17 closed, PDD-D-18 pending) |
 | 6 | Distribution engine | â¬œ Not started |
@@ -64,6 +65,14 @@ Next: Phase 03 â€” Direct import of the 20 sources
 | PDD-D-20 | **LOCKED.** 6 s17 ENCRYPTED_ENCOUNTER values that map to >1 PRECEDE_STUDY_ID â†’ set to missing for linkage; unchanged in PCNR_ | Phase 3 (s17) |
 | PDD-D-21 | s06 has 3,987 columns â€” Phase 3 profiles column groups first; Gerard decides scope | Phase 3 (s06) |
 
+## Decisions (Phase 03)
+
+| Date | Decision |
+|------|----------|
+| 2026-10-19 | 03a_build_spec.sas is separate from 03_import.sas: spec generation is one-time; import is repeatable (per research recommendation) |
+| 2026-10-19 | import_spec_generated.csv committed to git (no PHI -- metadata only); overrides via import_spec_overrides.csv (not committed) |
+| 2026-10-19 | .gitignore updated with !docs/import_spec_generated.csv exception (blocked by *.csv blanket rule) |
+
 ## Notes
 
 - PDD-D-15 and PDD-D-16 block Phase 5 only; Phases 1â€“4 and 6â€“7 can proceed.
@@ -74,4 +83,3 @@ Next: Phase 03 â€” Direct import of the 20 sources
 - Older copies exist at `P:\PeCAN Master Data\Gerard\raw\master` for hash comparison only.
 - Phase 2 finding: 148 distinct CSV headers (not 168); spine 41,150 rows confirmed.
 - `_bridge_analysis_2022` fix committed (a99c259): `work.src_s08_s1` resolved via sheet_map in `_diag_unmatched_ids`; hardcoded override retained in `_bridge_analysis_2022`.
-
