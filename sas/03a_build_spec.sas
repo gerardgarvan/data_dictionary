@@ -402,7 +402,7 @@ run;
    For XLSX: use pdd.header_inventory col_name (engine var name) as src_name;
              orig_col_name = original_header (display label).
              col_order from header_inventory (varnum-based order is acceptable).
-   Sheet names for XLSX from pdd.source_inventory. */
+   Sheet names for XLSX from dictionary.members (XLSX libref). */
 
 /* --- 5a. Build work.spec_src: source rows for all 20 files ---
    CSV: col_order + orig_col_name from work._csv_cols (header-line parse).
@@ -737,29 +737,6 @@ run;
    Persists pdd.xlsx_char_lengths (file_code, sheet_name, src_name, max_len).
    ============================================================ */
 
-/* Helper: resolve sheet name from source_inventory with known fallbacks */
-%macro _xlsx_sheet_name(fc=, outmv=);
-  %global &outmv;
-  %let &outmv = ;
-  %local _sn;
-  %let _sn = ;
-  proc sql noprint;
-    select strip(coalesce(sheet_name, '')) into :_sn trimmed
-    from pdd.source_inventory
-    where s_code = "&fc"
-    having count(*) > 0;
-  quit;
-  %if %length(%superq(_sn)) = 0 %then %do;
-    %if "&fc" = "s06" %then %let _sn = 2018_2019_PRECEDE_DATABASE;
-    %else %if "&fc" = "s08" %then %let _sn = Sheet1;
-    %else %if "&fc" = "s11" %then %let _sn = Sheet1;
-    %else %if "&fc" = "s19" %then %let _sn = Sheet1;
-    %put NOTE: [03a_build_spec] &fc sheet name fallback used: &_sn;
-  %end;
-  %else %put NOTE: [03a_build_spec] &fc sheet name from source_inventory: &_sn;
-  %let &outmv = &_sn;
-%mend _xlsx_sheet_name;
-
 /* Accumulator for all 4 XLSX files */
 data work._xlsx_char_lens_all;
   length file_code $4 sheet_name $256 src_name $256 max_len 8;
@@ -767,103 +744,128 @@ data work._xlsx_char_lens_all;
 run;
 
 /* Measure max char lengths for one XLSX file.
+   Assigns LIBNAME XLSX first; %fail_out if libref fails.
+   Discovers data sheets via dictionary.members; measures every sheet.
    Pass A: engine-character columns via _character_ array (retain _ml1-_ml5000).
    Pass B: engine-numeric columns that spec forces to C (lengthn(cats(x))). */
-%macro _measure_xlsx_char_lens(fc=, fpath=, sheet=);
-  %local _librc _n_numforce _jnf;
+%macro _measure_xlsx_char_lens(fc=, fpath=);
+  %local _librc _n_sheets _is _sheet _n_numforce _jnf;
 
   libname _xlmsr "&fpath" xlsx;
   %let _librc = %sysfunc(libref(_xlmsr));
   %if &_librc ne 0 %then
     %fail_out(msg=%str(_measure_xlsx_char_lens -- LIBNAME XLSX failed for &fc -- &fpath));
 
-  /* Pass A: engine-character columns.
-     5000-element retain array covers s06 (up to ~3987 char cols). */
-  data work._xlcl_a_&fc (keep=file_code sheet_name src_name max_len);
-    length file_code $4 sheet_name $256 src_name $256 max_len 8;
-    retain _ml1-_ml5000 0;
-    array _c {*} _character_;
-    array _m {5000} _ml1-_ml5000;
-    set _xlmsr."&sheet"n end=_eof;
-    do _j = 1 to dim(_c);
-      if lengthn(_c{_j}) > _m{_j} then _m{_j} = lengthn(_c{_j});
-    end;
-    if _eof then do;
-      file_code  = "&fc";
-      sheet_name = "&sheet";
-      do _j = 1 to dim(_c);
-        src_name = vname(_c{_j});
-        max_len  = _m{_j};
-        output;
-      end;
-    end;
-  run;
-
-  /* Pass B: engine-numeric columns forced to C in spec_typed.
-     Identify via dictionary.columns while _xlmsr is still assigned. */
-  %let _n_numforce = 0;
+  /* Discover all data sheets in this XLSX */
   proc sql noprint;
-    select count(*) into :_n_numforce trimmed
-    from work.spec_typed s
-    inner join dictionary.columns d
-      on  upcase(d.libname)        = 'XLMSR'
-      and upcase(d.memname)        = upcase("&sheet")
-      and upcase(strip(d.name))    = upcase(strip(s.src_name))
-    where s.file_code = "&fc"
-      and s.sas_type  = 'C'
-      and d.type      = 'num';
-
-    select strip(s.src_name)
-    into :_nf_col1-:_nf_col999
-    from work.spec_typed s
-    inner join dictionary.columns d
-      on  upcase(d.libname)        = 'XLMSR'
-      and upcase(d.memname)        = upcase("&sheet")
-      and upcase(strip(d.name))    = upcase(strip(s.src_name))
-    where s.file_code = "&fc"
-      and s.sas_type  = 'C'
-      and d.type      = 'num'
-    order by s.col_order;
+    select count(*) into :_n_sheets trimmed
+    from dictionary.members
+    where upcase(libname) = '_XLMSR' and upcase(memtype) = 'DATA';
+    select memname
+    into :_xlsh1-:_xlsh999
+    from dictionary.members
+    where upcase(libname) = '_XLMSR' and upcase(memtype) = 'DATA'
+    order by memname;
   quit;
 
-  %put NOTE: [03a_build_spec] &fc engine-numeric forced-C cols: &_n_numforce;
+  %if &_n_sheets = 0 %then %do;
+    libname _xlmsr clear;
+    %fail_out(msg=%str(_measure_xlsx_char_lens -- no data sheets found for &fc -- &fpath));
+  %end;
 
-  %if &_n_numforce > 0 %then %do;
-    data work._xlcl_b_&fc (keep=file_code sheet_name src_name max_len);
+  %put NOTE: [03a_build_spec] &fc has &_n_sheets XLSX sheet(s);
+
+  %do _is = 1 %to &_n_sheets;
+    %let _sheet = &&_xlsh&_is;
+
+    /* Pass A: engine-character columns.
+       5000-element retain array covers s06 (up to ~3987 char cols). */
+    data work._xlcl_a (keep=file_code sheet_name src_name max_len);
       length file_code $4 sheet_name $256 src_name $256 max_len 8;
-      retain _mnf1-_mnf&_n_numforce 0;
-      array _mnf {&_n_numforce} _mnf1-_mnf&_n_numforce;
-      set _xlmsr."&sheet"n end=_eof;
-      %do _jnf = 1 %to &_n_numforce;
-        if lengthn(cats(&&_nf_col&_jnf)) > _mnf{&_jnf}
-          then _mnf{&_jnf} = lengthn(cats(&&_nf_col&_jnf));
-      %end;
+      retain _ml1-_ml5000 0;
+      array _c {*} _character_;
+      array _m {5000} _ml1-_ml5000;
+      set _xlmsr."&_sheet"n end=_eof;
+      do _j = 1 to dim(_c);
+        if lengthn(_c{_j}) > _m{_j} then _m{_j} = lengthn(_c{_j});
+      end;
       if _eof then do;
         file_code  = "&fc";
-        sheet_name = "&sheet";
-        %do _jnf = 1 %to &_n_numforce;
-          src_name = "&&_nf_col&_jnf";
-          max_len  = _mnf{&_jnf};
+        sheet_name = "&_sheet";
+        do _j = 1 to dim(_c);
+          src_name = vname(_c{_j});
+          max_len  = _m{_j};
           output;
-        %end;
+        end;
       end;
     run;
 
-    proc append base=work._xlcl_a_&fc data=work._xlcl_b_&fc; run;
-    proc datasets lib=work nolist nowarn; delete _xlcl_b_&fc; quit;
+    /* Pass B: engine-numeric columns forced to C in spec_typed.
+       Identify via dictionary.columns while _xlmsr is still assigned. */
+    %let _n_numforce = 0;
+    proc sql noprint;
+      select count(*) into :_n_numforce trimmed
+      from work.spec_typed s
+      inner join dictionary.columns d
+        on  upcase(d.libname)        = '_XLMSR'
+        and upcase(d.memname)        = upcase("&_sheet")
+        and upcase(strip(d.name))    = upcase(strip(s.src_name))
+      where s.file_code = "&fc"
+        and s.sas_type  = 'C'
+        and d.type      = 'num';
+
+      select strip(s.src_name)
+      into :_nf_col1-:_nf_col999
+      from work.spec_typed s
+      inner join dictionary.columns d
+        on  upcase(d.libname)        = '_XLMSR'
+        and upcase(d.memname)        = upcase("&_sheet")
+        and upcase(strip(d.name))    = upcase(strip(s.src_name))
+      where s.file_code = "&fc"
+        and s.sas_type  = 'C'
+        and d.type      = 'num'
+      order by s.col_order;
+    quit;
+
+    %put NOTE: [03a_build_spec] &fc sheet &_sheet engine-numeric forced-C cols: &_n_numforce;
+
+    %if &_n_numforce > 0 %then %do;
+      data work._xlcl_b (keep=file_code sheet_name src_name max_len);
+        length file_code $4 sheet_name $256 src_name $256 max_len 8;
+        retain _mnf1-_mnf&_n_numforce 0;
+        array _mnf {&_n_numforce} _mnf1-_mnf&_n_numforce;
+        set _xlmsr."&_sheet"n end=_eof;
+        %do _jnf = 1 %to &_n_numforce;
+          if lengthn(cats(&&_nf_col&_jnf)) > _mnf{&_jnf}
+            then _mnf{&_jnf} = lengthn(cats(&&_nf_col&_jnf));
+        %end;
+        if _eof then do;
+          file_code  = "&fc";
+          sheet_name = "&_sheet";
+          %do _jnf = 1 %to &_n_numforce;
+            src_name = "&&_nf_col&_jnf";
+            max_len  = _mnf{&_jnf};
+            output;
+          %end;
+        end;
+      run;
+
+      proc append base=work._xlcl_a data=work._xlcl_b; run;
+      proc datasets lib=work nolist nowarn; delete _xlcl_b; quit;
+    %end;
+
+    proc append base=work._xlsx_char_lens_all data=work._xlcl_a; run;
+    proc datasets lib=work nolist nowarn; delete _xlcl_a; quit;
+    %put NOTE: [03a_build_spec] &fc sheet &_sheet measurement complete;
   %end;
 
   libname _xlmsr clear;
-
-  proc append base=work._xlsx_char_lens_all data=work._xlcl_a_&fc; run;
-  proc datasets lib=work nolist nowarn; delete _xlcl_a_&fc; quit;
-
   %put NOTE: [03a_build_spec] &fc XLSX char-length measurement complete;
 %mend _measure_xlsx_char_lens;
 
 /* Run measurement for all 4 XLSX files */
 %macro _run_xlsx_measurement;
-  %local _n_xlsx _ix _xsc _xfp _xshmv _xsh_val;
+  %local _n_xlsx _ix _xsc _xfp;
 
   proc sql noprint;
     select count(*) into :_n_xlsx trimmed
@@ -877,14 +879,9 @@ run;
   quit;
 
   %do _ix = 1 %to &_n_xlsx;
-    %let _xsc    = &&_xlsx_sc&_ix;
-    %let _xfp    = &&_xlsx_fp&_ix;
-    %let _xshmv  = _xsh_&_xsc;
-    %_xlsx_sheet_name(fc=&_xsc, outmv=&_xshmv);
-    %let _xsh_val = &&&_xshmv;
-    %if %length(%superq(_xsh_val)) = 0 %then
-      %fail_out(msg=%str(_run_xlsx_measurement -- could not determine sheet name for &_xsc));
-    %_measure_xlsx_char_lens(fc=&_xsc, fpath=&_xfp, sheet=&_xsh_val);
+    %let _xsc = &&_xlsx_sc&_ix;
+    %let _xfp = &&_xlsx_fp&_ix;
+    %_measure_xlsx_char_lens(fc=&_xsc, fpath=&_xfp);
   %end;
 %mend _run_xlsx_measurement;
 %_run_xlsx_measurement;

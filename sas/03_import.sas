@@ -562,43 +562,50 @@ proc datasets lib=work nolist nowarn; delete _s17_enc _s17n _s17_ambig; quit;
 /* ============================================================
    SECTION 7 -- XLSX imports: s06, s08, s11, s19
    Uses LIBNAME XLSX + spec-driven RENAME= + forced-char recast.
-   Sheet names looked up from pdd.source_inventory at runtime.
+   Sheet names discovered at runtime via dictionary.members (XLSX libref).
    ============================================================ */
 
-/* Helper macro: get the data sheet name for a given s_code from source_inventory.
-   source_inventory stores sheet lists; for s06/s08/s11/s19 we want the main data sheet.
-   Phase 2 stored sheet_name (from XLSX member enumeration).
-   For s08/s11: single-sheet files, take the first sheet.
-   For s06: the data sheet is '2018_2019_PRECEDE_DATABASE' (confirmed in PROJECT.md).
-   For s19: 'Sheet1' (per context doc; ALL_AIM2 only has one data sheet).
-   We query source_inventory for the actual sheet name stored by Phase 2.
-   source_inventory column: sheet_name (from pdd.source_inventory).
-   Note: source_inventory may have one row per file (not per sheet); sheet_list is a
-   delimited string of sheet names. We use the first token as the data sheet. */
+/* Helper macro: get the data sheet name for a given s_code.
+   Assigns a temporary XLSX libref, queries dictionary.members for data sheets,
+   clears the libref, and returns the first sheet name alphabetically.
+   All 4 XLSX files (s06/s08/s11/s19) are single-data-sheet files. */
 
 %macro _get_sheet_name(scode=, outmv=);
   %global &outmv;
   %let &outmv = ;
-  /* Try to get sheet_name from source_inventory */
-  %local _sn _rc;
+  %local _sn _fpath _librc _n_sn;
   %let _sn = ;
+
+  /* Get file path for this s_code */
   proc sql noprint;
-    select strip(coalesce(sheet_name, '')) into :_sn trimmed
-    from pdd.source_inventory
-    where s_code = "&scode"
-    having count(*) > 0;
+    select distinct full_path into :_fpath trimmed
+    from work.file_list
+    where s_code = "&scode";
   quit;
 
-  %if %length(%superq(_sn)) = 0 %then %do;
-    /* Fallback: use known sheet names from PROJECT.md / context */
-    %if "&scode" = "s06" %then %let _sn = 2018_2019_PRECEDE_DATABASE;
-    %else %if "&scode" = "s08" %then %let _sn = Sheet1;
-    %else %if "&scode" = "s11" %then %let _sn = Sheet1;
-    %else %if "&scode" = "s19" %then %let _sn = Sheet1;
-    %put NOTE: [03_import] &scode sheet name not found in source_inventory -- using fallback: &_sn;
+  /* Assign XLSX libref to discover sheet names; clear before returning */
+  libname _xlsnt "&_fpath" xlsx;
+  %let _librc = %sysfunc(libref(_xlsnt));
+  %if &_librc ne 0 %then
+    %put WARNING: [03_import] _get_sheet_name: LIBNAME XLSX failed for &scode -- &_fpath;
+  %else %do;
+    proc sql noprint;
+      select count(*) into :_n_sn trimmed
+      from dictionary.members
+      where upcase(libname) = '_XLSNT' and upcase(memtype) = 'DATA';
+      select memname into :_xlsnt_sh1-:_xlsnt_sh999
+      from dictionary.members
+      where upcase(libname) = '_XLSNT' and upcase(memtype) = 'DATA'
+      order by memname;
+    quit;
+    libname _xlsnt clear;
+    %if &_n_sn > 0 %then %do;
+      %let _sn = &&_xlsnt_sh1;
+      %put NOTE: [03_import] &scode sheet name from dictionary.members: &_sn (&_n_sn sheet(s) found);
+    %end;
+    %else
+      %put WARNING: [03_import] _get_sheet_name: no data sheets found for &scode in &_fpath;
   %end;
-  %else
-    %put NOTE: [03_import] &scode sheet name from source_inventory: &_sn;
 
   %let &outmv = &_sn;
 %mend _get_sheet_name;

@@ -241,6 +241,45 @@ def check_prxmatch_dollar_no_strip(path, lines):
     return hits
 
 
+# ── W1: PROC SQL INTO without &sqlrc check after QUIT ─────────────────────────
+#
+# Warning: a PROC SQL block that populates macro variables via INTO but is not
+# followed by a &sqlrc / sqlrc check within 10 lines of QUIT.  A SQL error puts
+# SAS into syntax-check mode; populated macro vars may be empty or stale, and
+# subsequent %fail_out / %if guards that rely on them will behave incorrectly.
+#
+# Kept at warning level (W1) because legitimate PROC SQL may omit &sqlrc when
+# the surrounding %macro already guards on &syserr or when the INTO result is
+# not relied upon for flow control.
+
+def check_sql_no_sqlrc(path, lines):
+    hits = []
+    in_sql = False
+    has_into = False
+
+    for i, raw in enumerate(lines):
+        if re.search(r'\bPROC\s+SQL\b', raw, CI):
+            in_sql = True
+            has_into = False
+        if in_sql and re.search(r'\bINTO\s*:', raw, CI):
+            has_into = True
+        if in_sql and re.search(r'^\s*QUIT\s*;', raw, CI):
+            in_sql = False
+            if has_into:
+                window = lines[i + 1 : i + 11]
+                if not any(re.search(r'sqlrc|sqlobs', l, CI) for l in window):
+                    hits.append((path, i + 1, 'W1',
+                        'PROC SQL INTO: result used without &sqlrc check after QUIT '
+                        '-- verify query succeeded before using populated macro vars'))
+        # A new DATA or non-SQL PROC step also ends the SQL context
+        if in_sql \
+                and re.match(r'^\s*(DATA|PROC)\s+\w', raw, CI) \
+                and not re.search(r'\bPROC\s+SQL\b', raw, CI):
+            in_sql = False
+
+    return hits
+
+
 # ── runner ────────────────────────────────────────────────────────────────────
 
 CHECKS = [
@@ -252,6 +291,7 @@ CHECKS = [
     check_orderby_aggregate,
     check_literal_fileref,
     check_prxmatch_dollar_no_strip,
+    check_sql_no_sqlrc,
 ]
 
 
@@ -280,12 +320,19 @@ def main(argv):
     for path in sorted(set(paths)):
         all_hits.extend(lint_file(path))
 
-    for path, lineno, code, msg in sorted(all_hits, key=lambda h: (h[0], h[1])):
-        print(f'{path}:{lineno}: [{code}] {msg}')
+    errors   = [h for h in all_hits if not h[2].startswith('W')]
+    warnings = [h for h in all_hits if h[2].startswith('W')]
 
-    if all_hits:
-        print(f'\n{len(all_hits)} lint hit(s).', file=sys.stderr)
+    for path, lineno, code, msg in sorted(all_hits, key=lambda h: (h[0], h[1])):
+        prefix = 'warning' if code.startswith('W') else 'error'
+        print(f'{path}:{lineno}: [{code}] {prefix}: {msg}')
+
+    if errors:
+        print(f'\n{len(errors)} error(s), {len(warnings)} warning(s).', file=sys.stderr)
         sys.exit(1)
+    elif warnings:
+        print(f'\nsas_lint: {len(warnings)} warning(s). (clean -- no errors)', file=sys.stderr)
+        sys.exit(0)
     else:
         print('sas_lint: clean.', file=sys.stderr)
         sys.exit(0)
