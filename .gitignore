@@ -8,6 +8,8 @@
 *.xls
 # Exception: SHA-256 baseline is config, not data
 !docs/source_guard_baseline.csv
+# Exception: import spec is generated metadata, no PHI -- committed per plan 03-01
+!docs/import_spec_generated.csv
 
 # SAS logs and output
 *.log
