@@ -184,9 +184,8 @@ run;
 %macro _csv_prepass(scode=, full_path=, ncols=);
   %local _nbatches _b _col_start _col_end _batch_ncols _b_ncols;
 
-  /* Determine batch count (batch size 200; all at once if <= 500) */
-  %if &ncols <= 500 %then %let _nbatches = 1;
-  %else %let _nbatches = %sysfunc(ceil(%sysevalf(&ncols / 200)));
+  /* Determine batch count (batch size 200 for all widths) */
+  %let _nbatches = %sysfunc(ceil(%sysevalf(&ncols / 200)));
 
   %put NOTE: [03a_build_spec] Pre-pass &scode: ncols=&ncols nbatches=&_nbatches;
 
@@ -336,11 +335,14 @@ run;
 /* Fail fast if CSV header parse produced no rows */
 %macro _assert_csv_cols;
   %local _ncc;
+  %let _ncc = -1;
   proc sql noprint;
     select count(*) into :_ncc trimmed from work._csv_cols;
   quit;
+  %if %length(&_ncc) = 0 or &_ncc = -1 %then
+    %fail_out(msg=%str(_assert_csv_cols -- count not populated -- proc sql may have failed));
   %if &_ncc = 0 %then
-    %fail_out(msg=%str(work._csv_cols has 0 rows -- CSV header parse failed; check source paths));
+    %fail_out(msg=%str(work._csv_cols has 0 rows -- CSV header parse failed -- check source paths));
   %put NOTE: [03a_build_spec] work._csv_cols has &_ncc rows across &_n_csv CSV files;
 %mend _assert_csv_cols;
 %_assert_csv_cols;
@@ -348,12 +350,15 @@ run;
 /* --- 4d. Verify col_order is gapless and 1-based per s_code --- */
 %macro _assert_prepass_col_order;
   %local _ngaps;
+  %let _ngaps = -1;
   proc sql noprint;
     /* A gap exists if any col_order is <= 0 */
     select count(*) into :_ngaps trimmed
     from work._prepass_all
     where col_order < 1;
   quit;
+  %if %length(&_ngaps) = 0 or &_ngaps = -1 %then
+    %fail_out(msg=%str(_assert_prepass_col_order -- count not populated));
   %if &_ngaps > 0 %then %do;
     %fail_out(msg=%str(raw pre-pass col_order has &_ngaps rows with col_order < 1 -- check pre-pass logic));
   %end;
@@ -373,11 +378,14 @@ run;
 /* Fail fast if pre-pass produced no rows */
 %macro _assert_raw_char_lengths;
   %local _nrcl;
+  %let _nrcl = -1;
   proc sql noprint;
     select count(*) into :_nrcl trimmed from pdd.raw_char_lengths;
   quit;
+  %if %length(&_nrcl) = 0 or &_nrcl = -1 %then
+    %fail_out(msg=%str(_assert_raw_char_lengths -- count not populated));
   %if &_nrcl = 0 %then
-    %fail_out(msg=%str(pdd.raw_char_lengths has 0 rows -- pre-pass failed; check CSV paths));
+    %fail_out(msg=%str(pdd.raw_char_lengths has 0 rows -- pre-pass failed -- check CSV paths));
   %put NOTE: [03a_build_spec] pdd.raw_char_lengths has &_nrcl rows -- OK;
 %mend _assert_raw_char_lengths;
 %_assert_raw_char_lengths;
@@ -561,6 +569,8 @@ quit;
    Fix collisions by incrementing suffix against the full final name set. */
 %macro _assert_and_fix_names;
   %local _n_inv _n_dup;
+  %let _n_inv = -1;
+  %let _n_dup = -1;
 
   /* Check V7 validity */
   proc sql noprint;
@@ -568,11 +578,13 @@ quit;
     from work.spec_named
     where not prxmatch('/^[A-Za-z_][A-Za-z0-9_]{0,31}$/', strip(sas_name));
   quit;
+  %if %length(&_n_inv) = 0 or &_n_inv = -1 %then
+    %fail_out(msg=%str(V7 name check -- count not populated));
   %if &_n_inv > 0 %then
     %fail_out(msg=%str(&_n_inv spec_named rows have invalid V7 sas_name -- check name derivation));
   %put NOTE: [03a_build_spec] V7 name validation passed (&_n_inv invalid names);
 
-  /* Check within-file upcase dups */
+  /* Check within-file upcase dups -- log each colliding group before resolving */
   proc sql noprint;
     select count(*) into :_n_dup trimmed
     from (
@@ -582,16 +594,32 @@ quit;
       having count(*) > 1
     );
   quit;
+  %if %length(&_n_dup) = 0 or &_n_dup = -1 %then
+    %fail_out(msg=%str(upcase-dup check -- count not populated));
 
   %if &_n_dup > 0 %then %do;
+    /* Log each colliding group (file_code, orig_col_name, sas_name) */
+    proc sql;
+      select a.file_code, a.orig_col_name, a.sas_name
+      from work.spec_named a
+      inner join (
+        select file_code, upcase(sas_name) as uname
+        from work.spec_named
+        group by file_code, upcase(sas_name)
+        having count(*) > 1
+      ) d on a.file_code = d.file_code and upcase(a.sas_name) = d.uname
+      order by a.file_code, a.sas_name;
+    quit;
+
     %put WARNING: [03a_build_spec] &_n_dup upcase-dup groups remain after suffix assignment -- resolving;
-    /* Iterative fix: assign _dupN suffix incrementing against the full name set */
-    data work.spec_named;
+
+    /* Write to a NEW dataset (never data X; set X;) */
+    data work.spec_named_fixed;
       set work.spec_named;
       by file_code;
-      length _uname $32 _candidate $32;
-      retain _prev_file $4 '';
-      /* Hash declared outside the if-block to persist across rows */
+      length _uname $32 _candidate $32 _sfx_str $10;
+      length _prev_file $4;
+      retain _prev_file '';
       if _N_ = 1 then do;
         declare hash _seen(multidata:'n');
         _seen.defineKey('_uname');
@@ -600,21 +628,57 @@ quit;
       if first.file_code then _seen.clear();
       _uname = upcase(strip(sas_name));
       if _seen.check() = 0 then do;
-        /* Collision -- find a free suffix */
+        /* Collision -- suffix base trimmed to fit exactly 32 chars */
         _sfx = 2;
         do while(_seen.check() = 0);
-          _candidate = cats(substr(sas_name, 1, 27), '_dup', put(_sfx, 8.));
+          _sfx_str   = cats('_dup', strip(put(_sfx, best32.)));
+          _candidate = cats(substr(sas_name, 1, 32 - lengthn(_sfx_str)), _sfx_str);
           _candidate = substr(_candidate, 1, 32);
-          _uname = upcase(_candidate);
+          _uname     = upcase(_candidate);
           _sfx + 1;
         end;
+        put "NOTE: [03a_build_spec] dup resolved: file=" file_code
+            " orig_col=" orig_col_name " old_sas=" sas_name " new_sas=" _candidate;
         sas_name = _candidate;
         _uname   = upcase(sas_name);
       end;
       _seen.add();
-      drop _uname _candidate _sfx _prev_file;
+      drop _uname _candidate _sfx _sfx_str _prev_file;
     run;
-    %put NOTE: [03a_build_spec] Dup collision resolution complete;
+
+    proc datasets lib=work nolist nowarn; delete spec_named; quit;
+    data work.spec_named; set work.spec_named_fixed; run;
+    proc datasets lib=work nolist nowarn; delete spec_named_fixed; quit;
+
+    /* Re-run V7 check after fix */
+    %let _n_inv = -1;
+    proc sql noprint;
+      select count(*) into :_n_inv trimmed
+      from work.spec_named
+      where not prxmatch('/^[A-Za-z_][A-Za-z0-9_]{0,31}$/', strip(sas_name));
+    quit;
+    %if %length(&_n_inv) = 0 or &_n_inv = -1 %then
+      %fail_out(msg=%str(post-fix V7 name check -- count not populated));
+    %if &_n_inv > 0 %then
+      %fail_out(msg=%str(&_n_inv rows have invalid V7 sas_name after dup resolution -- check suffix logic));
+
+    /* Re-run uniqueness check after fix */
+    %let _n_dup = -1;
+    proc sql noprint;
+      select count(*) into :_n_dup trimmed
+      from (
+        select file_code, upcase(sas_name) as uname, count(*) as n
+        from work.spec_named
+        group by file_code, upcase(sas_name)
+        having count(*) > 1
+      );
+    quit;
+    %if %length(&_n_dup) = 0 or &_n_dup = -1 %then
+      %fail_out(msg=%str(post-fix dup check -- count not populated));
+    %if &_n_dup > 0 %then
+      %fail_out(msg=%str(&_n_dup upcase-dup groups remain after dup resolution -- check suffix logic));
+
+    %put NOTE: [03a_build_spec] Dup collision resolution complete -- all names unique;
   %end;
   %else
     %put NOTE: [03a_build_spec] No within-file upcase dup names -- OK;
@@ -1053,6 +1117,7 @@ quit;
 
 %macro _assert_col_order;
   %local _ngaps;
+  %let _ngaps = -1;
   /* Check that min(col_order) = 1 and count = max(col_order) for each CSV file */
   proc sql noprint;
     select count(*) into :_ngaps trimmed
@@ -1068,6 +1133,8 @@ quit;
     )
     where min_ord ne 1 or n_cols ne max_ord;
   quit;
+  %if %length(&_ngaps) = 0 or &_ngaps = -1 %then
+    %fail_out(msg=%str(_assert_col_order -- count not populated));
   %if &_ngaps > 0 %then %do;
     %fail_out(msg=%str(import_spec col_order has gaps for &_ngaps CSV files -- check spec build logic));
   %end;
@@ -1083,17 +1150,29 @@ run;
 
 %_note_written_ds(ds=pdd.import_spec, label=pdd.import_spec);
 
-/* Fail fast: must have 20 distinct file_codes and > 0 rows before writing CSV */
+/* Fail fast: must have EXACTLY 20 distinct file_codes matching work.file_list s_code set */
 %macro _assert_spec_complete;
-  %local _nfc _nspec;
+  %local _nfc _nspec _nmiss;
+  %let _nfc   = -1;
+  %let _nspec = -1;
+  %let _nmiss = -1;
   proc sql noprint;
-    select count(distinct file_code) into :_nfc  trimmed from pdd.import_spec;
-    select count(*)                  into :_nspec trimmed from pdd.import_spec;
+    select count(distinct file_code) into :_nfc   trimmed from pdd.import_spec;
+    select count(*)                  into :_nspec  trimmed from pdd.import_spec;
+    /* file_codes in file_list but missing from import_spec */
+    select count(*) into :_nmiss trimmed
+    from work.file_list f
+    where f.s_code not in (select distinct file_code from pdd.import_spec);
   quit;
-  %if &_nfc < 20 %then
-    %fail_out(msg=%str(pdd.import_spec has &_nfc of 20 distinct file_codes -- never write header-only CSV));
+  %if %length(&_nfc)   = 0 or &_nfc   = -1 %then %fail_out(msg=%str(_assert_spec_complete nfc not populated));
+  %if %length(&_nspec) = 0 or &_nspec = -1 %then %fail_out(msg=%str(_assert_spec_complete nspec not populated));
+  %if %length(&_nmiss) = 0 or &_nmiss = -1 %then %fail_out(msg=%str(_assert_spec_complete nmiss not populated));
   %if &_nspec = 0 %then
     %fail_out(msg=%str(pdd.import_spec has 0 rows -- spec build failed));
+  %if &_nfc ne 20 %then
+    %fail_out(msg=%str(pdd.import_spec has &_nfc distinct file_codes -- expected exactly 20));
+  %if &_nmiss > 0 %then
+    %fail_out(msg=%str(&_nmiss file_codes from work.file_list missing in pdd.import_spec));
   %put NOTE: [03a_build_spec] pdd.import_spec: &_nfc distinct file_codes &_nspec total rows -- OK;
 %mend _assert_spec_complete;
 %_assert_spec_complete;
@@ -1121,12 +1200,12 @@ data _null_;
 
   /* Numeric col_order and length don't need quoting */
   _q_fc  = file_code;
-  _q_co  = put(col_order, 8.);
+  _q_co  = strip(put(col_order, best32.));
   _q_sn  = '"' || tranwrd(strip(src_name),      '"', '""') || '"';
   _q_oc  = '"' || tranwrd(strip(orig_col_name),  '"', '""') || '"';
   _q_nm  = '"' || tranwrd(strip(sas_name),        '"', '""') || '"';
   _q_st  = sas_type;
-  _q_le  = put(length, 8.);
+  _q_le  = strip(put(length, best32.));
   _q_inf = '"' || tranwrd(strip(informat),        '"', '""') || '"';
   _q_fmt = '"' || tranwrd(strip(format),          '"', '""') || '"';
   _q_no  = '"' || tranwrd(strip(notes),           '"', '""') || '"';
@@ -1136,35 +1215,38 @@ data _null_;
 run;
 
 %put NOTE: [03a_build_spec] docs\import_spec_generated.csv written;
-%put NOTE: [03a_build_spec] Gerard: create docs\import_spec_overrides.csv (same 10-column header) with only the rows where overrides are needed; 03_import.sas will merge at runtime (override row wins over generated row);
+%put NOTE: [03a_build_spec] Gerard -- create docs\import_spec_overrides.csv (same 10-column header) with only override rows -- 03_import.sas will merge at runtime (override row wins);
 
 /* P2: Read back the CSV and assert its data row count = pdd.import_spec row count */
 %macro _assert_csv_rowcount;
   %local _nspec _ncsv_rows;
+  %let _nspec    = -1;
+  %let _ncsv_rows = -1;
 
   proc sql noprint;
     select count(*) into :_nspec trimmed from pdd.import_spec;
   quit;
+  %if %length(&_nspec) = 0 or &_nspec = -1 %then
+    %fail_out(msg=%str(_assert_csv_rowcount -- pdd.import_spec count not populated));
 
-  /* Count data rows in the generated CSV (skip the header line) */
+  /* Count data rows in the generated CSV (skip header; end= fires at true EOF) */
   data work._csv_rc_check;
     infile "C:\data_dictionary\docs\import_spec_generated.csv"
-           lrecl=5000 encoding='utf-8' firstobs=2 missover;
-    input;
-    _row + 1;
-    if eof then output;
-    retain _row 0;
-    eof = (eof = 1);
+           lrecl=5000 encoding='utf-8' firstobs=2 end=_eof;
+    input; _row + 1;
+    if _eof then output;
     keep _row;
   run;
 
   proc sql noprint;
-    select max(_row) into :_ncsv_rows trimmed from work._csv_rc_check;
+    select _row into :_ncsv_rows trimmed from work._csv_rc_check;
   quit;
 
   proc datasets lib=work nolist nowarn; delete _csv_rc_check; quit;
 
-  %if %trim(&_ncsv_rows) ne %trim(&_nspec) %then
+  %if %length(&_ncsv_rows) = 0 or &_ncsv_rows = -1 %then
+    %fail_out(msg=%str(_assert_csv_rowcount -- CSV row count not populated -- end= may not have fired));
+  %if &_ncsv_rows ne &_nspec %then
     %fail_out(msg=%str(import_spec_generated.csv has &_ncsv_rows data rows but pdd.import_spec has &_nspec -- write mismatch));
   %put NOTE: [03a_build_spec] CSV row-count assert passed (&_ncsv_rows rows match pdd.import_spec);
 %mend _assert_csv_rowcount;
@@ -1184,6 +1266,9 @@ quit;
 
 %macro _check_forced_char;
   %local _n_psid_num _n_id_num _n_enc_num;
+  %let _n_psid_num = -1;
+  %let _n_id_num   = -1;
+  %let _n_enc_num  = -1;
 
   proc sql noprint;
     select count(*) into :_n_psid_num trimmed
@@ -1200,12 +1285,15 @@ quit;
   quit;
 
   %if &_n_psid_num > 0 %then
-    %put WARNING: [03a_build_spec] &_n_psid_num PRECEDE_STUDY_ID-like columns not forced to char -- review spec;
+    %fail_out(msg=%str(&_n_psid_num PRECEDE_STUDY_ID-like columns not forced to char -- fix forced-char rules));
   %if &_n_id_num > 0 %then
-    %put WARNING: [03a_build_spec] &_n_id_num _ID/_CODE columns not forced to char -- review spec;
+    %fail_out(msg=%str(&_n_id_num _ID/_CODE columns not forced to char -- fix forced-char rules));
   %if &_n_enc_num > 0 %then
-    %put WARNING: [03a_build_spec] &_n_enc_num ENCRYPTED_ columns not forced to char -- review spec;
+    %fail_out(msg=%str(&_n_enc_num ENCRYPTED_ columns not forced to char -- fix forced-char rules));
 
+  %if %length(&_n_psid_num) = 0 or &_n_psid_num = -1 %then %fail_out(msg=%str(_check_forced_char psid count not populated));
+  %if %length(&_n_id_num)   = 0 or &_n_id_num   = -1 %then %fail_out(msg=%str(_check_forced_char id count not populated));
+  %if %length(&_n_enc_num)  = 0 or &_n_enc_num  = -1 %then %fail_out(msg=%str(_check_forced_char enc count not populated));
   %if &_n_psid_num = 0 and &_n_id_num = 0 and &_n_enc_num = 0 %then
     %put NOTE: [03a_build_spec] Forced-char verification passed -- all ID/code/ENCRYPTED cols are type C;
 %mend _check_forced_char;
