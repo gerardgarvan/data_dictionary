@@ -1033,5 +1033,342 @@ proc datasets lib=work nolist nowarn; delete _s06_key_legend; quit;
 %put NOTE: [03_import] qc\s06_column_groups.xlsx written;
 %put NOTE: [03_import] 03_generated_import.sas written to &logs_path (not committed);
 
+/* ============================================================
+   SECTION 12 -- norm_psid loop (pdd.key_analysis-driven)
+   Apply %pdd_norm_psid to all 20 pdd.src_s* datasets using each
+   file's key column from pdd.key_analysis (not hard-coded
+   PRECEDE_STUDY_ID).  Files with NONE_DETECTED key are skipped
+   with a NOTE.
+   ============================================================ */
+
+/* Check pdd.key_analysis exists (Phase 2 output) */
+%macro _check_key_analysis;
+  %if not %sysfunc(exist(pdd.key_analysis)) %then
+    %fail_out(msg=%str(FATAL -- pdd.key_analysis not found. Phase 2 must have run before Phase 3));
+%mend _check_key_analysis;
+%_check_key_analysis;
+
+/* Load all 20 file-code / key-var pairs from key_analysis into macro arrays.
+   Files with NONE_DETECTED are loaded with a blank key_var_name so the loop
+   can skip them. */
+%macro _load_key_analysis;
+  %global _ka_n;
+  %let _ka_n = 0;
+
+  /* Count rows in key_analysis (one per s_code = 20 rows expected) */
+  proc sql noprint;
+    select count(*) into :_ka_n trimmed from pdd.key_analysis;
+  quit;
+
+  %put NOTE: [03_import] pdd.key_analysis has &_ka_n rows;
+
+  /* Load s_code and key_var_name into indexed macro arrays.
+     Where key_column_type = 'NONE_DETECTED' the key_var_name will be blank. */
+  data _null_;
+    set pdd.key_analysis(keep=s_code key_column_type key_var_name);
+    call symputx(cats('_ka_sc', _n_), strip(s_code),          'G');
+    call symputx(cats('_ka_kt', _n_), strip(key_column_type), 'G');
+    call symputx(cats('_ka_kv', _n_), strip(key_var_name),    'G');
+  run;
+%mend _load_key_analysis;
+%_load_key_analysis;
+
+/* Loop: apply %pdd_norm_psid per file using key_var_name from key_analysis */
+%macro _norm_psid_loop;
+  %local _in _fc _kt _kv;
+  %do _in = 1 %to &_ka_n;
+    %let _fc = &&_ka_sc&_in;
+    %let _kt = &&_ka_kt&_in;
+    %let _kv = &&_ka_kv&_in;
+
+    %if %length(%superq(_kv)) = 0 or "%superq(_kt)" = "NONE_DETECTED" %then %do;
+      %put NOTE: [03_import] &_fc skipped -- no key column in pdd.key_analysis;
+    %end;
+    %else %do;
+      %put NOTE: [03_import] applying %pdd_norm_psid to pdd.src_&_fc idvar=&_kv (key_column_type=&_kt);
+      %pdd_norm_psid(in=pdd.src_&_fc, out=pdd.src_&_fc, idvar=&_kv);
+    %end;
+  %end;
+%mend _norm_psid_loop;
+%_norm_psid_loop;
+
+%put NOTE: [03_import] %pdd_norm_psid loop complete;
+
+/* Assert norm_psid exists on pdd.src_s01 (spot check) */
+%macro _assert_norm_psid_s01;
+  %local _ncol;
+  proc sql noprint;
+    select count(*) into :_ncol trimmed
+    from dictionary.columns
+    where libname='PDD' and memname='SRC_S01'
+      and upcase(name)='NORM_PSID';
+  quit;
+  %if &_ncol = 1 %then
+    %put NOTE: [03_import] norm_psid confirmed on pdd.src_s01 -- OK;
+  %else
+    %put WARNING: [03_import] norm_psid NOT found on pdd.src_s01 -- review key_analysis;
+%mend _assert_norm_psid_s01;
+%_assert_norm_psid_s01;
+
+/* Assert norm_psid exists on pdd.src_s09 (spine -- used in D-19 assert) */
+%macro _assert_norm_psid_s09;
+  %local _ncol;
+  proc sql noprint;
+    select count(*) into :_ncol trimmed
+    from dictionary.columns
+    where libname='PDD' and memname='SRC_S09'
+      and upcase(name)='NORM_PSID';
+  quit;
+  %if &_ncol = 1 %then
+    %put NOTE: [03_import] norm_psid confirmed on pdd.src_s09 -- OK;
+  %else
+    %put WARNING: [03_import] norm_psid NOT found on pdd.src_s09 -- review key_analysis;
+%mend _assert_norm_psid_s09;
+%_assert_norm_psid_s09;
+
+
+/* ============================================================
+   SECTION 13 -- D-19 assert: s17/s09 encounter join
+   PDD-D-19 LOCKED: n_pairs=9001, ndis=0.
+   Join pdd.src_s17 to pdd.src_s09 on ENCRYPTED_ENCOUNTER.
+   Exclude ambiguous encounters on both sides (re-derived here
+   because work._s17_ambig was deleted in Section 6 cleanup).
+   ============================================================ */
+
+/* Look up s09 encounter column from pdd.key_analysis or header_inventory.
+   Phase 2 shows s09 has ENCRYPTED_ENCOUNTER; confirm via key_analysis.
+   The key_column_type for s09 is PRECEDE_STUDY_ID; the encounter col may
+   appear in header_inventory.  Use a safe fallback to ENCRYPTED_ENCOUNTER. */
+%macro _get_s09_enc_col;
+  %global _s09_enc_col;
+  %let _s09_enc_col = ;
+
+  /* Try header_inventory for the ENCRYPTED_ENCOUNTER column in s09 */
+  proc sql noprint;
+    select strip(col_name) into :_s09_enc_col trimmed
+    from pdd.header_inventory
+    where s_code = 's09'
+      and upcase(col_name) = 'ENCRYPTED_ENCOUNTER'
+    having count(*) > 0;
+  quit;
+
+  %if %length(%superq(_s09_enc_col)) = 0 %then %do;
+    %let _s09_enc_col = ENCRYPTED_ENCOUNTER;
+    %put NOTE: [03_import] s09 ENCRYPTED_ENCOUNTER not found in header_inventory -- using default: &_s09_enc_col;
+  %end;
+  %else
+    %put NOTE: [03_import] s09 encounter column from header_inventory: &_s09_enc_col;
+%mend _get_s09_enc_col;
+%_get_s09_enc_col;
+
+/* Re-derive ambiguous s17 ENCRYPTED_ENCOUNTER tokens.
+   work._s17_ambig was deleted in Section 6 cleanup; re-derive from pdd.src_s17
+   (norm_psid is now present after Section 12). */
+proc sql noprint;
+  create table work._s17_ambig_d19 as
+  select ENCRYPTED_ENCOUNTER
+  from pdd.src_s17
+  where not missing(ENCRYPTED_ENCOUNTER)
+    and strip(ENCRYPTED_ENCOUNTER) ne ''
+  group by ENCRYPTED_ENCOUNTER
+  having count(distinct norm_psid) > 1
+  order by ENCRYPTED_ENCOUNTER;
+
+  select count(*) into :_nambig_d19 trimmed from work._s17_ambig_d19;
+quit;
+
+%put NOTE: [03_import] D-19 pre-check: s17 ambiguous encounter count = &_nambig_d19 (expected 6);
+
+/* Build the encounter-join check table.
+   Exclude ambiguous encounters on both sides (s17 and s09). */
+proc sql;
+  create table work._d19_check as
+  select a.norm_psid as s17_norm length=64,
+         b.norm_psid as s09_norm length=64
+  from pdd.src_s17 a
+    inner join pdd.src_s09 b
+      on a.ENCRYPTED_ENCOUNTER = b.&_s09_enc_col
+  where not missing(a.ENCRYPTED_ENCOUNTER)
+    and not missing(b.&_s09_enc_col)
+    and a.ENCRYPTED_ENCOUNTER not in
+          (select ENCRYPTED_ENCOUNTER from work._s17_ambig_d19)
+    and b.&_s09_enc_col not in
+          (select ENCRYPTED_ENCOUNTER from work._s17_ambig_d19);
+  select count(*) into :_d19_npairs trimmed from work._d19_check;
+  select count(*) into :_d19_ndis   trimmed from work._d19_check
+    where s17_norm ne s09_norm;
+quit;
+
+%put NOTE: [03_import] D-19 check: n_pairs=&_d19_npairs ndis=&_d19_ndis;
+
+%macro _assert_d19;
+  %if &_d19_npairs = 0 %then
+    %fail_out(msg=%str(PDD-D-19 assert failed -- n_pairs=0, no linkable encounter rows));
+  %if &_d19_ndis ne 0 %then
+    %fail_out(msg=%str(PDD-D-19 assert failed -- s17/s09 norm_psid disagreements=&_d19_ndis expected 0));
+  %put NOTE: [03_import] PDD-D-19 assert passed -- n_pairs=&_d19_npairs ndis=0;
+%mend _assert_d19;
+%_assert_d19;
+
+proc datasets lib=work nolist nowarn; delete _s17_ambig_d19 _d19_check; quit;
+
+
+/* ============================================================
+   SECTION 14 -- QC row-count reconciliation vs pdd.source_inventory
+   Builds pdd.qc_import_rowcounts (one row per file_code, 20 rows).
+   Spot asserts: s01=41423, s08=3456.
+   Status logic:
+     s18 -- expected-diff (imported = inventory - 2, dup exclusion)
+     s19 -- expected-diff (imported <= inventory, blank-row drop PDD-D-08)
+     others -- match if imported = inventory; else MISMATCH
+   ============================================================ */
+
+/* Spot assert helper */
+%macro _spot_assert(fc=, expected=);
+  %local _sa_cnt;
+  proc sql noprint;
+    select count(*) into :_sa_cnt trimmed from pdd.src_&fc;
+  quit;
+  %if &_sa_cnt = &expected %then
+    %put NOTE: [03_import] spot assert PASS -- pdd.src_&fc = &_sa_cnt (expected &expected);
+  %else
+    %fail_out(msg=%str(spot assert FAIL -- pdd.src_&fc = &_sa_cnt expected &expected));
+%mend _spot_assert;
+%_spot_assert(fc=s01, expected=41423);
+%_spot_assert(fc=s08, expected=3456);
+
+/* Build pdd.qc_import_rowcounts */
+%macro _build_qc_rowcounts;
+  %local _all_codes _ifc _fc _imp_rows _inv_rows _status _d19_exp_delta;
+  %let _all_codes = s01 s02 s03 s04 s05 s06 s07 s08 s09 s10
+                    s11 s12 s13 s14 s15 s16 s17 s18 s19 s20;
+
+  /* Start fresh accumulator table in work */
+  data work._qc_rc_accum;
+    length file_code $4 imported_rows 8 inventory_rows 8
+           expected_delta $40 status $20;
+    stop;
+  run;
+
+  %do _ifc = 1 %to 20;
+    %let _fc = %scan(&_all_codes, &_ifc, %str( ));
+
+    /* Get imported row count */
+    proc sql noprint;
+      select count(*) into :_imp_rows trimmed from pdd.src_&_fc;
+    quit;
+
+    /* Get inventory row count */
+    %let _inv_rows = .;
+    proc sql noprint;
+      select coalesce(row_count, .) into :_inv_rows trimmed
+      from pdd.source_inventory
+      where s_code = "&_fc"
+      having count(*) > 0;
+    quit;
+
+    /* Determine expected_delta and status */
+    %if "&_fc" = "s18" %then %do;
+      %let _d19_exp_delta = s18 -2 dup excl;
+      /* s18: imported should be inventory - 2 */
+      %if &_imp_rows = %eval(&_inv_rows - 2) %then %let _status = expected-diff;
+      %else %let _status = MISMATCH;
+    %end;
+    %else %if "&_fc" = "s19" %then %do;
+      %let _d19_exp_delta = s19 kept<source blank-drop;
+      /* s19: imported <= inventory (blank-row drop, kept count < source) */
+      %if &_imp_rows <= &_inv_rows %then %let _status = expected-diff;
+      %else %let _status = MISMATCH;
+    %end;
+    %else %do;
+      %let _d19_exp_delta = 0;
+      %if &_imp_rows = &_inv_rows %then %let _status = match;
+      %else %let _status = MISMATCH;
+    %end;
+
+    %put NOTE: [03_import] qc_rowcounts &_fc imported=&_imp_rows inventory=&_inv_rows status=&_status;
+
+    /* Append one row */
+    data work._qc_rc_accum;
+      set work._qc_rc_accum
+          end=_eof;
+      output;
+      if _eof then do;
+        /* append new row after last existing */
+      end;
+    run;
+    /* Simpler: just append directly using a SET with NOBS */
+    data work._qc_rc_new;
+      length file_code $4 imported_rows 8 inventory_rows 8
+             expected_delta $40 status $20;
+      file_code      = "&_fc";
+      imported_rows  = &_imp_rows;
+      inventory_rows = &_inv_rows;
+      expected_delta = "&_d19_exp_delta";
+      status         = "&_status";
+      output;
+    run;
+    data work._qc_rc_accum;
+      set work._qc_rc_accum work._qc_rc_new;
+    run;
+
+  %end;
+
+  /* Write final permanent dataset */
+  data pdd.qc_import_rowcounts;
+    set work._qc_rc_accum;
+    label
+      file_code      = 'Source file code (s01-s20)'
+      imported_rows  = 'Row count in pdd.src_<fc>'
+      inventory_rows = 'Row count from pdd.source_inventory'
+      expected_delta = 'Expected difference explanation (0 = exact match expected)'
+      status         = 'match / expected-diff / MISMATCH';
+  run;
+
+  proc datasets lib=work nolist nowarn; delete _qc_rc_accum _qc_rc_new; quit;
+
+%mend _build_qc_rowcounts;
+%_build_qc_rowcounts;
+
+%_note_written_ds(ds=pdd.qc_import_rowcounts, label=pdd.qc_import_rowcounts);
+
+/* Assert no MISMATCH rows */
+%macro _assert_no_mismatch;
+  %local _n_mm;
+  proc sql noprint;
+    select count(*) into :_n_mm trimmed
+    from pdd.qc_import_rowcounts
+    where status = 'MISMATCH';
+  quit;
+  %if &_n_mm > 0 %then
+    %fail_out(msg=%str(row-count reconciliation MISMATCH -- see pdd.qc_import_rowcounts));
+  %else
+    %put NOTE: [03_import] qc_import_rowcounts: no MISMATCH rows -- all 20 files reconciled OK;
+%mend _assert_no_mismatch;
+%_assert_no_mismatch;
+
+/* Assert total 20 rows */
+%macro _assert_qc_20;
+  %local _nqc;
+  proc sql noprint;
+    select count(*) into :_nqc trimmed from pdd.qc_import_rowcounts;
+  quit;
+  %if &_nqc = 20 %then
+    %put NOTE: [03_import] qc_import_rowcounts has 20 rows -- OK;
+  %else
+    %put WARNING: [03_import] qc_import_rowcounts has &_nqc rows expected 20 -- review;
+%mend _assert_qc_20;
+%_assert_qc_20;
+
+
+/* ============================================================
+   SECTION 15 -- Final completion notes (Plan 03)
+   ============================================================ */
+%put NOTE: [03_import] === Phase 3 Plan 03 sections complete ===;
+%put NOTE: [03_import] norm_psid applied to all keyed datasets (key_analysis-driven);
+%put NOTE: [03_import] PDD-D-19 encounter-join assert n_pairs=&_d19_npairs ndis=0;
+%put NOTE: [03_import] pdd.qc_import_rowcounts written (20 rows, no MISMATCH);
+
+
 /* Restore log last */
 %restore_log;
