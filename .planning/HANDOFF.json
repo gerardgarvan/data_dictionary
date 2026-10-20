@@ -1,45 +1,47 @@
 {
   "version": "1.0",
-  "timestamp": "2026-10-19T16:44:12.213Z",
-  "phase": "02",
-  "phase_name": "source-guard-and-header-inventory",
-  "phase_dir": ".planning/phases/02-source-guard-and-header-inventory",
+  "timestamp": "2026-10-20T18:55:29.549Z",
+  "phase": "03",
+  "phase_name": "direct-import-of-the-20-sources",
+  "phase_dir": ".planning/phases/03-direct-import-of-the-20-sources",
   "plan": 3,
-  "task": 3,
-  "total_tasks": 3,
+  "task": 8,
+  "total_tasks": 14,
   "status": "paused",
   "completed_tasks": [
-    {"id": "02-01", "name": "Plan 01 — source_inventory dataset + SHA-256 hash guard", "status": "done", "commit": "cd332e2"},
-    {"id": "02-02", "name": "Plan 02 — header_inventory, key_analysis, id_overlap datasets", "status": "done", "commit": "28583eb"},
-    {"id": "02-03", "name": "Plan 03 — QC Excel workbooks + 99_run_all.sas wiring", "status": "done", "commit": "28583eb"}
+    {"id": 1, "name": "03a: XLSX char measurement via dictionary.columns (single pass)", "status": "done", "commit": "244644c"},
+    {"id": 2, "name": "03a: eliminate length_/rename; assert on pdd.import_spec; fix _n_csv scope; add W2 lint rule", "status": "done", "commit": "8b95a64"},
+    {"id": 3, "name": "03: Rewrite CSV code generator as pure DATA step (no macro-in-put)", "status": "done", "commit": "in progress"},
+    {"id": 4, "name": "03: Fix _get_sheet_name to %fail_out on no sheet", "status": "done", "commit": "in progress"},
+    {"id": 5, "name": "03: Inline _do_xlsx_data_step (remove nested macro)", "status": "done", "commit": "in progress"},
+    {"id": 6, "name": "03: Replace Section 8 with comprehensive 20-dataset post-import assert", "status": "done", "commit": "in progress"},
+    {"id": 7, "name": "03: Rewrite norm_psid loop (Section 12) using dictionary.tables", "status": "done", "commit": "in progress"},
+    {"id": 8, "name": "03: Remove unconditional success messages Section 11", "status": "done", "commit": "in progress"},
+    {"id": 9, "name": "03: Fix _assert_s06_groups unconditional %put + guard", "status": "done", "commit": "in progress"},
+    {"id": 10, "name": "03: Fix first C3 open-code %if pair (~line 298-300)", "status": "done", "commit": "in progress"}
   ],
-  "remaining_tasks": [],
-  "blockers": [
-    {
-      "description": "PDD-D-17 and PDD-D-18: Gerard must decide how multi-row files (s01, s08) and crosswalk-keyed files (s04, s05) enter PCNR_ before Phase 3 can be scoped",
-      "type": "human_action",
-      "workaround": "Review qc\\source_inventory.xlsx and qc\\header_matrix.xlsx with Gerard first, then decide"
-    }
+  "remaining_tasks": [
+    {"id": 11, "name": "Fix 2 remaining C3 errors at lines ~420/423 (wrap in %macro _guard_gen_lines)", "status": "not_started"},
+    {"id": 12, "name": "Add C11 (macro-in-put), C14 (data;/set;), C13 (call-before-define) lint rules to tools/sas_lint.py", "status": "not_started"},
+    {"id": 13, "name": "Create CLAUDE.md with 'run both linters after any SAS edit' rule", "status": "not_started"},
+    {"id": 14, "name": "Create .claude/settings.json with PostToolUse hook for sas_lint.py on sas/*.sas edits", "status": "not_started"},
+    {"id": 15, "name": "Run both linters on all sas/*.sas -- confirm zero errors on 03_import.sas", "status": "not_started"},
+    {"id": 16, "name": "Commit 'fix(03): rewrite code generator without macro-in-put; real post-import asserts' and push", "status": "not_started"}
   ],
-  "human_actions_pending": [
-    {
-      "action": "Run 02_source_guard.sas on the workstation against live P: drive to produce runtime artifacts",
-      "context": "Phase 2 verified code-only (static analysis). All 4 pdd datasets, 2 QC workbooks, and source_guard_baseline.csv will appear on first live run. Not blocking Phase 3 planning.",
-      "blocking": false
-    },
-    {
-      "action": "Review qc\\source_inventory.xlsx and qc\\header_matrix.xlsx with Gerard; resolve PDD-D-17 and PDD-D-18",
-      "context": "Decisions on multi-row files (s01 PACU_STAY, s08 COLONOSCOPY) and crosswalk-keyed files (s04, s05) are required to scope Phase 3 PCNR_ merge.",
-      "blocking": true
-    }
-  ],
+  "blockers": [],
+  "human_actions_pending": [],
   "decisions": [
-    {"decision": "s09 (2018_2022_X_MASTER_DATASET_20240402.csv, 41,150 rows) confirmed as the PCNR_ spine", "rationale": "Phase 2 id_overlap assertion passed >=99.5% self-overlap", "phase": "02"},
-    {"decision": "PCM compliance: all %if blocks wrapped in %macro...%mend", "rationale": "SAS PCM requires macro context for %if; live-run failure revealed open-code %if in _build_primary_spines section; fixed in commit 28583eb", "phase": "02"},
-    {"decision": "symputx scope changed 'G' -> 'L' for _n_hdr_rows and _has_psid_col macro variables", "rationale": "Global scope caused cross-file bleed between loop iterations", "phase": "02"},
-    {"decision": "ADLM character suppressed via OPTIONS VALIDVARNAME=V7 NOFMTERR", "rationale": "s15 2021 CSV had stray ADLM byte in a header that SAS 9.4 flagged; suppressed cleanly", "phase": "02"}
+    {"decision": "Generator uses 5x2000 array buffers, emits full DATA step at last.file_code", "rationale": "single DATA step pass, no macro-in-put, handles up to 2000 cols per CSV file", "phase": "03"},
+    {"decision": "Single quotes around path in generated infile statement", "rationale": "prevents & and % in file paths from being resolved as macro references in generated code", "phase": "03"},
+    {"decision": "_assert_all_src placed after Section 7 (after all XLSX imports)", "rationale": "all 20 pdd.src_* only exist after XLSX section completes; s18 staged in work until Section 6", "phase": "03"},
+    {"decision": "norm_psid loop driven by dictionary.tables WHERE memname like 'SRC_S__'", "rationale": "two-underscore pattern matches only 2-digit suffix datasets, avoids SRC_S18_RAW etc.", "phase": "03"}
   ],
-  "uncommitted_files": [],
-  "next_action": "Resolve PDD-D-17 and PDD-D-18 with Gerard (run Phase 2 live first to get the QC workbooks), then /gsd:plan-phase 3 (PCNR_ merge).",
-  "context_notes": "Phase 2 is COMPLETE and VERIFIED (11/11, status: passed). All 3 plans executed, all commits clean, working tree empty. 02_source_guard.sas is 1,604 lines at sas/02_source_guard.sas. It has never been run live — all verification was static code analysis. Runtime artifacts (4 pdd datasets, 2 xlsx workbooks, source_guard_baseline.csv) will appear on first run. Phase 3 is the PCNR_ merge: read all 20 sources, spine join, gap-fill, conflict QC, one patient-level dataset. Cannot start until Gerard resolves PDD-D-17 and PDD-D-18."
+  "uncommitted_files": [
+    "sas/03_import.sas",
+    ".planning/phases/03-direct-import-of-the-20-sources/03-01-PLAN.md",
+    ".planning/phases/03-direct-import-of-the-20-sources/03-03-PLAN.md",
+    "docs/import_spec_generated.csv"
+  ],
+  "next_action": "Fix 2 remaining C3 errors: in 03_import.sas find the block '%if &_gen_lines = -1 %then ... %if &_gen_lines < &_gen_min %then ... %put NOTE' and wrap the two %if lines in %macro _guard_gen_lines / %mend / %_guard_gen_lines. Then add C11/C14/C13 rules to sas_lint.py, create CLAUDE.md and .claude/settings.json, run both linters, commit+push.",
+  "context_notes": "Root cause of 03 failure: _write_csv_step had %if/%do inside data _null_/put context; SAS parsed macro keywords as quoted string text -> crashed entire macro file, only 2 header records written. Fixed by rewriting as pure DATA step generator using 5x2000 arrays. Most 03_import.sas changes done by Agent. Two open-code %if (C3) remain at lines ~420/423. Lint rule additions and CLAUDE.md/settings.json not yet started."
 }
