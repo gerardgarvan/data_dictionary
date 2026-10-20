@@ -164,20 +164,19 @@ s20|All_YEARS_LAT_LONG_20231127.csv|csv
    Pitfall 3: batch if any CSV > 500 columns (batches of 200).
    ============================================================ */
 
-/* --- 4a. Determine worst-case CSV column width from header_inventory --- */
-proc sql noprint;
-  select max(col_order)
-  into :_max_csv_cols trimmed
-  from pdd.header_inventory h
-  inner join work.file_list f on h.s_code = f.s_code
-  where f.ftype = 'csv';
-quit;
+/* --- 4a. Initialize accumulators for pre-pass and header-line parse ---
+   Max CSV column count is determined from the header-line parse in _run_prepass.
+   pdd.header_inventory has NO col_order column -- do NOT query it for col counts. */
 
-%put NOTE: [03a_build_spec] Max CSV column count from header_inventory: &_max_csv_cols;
-
-/* Initialize accumulator for all pre-pass results */
+/* Pre-pass accumulator: max observed char length per (s_code, col_order) */
 data work._prepass_all;
   length s_code $4 col_order 8 max_len 8;
+  stop;
+run;
+
+/* Header-line parse accumulator: physical col_order + orig column name per CSV */
+data work._csv_cols;
+  length s_code $4 col_order 8 orig_col_name $256;
   stop;
 run;
 
@@ -253,48 +252,98 @@ run;
   %put NOTE: [03a_build_spec] Pre-pass &scode complete;
 %mend _csv_prepass;
 
-/* --- 4c. Loop over CSV files in file_list --- */
+/* --- 4c. Loop over CSV files in file_list ---
+   Header-line parse derives ncols and orig_col_name from the actual CSV.
+   pdd.header_inventory has NO col_order; never query it for column counts. */
 %macro _run_prepass;
   %local _n_csv _i _scode _fpath _ncols;
 
-  /* Get count of CSV files */
+  /* Load all CSV file codes and paths into macro arrays in one PROC SQL.
+     No OFFSET/FETCH: SAS PROC SQL does not support that Oracle/ANSI syntax. */
   proc sql noprint;
     select count(*) into :_n_csv trimmed
     from work.file_list
     where ftype = 'csv';
+    select s_code, full_path
+    into :_csv_sc1-:_csv_sc999, :_csv_fp1-:_csv_fp999
+    from work.file_list
+    where ftype = 'csv'
+    order by file_id;
   quit;
 
   %put NOTE: [03a_build_spec] Running pre-pass over &_n_csv CSV files;
 
   %do _i = 1 %to &_n_csv;
-    /* Pull s_code and full_path for the i-th CSV */
-    proc sql noprint;
-      select s_code, full_path
-      into :_scode trimmed, :_fpath trimmed
-      from work.file_list
-      where ftype = 'csv'
-      order by file_id
-      offset &_i - 1 rows fetch first 1 row only;
-    quit;
+    %let _scode = &&_csv_sc&_i;
+    %let _fpath = &&_csv_fp&_i;
 
-    /* Get ncols for this file from header_inventory */
+    /* Parse the first line of the CSV: derive orig_col_name and physical col count.
+       Handles quoted fields containing commas.
+       Builds work._hdr_parse_ (s_code, col_order, orig_col_name). */
+    data work._hdr_parse_;
+      length s_code $4 orig_col_name $256 _line $32767 _f $256;
+      infile "&_fpath" encoding='utf-8' lrecl=32767 obs=1;
+      input;
+      _line  = _infile_;
+      s_code = "&_scode";
+      _in_q  = 0;
+      _start = 1;
+      _cpos  = 0;
+      do _k = 1 to lengthn(_line) + 1;
+        /* sentinel: treat end-of-line as a final comma to flush last field */
+        if _k > lengthn(_line) then _ch = ',';
+        else _ch = char(_line, _k);
+        /* toggle in-quote state on double-quote characters */
+        if _ch = '"' then _in_q = ^_in_q;
+        else if _ch = ',' and ^_in_q then do;
+          _cpos + 1;
+          _f = substr(_line, _start, _k - _start);
+          _f = strip(_f);
+          /* Strip surrounding double-quotes if present */
+          if length(_f) >= 2 and char(_f, 1) = '"'
+             and char(_f, length(_f)) = '"' then
+            _f = substr(_f, 2, length(_f) - 2);
+          orig_col_name = strip(_f);
+          output;
+          _start = _k + 1;
+        end;
+      end;
+      keep s_code _cpos orig_col_name;
+      rename _cpos = col_order;
+    run;
+
+    /* ncols from header parse (not from header_inventory) */
     proc sql noprint;
-      select count(*) into :_ncols trimmed
-      from pdd.header_inventory
-      where s_code = "&_scode";
+      select count(*) into :_ncols trimmed from work._hdr_parse_;
     quit;
 
     %if &_ncols = 0 %then %do;
-      %put NOTE: [03a_build_spec] &_scode has 0 columns in header_inventory -- skipping pre-pass;
+      %put WARNING: [03a_build_spec] &_scode header parse returned 0 columns -- skipping;
     %end;
     %else %do;
+      %put NOTE: [03a_build_spec] &_scode: &_ncols columns from header-line parse;
+      proc append base=work._csv_cols data=work._hdr_parse_; run;
       %_csv_prepass(scode=&_scode, full_path=&_fpath, ncols=&_ncols);
     %end;
+
+    proc datasets lib=work nolist nowarn; delete _hdr_parse_; quit;
   %end;
 
   %put NOTE: [03a_build_spec] All CSV pre-pass runs complete;
 %mend _run_prepass;
 %_run_prepass;
+
+/* Fail fast if CSV header parse produced no rows */
+%macro _assert_csv_cols;
+  %local _ncc;
+  proc sql noprint;
+    select count(*) into :_ncc trimmed from work._csv_cols;
+  quit;
+  %if &_ncc = 0 %then
+    %fail_out(msg=%str(work._csv_cols has 0 rows -- CSV header parse failed; check source paths));
+  %put NOTE: [03a_build_spec] work._csv_cols has &_ncc rows across &_n_csv CSV files;
+%mend _assert_csv_cols;
+%_assert_csv_cols;
 
 /* --- 4d. Verify col_order is gapless and 1-based per s_code --- */
 %macro _assert_prepass_col_order;
@@ -321,6 +370,18 @@ run;
 
 %_note_written_ds(ds=pdd.raw_char_lengths, label=pdd.raw_char_lengths);
 
+/* Fail fast if pre-pass produced no rows */
+%macro _assert_raw_char_lengths;
+  %local _nrcl;
+  proc sql noprint;
+    select count(*) into :_nrcl trimmed from pdd.raw_char_lengths;
+  quit;
+  %if &_nrcl = 0 %then
+    %fail_out(msg=%str(pdd.raw_char_lengths has 0 rows -- pre-pass failed; check CSV paths));
+  %put NOTE: [03a_build_spec] pdd.raw_char_lengths has &_nrcl rows -- OK;
+%mend _assert_raw_char_lengths;
+%_assert_raw_char_lengths;
+
 
 /* ============================================================
    SECTION 5 -- Spec build (all 20 files)
@@ -335,50 +396,84 @@ run;
              col_order from header_inventory (varnum-based order is acceptable).
    Sheet names for XLSX from pdd.source_inventory. */
 
-/* Get XLSX sheet names from source_inventory */
+/* --- 5a. Build work.spec_src: source rows for all 20 files ---
+   CSV: col_order + orig_col_name from work._csv_cols (header-line parse).
+        pdd.header_inventory has NO col_order -- never join on it for order.
+        inferred_type from row-position-numbered header_inventory.
+   XLSX: col_order from row-position in header_inventory (varnum order
+         captured by Phase 2 LIBNAME XLSX reads). */
+
+/* Position-number header_inventory rows for CSV files.
+   Row sequence in the stored dataset mirrors Phase 2's physical column reads. */
 proc sql noprint;
-  create table work._xlsx_sheets as
-  select s_code, sheet_name
-  from pdd.source_inventory
-  where s_code in ('s06','s08','s11','s19');
+  create table work._hdr_csv_raw as
+  select h.s_code, h.col_type
+  from pdd.header_inventory h
+  inner join work.file_list f on h.s_code = f.s_code
+  where f.ftype = 'csv';
 quit;
 
-/* CSV source rows: join header_inventory (for orig_col_name) to pre-pass
-   (for authoritative col_order). Use header_inventory col_order if pre-pass
-   has matching count; otherwise fall back to header_inventory varnum order. */
+data work._hdr_csv_typed;
+  length _prev_s $4;
+  retain _prev_s '' _cpos 0;
+  set work._hdr_csv_raw;
+  if strip(s_code) ne strip(_prev_s) then do;
+    _cpos  = 1;
+    _prev_s = s_code;
+  end;
+  else _cpos + 1;
+  col_order = _cpos;
+  keep s_code col_order col_type;
+run;
+
+/* CSV source rows: col_order and orig_col_name from header-line parse */
 proc sql noprint;
   create table work.spec_src_csv as
   select
-    h.s_code          as file_code,
-    /* col_order from pre-pass is authoritative for CSV physical order */
-    coalesce(p.col_order, h.col_order) as col_order,
-    /* src_name = the column name as it appears in the source (for CSV, the raw header) */
-    coalesce(strip(h.original_header), strip(h.col_name)) as src_name,
-    coalesce(strip(h.original_header), strip(h.col_name)) as orig_col_name,
-    h.col_type                         as inferred_type
-  from pdd.header_inventory h
-  left join work._prepass_all p
-    on  h.s_code   = p.s_code
-    and h.col_order = p.col_order
-  inner join work.file_list f
-    on h.s_code = f.s_code
-  where f.ftype = 'csv'
+    c.s_code               as file_code,
+    c.col_order,
+    strip(c.orig_col_name) as src_name,
+    strip(c.orig_col_name) as orig_col_name,
+    coalesce(h.col_type, 'char') as inferred_type
+  from work._csv_cols c
+  left join work._hdr_csv_typed h
+    on c.s_code = h.s_code and c.col_order = h.col_order
   order by file_code, col_order;
 quit;
 
-/* XLSX source rows: use header_inventory engine names */
+/* Position-number header_inventory rows for XLSX files */
+proc sql noprint;
+  create table work._hdr_xlsx_raw as
+  select h.s_code, h.col_name, h.col_type,
+         coalesce(strip(h.original_header), strip(h.col_name)) as orig_col_name length=256
+  from pdd.header_inventory h
+  inner join work.file_list f on h.s_code = f.s_code
+  where f.ftype = 'xlsx';
+quit;
+
+data work._hdr_xlsx_typed;
+  length _prev_s $4;
+  retain _prev_s '' _cpos 0;
+  set work._hdr_xlsx_raw;
+  if strip(s_code) ne strip(_prev_s) then do;
+    _cpos  = 1;
+    _prev_s = s_code;
+  end;
+  else _cpos + 1;
+  col_order = _cpos;
+  keep s_code col_order col_name col_type orig_col_name;
+run;
+
+/* XLSX source rows: col_order from row-position; src_name = engine var name */
 proc sql noprint;
   create table work.spec_src_xlsx as
   select
-    h.s_code            as file_code,
+    h.s_code               as file_code,
     h.col_order,
-    strip(h.col_name)   as src_name,          /* engine variable name */
-    coalesce(strip(h.original_header), strip(h.col_name)) as orig_col_name,
-    h.col_type          as inferred_type
-  from pdd.header_inventory h
-  inner join work.file_list f
-    on h.s_code = f.s_code
-  where f.ftype = 'xlsx'
+    strip(h.col_name)      as src_name,
+    strip(h.orig_col_name) as orig_col_name,
+    h.col_type             as inferred_type
+  from work._hdr_xlsx_typed h
   order by file_code, col_order;
 quit;
 
@@ -701,21 +796,21 @@ run;
 %macro _run_probes;
   %local _n_csv _i _scode _fpath;
 
+  /* Load all CSV file codes and paths into macro arrays (no OFFSET/FETCH) */
   proc sql noprint;
     select count(*) into :_n_csv trimmed
     from work.file_list
     where ftype = 'csv';
+    select s_code, full_path
+    into :_prb_sc1-:_prb_sc999, :_prb_fp1-:_prb_fp999
+    from work.file_list
+    where ftype = 'csv'
+    order by file_id;
   quit;
 
   %do _i = 1 %to &_n_csv;
-    proc sql noprint;
-      select s_code, full_path
-      into :_scode trimmed, :_fpath trimmed
-      from work.file_list
-      where ftype = 'csv'
-      order by file_id
-      offset &_i - 1 rows fetch first 1 row only;
-    quit;
+    %let _scode = &&_prb_sc&_i;
+    %let _fpath = &&_prb_fp&_i;
     %_probe_numeric_cols(scode=&_scode, fpath=&_fpath);
   %end;
 
@@ -847,7 +942,8 @@ run;
 
 proc datasets lib=work nolist nowarn;
   delete spec_final_base spec_with_lens spec_typed spec_named spec_src
-         spec_src_csv spec_src_xlsx _xlsx_sheets;
+         spec_src_csv spec_src_xlsx
+         _hdr_csv_raw _hdr_csv_typed _hdr_xlsx_raw _hdr_xlsx_typed;
 quit;
 
 
@@ -885,6 +981,21 @@ data pdd.import_spec;
 run;
 
 %_note_written_ds(ds=pdd.import_spec, label=pdd.import_spec);
+
+/* Fail fast: must have 20 distinct file_codes and > 0 rows before writing CSV */
+%macro _assert_spec_complete;
+  %local _nfc _nspec;
+  proc sql noprint;
+    select count(distinct file_code) into :_nfc  trimmed from pdd.import_spec;
+    select count(*)                  into :_nspec trimmed from pdd.import_spec;
+  quit;
+  %if &_nfc < 20 %then
+    %fail_out(msg=%str(pdd.import_spec has &_nfc of 20 distinct file_codes -- never write header-only CSV));
+  %if &_nspec = 0 %then
+    %fail_out(msg=%str(pdd.import_spec has 0 rows -- spec build failed));
+  %put NOTE: [03a_build_spec] pdd.import_spec: &_nfc distinct file_codes &_nspec total rows -- OK;
+%mend _assert_spec_complete;
+%_assert_spec_complete;
 
 
 /* ============================================================
