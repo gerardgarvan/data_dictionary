@@ -748,7 +748,7 @@ run;
    Pass A: engine-character columns via _character_ array (retain _ml1-_ml5000).
    Pass B: engine-numeric columns that spec forces to C (lengthn(cats(x))). */
 %macro _measure_xlsx_char_lens(fc=, fpath=);
-  %local _librc _n_sheets _is _sheet _n_numforce _jnf;
+  %local _librc _n_sheets _is _sheet _n_ccols _n_numforce _j _jnf _n_meas;
 
   libname _xlmsr xlsx "&fpath";
   %let _librc = %sysfunc(libref(_xlmsr));
@@ -776,33 +776,26 @@ run;
 
   %do _is = 1 %to &_n_sheets;
     %let _sheet = &&_xlsh&_is;
-
-    /* Pass A: engine-character columns.
-       5000-element retain array covers s06 (up to ~3987 char cols). */
-    data work._xlcl_a (keep=file_code sheet_name src_name max_len);
-      length file_code $4 sheet_name $256 src_name $256 max_len 8;
-      retain _ml1-_ml5000 0;
-      array _c {*} _character_;
-      array _m {5000} _ml1-_ml5000;
-      set _xlmsr."&_sheet"n end=_eof;
-      do _j = 1 to dim(_c);
-        if lengthn(_c{_j}) > _m{_j} then _m{_j} = lengthn(_c{_j});
-      end;
-      if _eof then do;
-        file_code  = "&fc";
-        sheet_name = "&_sheet";
-        do _j = 1 to dim(_c);
-          src_name = vname(_c{_j});
-          max_len  = _m{_j};
-          output;
-        end;
-      end;
-    run;
-
-    /* Pass B: engine-numeric columns forced to C in spec_typed.
-       Identify via dictionary.columns while _xlmsr is still assigned. */
+    %let _n_ccols    = 0;
     %let _n_numforce = 0;
+
+    /* Query 1: engine-char col names + count of engine-numeric forced-C cols.
+       Names come from dictionary.columns so they are the ENGINE names (with
+       any numeric-suffix renames the XLSX engine applied), not sanitised SAS names. */
     proc sql noprint;
+      select count(*) into :_n_ccols trimmed
+      from dictionary.columns
+      where upcase(libname) = '_XLMSR'
+        and upcase(memname) = upcase("&_sheet")
+        and type = 'char';
+
+      select name into :_cc1-:_cc9999
+      from dictionary.columns
+      where upcase(libname) = '_XLMSR'
+        and upcase(memname) = upcase("&_sheet")
+        and type = 'char'
+      order by varnum;
+
       select count(*) into :_n_numforce trimmed
       from work.spec_typed s
       inner join dictionary.columns d
@@ -812,46 +805,67 @@ run;
       where s.file_code = "&fc"
         and s.sas_type  = 'C'
         and d.type      = 'num';
-
-      select strip(s.src_name)
-      into :_nf_col1-:_nf_col999
-      from work.spec_typed s
-      inner join dictionary.columns d
-        on  upcase(d.libname)        = '_XLMSR'
-        and upcase(d.memname)        = upcase("&_sheet")
-        and upcase(strip(d.name))    = upcase(strip(s.src_name))
-      where s.file_code = "&fc"
-        and s.sas_type  = 'C'
-        and d.type      = 'num'
-      order by s.col_order;
     quit;
 
-    %put NOTE: [03a_build_spec] &fc sheet &_sheet engine-numeric forced-C cols: &_n_numforce;
+    %put NOTE: [03a_build_spec] &fc sheet &_sheet char-cols=&_n_ccols engine-numeric-forced-C=&_n_numforce;
 
+    /* Query 2 (conditional): names of engine-numeric forced-C cols */
     %if &_n_numforce > 0 %then %do;
-      data work._xlcl_b (keep=file_code sheet_name src_name max_len);
-        length file_code $4 sheet_name $256 src_name $256 max_len 8;
-        retain _mnf1-_mnf&_n_numforce 0;
-        array _mnf {&_n_numforce} _mnf1-_mnf&_n_numforce;
-        set _xlmsr."&_sheet"n end=_eof;
-        %do _jnf = 1 %to &_n_numforce;
-          if lengthn(cats(&&_nf_col&_jnf)) > _mnf{&_jnf}
-            then _mnf{&_jnf} = lengthn(cats(&&_nf_col&_jnf));
-        %end;
-        if _eof then do;
-          file_code  = "&fc";
-          sheet_name = "&_sheet";
-          %do _jnf = 1 %to &_n_numforce;
-            src_name = "&&_nf_col&_jnf";
-            max_len  = _mnf{&_jnf};
-            output;
-          %end;
-        end;
-      run;
-
-      proc append base=work._xlcl_a data=work._xlcl_b; run;
-      proc datasets lib=work nolist nowarn; delete _xlcl_b; quit;
+      proc sql noprint;
+        select strip(s.src_name) into :_nf_col1-:_nf_col999
+        from work.spec_typed s
+        inner join dictionary.columns d
+          on  upcase(d.libname)        = '_XLMSR'
+          and upcase(d.memname)        = upcase("&_sheet")
+          and upcase(strip(d.name))    = upcase(strip(s.src_name))
+        where s.file_code = "&fc"
+          and s.sas_type  = 'C'
+          and d.type      = 'num'
+        order by s.col_order;
+      quit;
     %end;
+
+    /* Single pass over the sheet: measure engine-char cols and engine-numeric
+       forced-C cols together.  Arrays use explicit retain vars (not _character_)
+       so the SET statement position does not affect which columns are captured. */
+    data work._xlcl_a (keep=file_code sheet_name src_name max_len);
+      length file_code $4 sheet_name $256 src_name $256 max_len 8;
+      %if &_n_ccols > 0 %then %do;
+      retain _mc1-_mc&_n_ccols 0;
+      array _mc {&_n_ccols} _mc1-_mc&_n_ccols;
+      %end;
+      %if &_n_numforce > 0 %then %do;
+      retain _mnf1-_mnf&_n_numforce 0;
+      array _mnf {&_n_numforce} _mnf1-_mnf&_n_numforce;
+      %end;
+      set _xlmsr."&_sheet"n end=_eof;
+      /* measure engine-character columns */
+      %if &_n_ccols > 0 %then %do _j = 1 %to &_n_ccols;
+        if lengthn("&&_cc&_j"n) > _mc{&_j} then _mc{&_j} = lengthn("&&_cc&_j"n);
+      %end;
+      /* measure engine-numeric forced-C columns via cats() */
+      %if &_n_numforce > 0 %then %do _jnf = 1 %to &_n_numforce;
+        if lengthn(cats("&&_nf_col&_jnf"n)) > _mnf{&_jnf}
+          then _mnf{&_jnf} = lengthn(cats("&&_nf_col&_jnf"n));
+      %end;
+      if _eof then do;
+        file_code  = "&fc";
+        sheet_name = "&_sheet";
+        %if &_n_ccols > 0 %then %do _j = 1 %to &_n_ccols;
+          src_name = "&&_cc&_j";
+          max_len  = _mc{&_j};
+          output;
+        %end;
+        %if &_n_numforce > 0 %then %do _jnf = 1 %to &_n_numforce;
+          src_name = "&&_nf_col&_jnf";
+          max_len  = _mnf{&_jnf};
+          output;
+        %end;
+      end;
+    run;
+
+    %let _n_meas = %eval(&_n_ccols + &_n_numforce);
+    %put NOTE: [03a_build_spec] &fc sheet &_sheet measured=&_n_meas (char=&_n_ccols numforce=&_n_numforce);
 
     proc append base=work._xlsx_char_lens_all data=work._xlcl_a; run;
     proc datasets lib=work nolist nowarn; delete _xlcl_a; quit;

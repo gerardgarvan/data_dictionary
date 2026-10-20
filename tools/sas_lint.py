@@ -15,6 +15,7 @@ C6  ORDER BY clause containing an aggregate function
 C7  fdelete / fexist / fopen called with a string literal as fileref
 C8  prxmatch with $ anchor on a variable not wrapped in strip()
 C9  LIBNAME statement with engine placed after the path string (wrong order)
+C10 array _character_ / _numeric_ declared before SET/MERGE/INPUT in a DATA step
 
 Usage
 -----
@@ -310,6 +311,38 @@ def check_libname_engine_after_path(path, lines):
     return hits
 
 
+# ── C10: array _character_/_numeric_ before SET/MERGE/INPUT ──────────────────
+#
+# In a DATA step, _character_ and _numeric_ are bound at compile time to the
+# variables already on the PDV when the array statement is processed.  If the
+# array appears before the SET/MERGE/INPUT that reads the source dataset, the
+# array captures only variables declared by preceding LENGTH/ATTRIB/RETAIN
+# statements -- not the dataset columns the programmer intended.
+# Fix: move the SET/MERGE/INPUT statement above the array declaration.
+
+def check_array_special_before_set(path, lines):
+    hits = []
+    in_data = False
+    seen_io = False
+    for i, raw in enumerate(lines, 1):
+        stripped = raw.strip()
+        if re.match(r'\bdata\s+\S', stripped, CI) and not re.search(r'\bproc\s+sql\b', stripped, CI):
+            in_data = True
+            seen_io = False
+        if in_data and re.match(r'run\s*;', stripped, CI):
+            in_data = False
+            seen_io = False
+        if in_data and re.match(r'(set|merge|input)\b', stripped, CI):
+            seen_io = True
+        if in_data and not seen_io \
+                and re.search(r'\barray\b[^;]*\b_(character|numeric)_\b', raw, CI):
+            hits.append((path, i, 'C10',
+                'array _character_/_numeric_ declared before SET/MERGE/INPUT -- '
+                'the array captures only pre-declared PDV vars, not the source dataset columns; '
+                'move SET/MERGE/INPUT above the array declaration'))
+    return hits
+
+
 # ── runner ────────────────────────────────────────────────────────────────────
 
 CHECKS = [
@@ -323,6 +356,7 @@ CHECKS = [
     check_prxmatch_dollar_no_strip,
     check_sql_no_sqlrc,
     check_libname_engine_after_path,
+    check_array_special_before_set,
 ]
 
 
