@@ -195,18 +195,18 @@ run;
     %let _col_end   = %sysfunc(min(&ncols, %eval(&_b * 200)));
     %let _b_ncols   = %eval(&_col_end - &_col_start + 1);
 
-    /* Read all columns as $32767 char; track max length per column in batch */
-    data work._pp_batch;
-      length _s_code $4;
+    /* Read all columns as $32767 char; track max length per column in batch.
+       Output only at EOF so _ml arrays hold the true per-column maxima. */
+    data work._pp_long;
+      length _s_code $4 s_code $4;
       retain _ml1-_ml&_b_ncols 0;
       array _c {&_b_ncols} $32767 _c1-_c&_b_ncols;
       array _m {&_b_ncols} _ml1-_ml&_b_ncols;
       _s_code = "&scode";
       infile "&full_path" encoding='utf-8' dlm=',' dsd missover
-             firstobs=2 lrecl=32767;
+             firstobs=2 lrecl=32767 end=_eof;
 
-      /* Use colon-modified list input to honor DSD delimiters correctly
-         Skip the first (_col_start - 1) columns before reading our batch */
+      /* Skip the first (_col_start - 1) columns before reading our batch */
       %if &_col_start > 1 %then %do;
         %local _nskip;
         %let _nskip = %eval(&_col_start - 1);
@@ -221,23 +221,23 @@ run;
       do _j = 1 to &_b_ncols;
         if lengthn(_c{_j}) > _m{_j} then _m{_j} = lengthn(_c{_j});
       end;
-      keep _s_code _ml1-_ml&_b_ncols;
-    run;
 
-    /* Extract the retained-maximum row (obs=1 is the only row with all cols) */
-    data work._pp_row;
-      set work._pp_batch(obs=1);
-    run;
-
-    /* Transpose into (s_code, col_order, max_len) and append */
-    data work._pp_long;
-      set work._pp_row;
-      array _m {&_b_ncols} _ml1-_ml&_b_ncols;
-      do _j = 1 to &_b_ncols;
-        s_code    = _s_code;
-        col_order = &_col_start + _j - 1;
-        max_len   = _m{_j};
-        output;
+      /* Only output the final accumulated row (true maxima) */
+      if _eof then do;
+        /* Log sample max_lens for first 3 columns of batch 1 */
+        %if &_b = 1 %then %do;
+          %local _nsamp;
+          %let _nsamp = %sysfunc(min(3, &_b_ncols));
+          %do _js = 1 %to &_nsamp;
+            put "NOTE: [03a_build_spec] &scode prepass col=%eval(&_col_start + &_js - 1) max_len=" _ml&_js;
+          %end;
+        %end;
+        do _j = 1 to &_b_ncols;
+          s_code    = _s_code;
+          col_order = &_col_start + _j - 1;
+          max_len   = _m{_j};
+          output;
+        end;
       end;
       keep s_code col_order max_len;
     run;
@@ -245,7 +245,7 @@ run;
     proc append base=work._prepass_all data=work._pp_long; run;
 
     proc datasets lib=work nolist nowarn;
-      delete _pp_batch _pp_row _pp_long;
+      delete _pp_long;
     quit;
   %end;
 
@@ -493,17 +493,6 @@ data work.spec_with_names;
   set work.spec_src;
   by file_code;
 
-  /* Running counter for dup suffix per file -- reset at new file */
-  if first.file_code then do;
-    /* Clear hash contents handled by if-first logic below */
-    call missing(of _all_);
-    file_code = file_code;   /* re-assign after missing() */
-    col_order  = col_order;
-    src_name   = src_name;
-    orig_col_name = orig_col_name;
-    inferred_type = inferred_type;
-  end;
-
   length sas_name $32 sas_name_raw $32 _base $27 _upbase $32;
 
   /* Step 1: sanitise to V7 name */
@@ -567,6 +556,70 @@ run;
 proc datasets lib=work nolist nowarn;
   delete spec_ranked spec_with_names;
 quit;
+
+/* --- P1-3: Assert V7-valid names and no within-file upcase dups.
+   Fix collisions by incrementing suffix against the full final name set. */
+%macro _assert_and_fix_names;
+  %local _n_inv _n_dup;
+
+  /* Check V7 validity */
+  proc sql noprint;
+    select count(*) into :_n_inv trimmed
+    from work.spec_named
+    where not prxmatch('/^[A-Za-z_][A-Za-z0-9_]{0,31}$/', strip(sas_name));
+  quit;
+  %if &_n_inv > 0 %then
+    %fail_out(msg=%str(&_n_inv spec_named rows have invalid V7 sas_name -- check name derivation));
+  %put NOTE: [03a_build_spec] V7 name validation passed (&_n_inv invalid names);
+
+  /* Check within-file upcase dups */
+  proc sql noprint;
+    select count(*) into :_n_dup trimmed
+    from (
+      select file_code, upcase(sas_name) as uname, count(*) as n
+      from work.spec_named
+      group by file_code, upcase(sas_name)
+      having count(*) > 1
+    );
+  quit;
+
+  %if &_n_dup > 0 %then %do;
+    %put WARNING: [03a_build_spec] &_n_dup upcase-dup groups remain after suffix assignment -- resolving;
+    /* Iterative fix: assign _dupN suffix incrementing against the full name set */
+    data work.spec_named;
+      set work.spec_named;
+      by file_code;
+      length _uname $32 _candidate $32;
+      retain _prev_file $4 '';
+      /* Hash declared outside the if-block to persist across rows */
+      if _N_ = 1 then do;
+        declare hash _seen(multidata:'n');
+        _seen.defineKey('_uname');
+        _seen.defineDone();
+      end;
+      if first.file_code then _seen.clear();
+      _uname = upcase(strip(sas_name));
+      if _seen.check() = 0 then do;
+        /* Collision -- find a free suffix */
+        _sfx = 2;
+        do while(_seen.check() = 0);
+          _candidate = cats(substr(sas_name, 1, 27), '_dup', put(_sfx, 8.));
+          _candidate = substr(_candidate, 1, 32);
+          _uname = upcase(_candidate);
+          _sfx + 1;
+        end;
+        sas_name = _candidate;
+        _uname   = upcase(sas_name);
+      end;
+      _seen.add();
+      drop _uname _candidate _sfx _prev_file;
+    run;
+    %put NOTE: [03a_build_spec] Dup collision resolution complete;
+  %end;
+  %else
+    %put NOTE: [03a_build_spec] No within-file upcase dup names -- OK;
+%mend _assert_and_fix_names;
+%_assert_and_fix_names;
 
 
 /* --- 5c. SAS_TYPE determination (forced-char rules) ---
@@ -651,10 +704,13 @@ quit;
 
 %put NOTE: [03a_build_spec] N-type CSV columns requiring numeric probe: &_n_probe_cols;
 
+/* Set datestyle to MDY before any numeric probing */
+options datestyle=mdy;
+
 /* Initialize probe results table */
 data work._probe_results;
   length file_code $4 col_order 8 sas_name $32
-         parse_fail_best32 8 best_informat $20 best_format $20 probe_note $100;
+         parse_fail_best32 8 best_informat $20 best_format $20 probe_note $200;
   stop;
 run;
 
@@ -695,21 +751,34 @@ run;
     where file_code = "&scode";
   quit;
 
-  /* Read ALL columns as $64 char, then probe only the N-type ones.
-     We'll generate a DATA step dynamically. */
+  /* Build macro array of per-column max_len values from pre-pass (P1-6) */
+  %local _k;
+  %do _k = 1 %to &_n_ncols;
+    %local _pmaxlen&_k;
+    %let _pmaxlen&_k = 64;
+    proc sql noprint;
+      select max(coalesce(raw_max_len, 64), 1)
+      into :_pmaxlen&_k trimmed
+      from work.spec_with_lens
+      where file_code = "&scode" and col_order = &&_pord&_k;
+    quit;
+  %end;
+
+  /* Read all columns using pre-pass max_len widths; keep only N-type ones.
+     Each N-type column gets its own pre-pass-derived length (P1-6). */
   data work._probe_vals_&scode;
-    /* Read total cols, keep only the N-type ones (by col_order position) */
     length _f_code $4;
     retain _f_code "&scode";
-    array _allc {&_tot_cols} $64 _allc1-_allc&_tot_cols;
+    array _allc {&_tot_cols} $32767 _allc1-_allc&_tot_cols;
     infile "&fpath" encoding='utf-8' dlm=',' dsd missover firstobs=2 lrecl=32767;
-    input (_allc1-_allc&_tot_cols) (:$64.);
+    input (_allc1-_allc&_tot_cols) (:$32767.);
 
-    /* Keep only N-type columns (rename to their sas_name) */
-    %local _k;
+    /* Keep only N-type columns at their pre-pass max length */
     %do _k = 1 %to &_n_ncols;
-      length &&_pname&_k $64;
-      &&_pname&_k = _allc{&&_pord&_k};
+      %local _pmlen;
+      %let _pmlen = &&_pmaxlen&_k;
+      length &&_pname&_k $&_pmlen;
+      &&_pname&_k = substr(_allc{&&_pord&_k}, 1, &_pmlen);
     %end;
     keep _f_code
     %do _k = 1 %to &_n_ncols;
@@ -718,71 +787,110 @@ run;
     ;
   run;
 
-  /* Count parse failures per N-type column */
+  /* Count parse failures per N-type column using DATA steps.
+     ?? is valid in DATA step INPUT but invalid in PROC SQL.
+     One DATA step per column computes all counts at once. */
   %local _k;
   %do _k = 1 %to &_n_ncols;
-    %local _colname _fail_best32;
-    %let _colname = &&_pname&_k;
+    %local _colname _fail_best32 _n_leadzero _best_inf _best_fmt
+           _fail_mmddyy _fail_yymmdd _fail_anydtdtm _fail_ddmmyy _n_ambig;
+    %let _colname       = &&_pname&_k;
+    %let _fail_best32   = ;
+    %let _n_leadzero    = ;
+    %let _fail_mmddyy   = ;
+    %let _fail_yymmdd   = ;
+    %let _fail_anydtdtm = ;
+    %let _fail_ddmmyy   = ;
+    %let _n_ambig       = ;
+    %let _best_inf      = ;
+    %let _best_fmt      = ;
+
+    /* Single DATA step: all parse counts for &&_pname&_k in one pass */
+    data work._probe_cnt;
+      retain _fail_best32 0 _n_leadzero 0
+             _fail_mmddyy 0 _fail_yymmdd 0 _fail_anydtdtm 0
+             _fail_ddmmyy 0 _n_ambig 0;
+      set work._probe_vals_&scode end=_eof;
+      length _v $32767;
+      _v = strip(&&_pname&_k);
+      if _v not in ('', 'NULL', '.') then do;
+        /* P1-5: leading zero followed by a digit (007 -> char; not 0.5 or bare 0) */
+        if prxmatch('/^0\d/', _v)             then _n_leadzero    + 1;
+        if input(_v, ?? best32.)     = .      then _fail_best32   + 1;
+        if input(_v, ?? mmddyy10.)   = .      then _fail_mmddyy   + 1;
+        if input(_v, ?? yymmdd10.)   = .      then _fail_yymmdd   + 1;
+        if input(_v, ?? anydtdtm21.) = .      then _fail_anydtdtm + 1;
+        if input(_v, ?? ddmmyy10.)   = .      then _fail_ddmmyy   + 1;
+        /* P1-4 ambiguous date: mmddyy and ddmmyy both parse but give different values */
+        if input(_v, ?? mmddyy10.) ne . and input(_v, ?? ddmmyy10.) ne .
+           and input(_v, ?? mmddyy10.) ne input(_v, ?? ddmmyy10.)
+          then _n_ambig + 1;
+      end;
+      if _eof then output;
+      keep _fail_best32 _n_leadzero _fail_mmddyy _fail_yymmdd
+           _fail_anydtdtm _fail_ddmmyy _n_ambig;
+    run;
 
     proc sql noprint;
-      select count(*) into :_fail_best32 trimmed
-      from work._probe_vals_&scode
-      where input(strip(&&_pname&_k), ?? best32.) = .
-        and strip(&&_pname&_k) not in ('', 'NULL', '.');
+      select _fail_best32, _n_leadzero, _fail_mmddyy, _fail_yymmdd,
+             _fail_anydtdtm, _fail_ddmmyy, _n_ambig
+      into :_fail_best32   trimmed, :_n_leadzero    trimmed,
+           :_fail_mmddyy   trimmed, :_fail_yymmdd   trimmed,
+           :_fail_anydtdtm trimmed, :_fail_ddmmyy   trimmed,
+           :_n_ambig       trimmed
+      from work._probe_cnt;
     quit;
+    proc datasets lib=work nolist nowarn; delete _probe_cnt; quit;
 
-    /* Try datetime informats if best32 fails */
-    %local _best_inf _best_fmt;
-    %let _best_inf = ;
-    %let _best_fmt = ;
+    /* Guard: blank count means DATA step produced 0 rows -- never silently fallback */
+    %if %length(&_fail_best32) = 0 %then
+      %fail_out(msg=%str(&scode probe DATA step for &&_pname&_k returned 0 rows -- check source file));
 
-    %if &_fail_best32 = 0 %then %do;
-      %let _best_inf = best32.;
+    /* P1-5: a zero followed by a digit forces char */
+    %if &_n_leadzero > 0 %then %do;
+      %put NOTE: [03a_build_spec] &scode..&_colname: &_n_leadzero values match ^0\d -- forcing to char (P1-5);
+      %let _best_inf = FORCE_CHAR;
       %let _best_fmt = ;
     %end;
     %else %do;
-      /* Try datetime informats in order */
-      %local _inf_list _inf_i _inf _nfail;
-      %let _inf_list = anydtdtm21. anydtdte10. e8601dt26. e8601da10. mmddyy10.;
-      %do _inf_i = 1 %to 5;
-        %let _inf = %scan(&_inf_list, &_inf_i, %str( ));
-        %if %length(&_best_inf) = 0 %then %do;
-          proc sql noprint;
-            select count(*) into :_nfail trimmed
-            from work._probe_vals_&scode
-            where input(strip(&&_pname&_k), ?? &_inf) = .
-              and strip(&&_pname&_k) not in ('', 'NULL', '.');
-          quit;
-          %if &_nfail = 0 %then %do;
-            %let _best_inf = &_inf;
-            %if &_inf = anydtdtm21. %then %let _best_fmt = DATETIME21.;
-            %else %if &_inf = e8601dt26. %then %let _best_fmt = DATETIME21.;
-            %else %if &_inf = anydtdte10. %then %let _best_fmt = DATE9.;
-            %else %if &_inf = e8601da10. %then %let _best_fmt = DATE9.;
-            %else %if &_inf = mmddyy10. %then %let _best_fmt = DATE9.;
-          %end;
-        %end;
-      %end;
-
-      /* If no informat parsed 100%, force to char */
-      %if %length(&_best_inf) = 0 %then %do;
-        %let _best_inf = FORCE_CHAR;
+      /* Informat selection: fixed order best32 > mmddyy > yymmdd > anydtdtm (P1-4) */
+      %if &_fail_best32 = 0 %then %do;
+        %let _best_inf = best32.;
         %let _best_fmt = ;
-        %put NOTE: [03a_build_spec] &scode..&_colname: no numeric informat parsed 100% -- will force to char;
+      %end;
+      %else %if &_fail_mmddyy = 0 %then %do;
+        %let _best_inf = mmddyy10.;
+        %let _best_fmt = DATE9.;
+        /* P1-4 ambiguous-date warning */
+        %if &_fail_ddmmyy = 0 and &_n_ambig > 0 %then
+          %put WARNING: [03a_build_spec] &scode..&_colname: &_n_ambig values parse differently as mmddyy vs ddmmyy -- verify date format (P1-4);
+      %end;
+      %else %if &_fail_yymmdd = 0 %then %do;
+        %let _best_inf = yymmdd10.;
+        %let _best_fmt = DATE9.;
+      %end;
+      %else %if &_fail_anydtdtm = 0 %then %do;
+        %let _best_inf = anydtdtm21.;
+        %let _best_fmt = DATETIME21.;
+      %end;
+      %else %do;
+        /* No informat parsed 100%: must fail, not silently fall back */
+        %fail_out(msg=%str(&scode..&_colname: no numeric informat parsed all non-blank values -- add to import_spec_overrides.csv with sas_type=C));
       %end;
     %end;
 
     /* Record probe result */
     data work._probe_one;
       length file_code $4 col_order 8 sas_name $32
-             parse_fail_best32 8 best_informat $20 best_format $20 probe_note $100;
-      file_code        = "&scode";
-      col_order        = &&_pord&_k;
-      sas_name         = "&_colname";
+             parse_fail_best32 8 best_informat $20 best_format $20 probe_note $200;
+      file_code         = "&scode";
+      col_order         = &&_pord&_k;
+      sas_name          = "&_colname";
       parse_fail_best32 = &_fail_best32;
-      best_informat    = "&_best_inf";
-      best_format      = "&_best_fmt";
-      probe_note       = cats('numeric parse_fail_best32=', put(&_fail_best32, 8.));
+      best_informat     = "&_best_inf";
+      best_format       = "&_best_fmt";
+      probe_note        = cats('parse_fail_best32=', put(&_fail_best32, 8.),
+                               ' chosen_informat=', "&_best_inf");
     run;
     proc append base=work._probe_results data=work._probe_one; run;
     proc datasets lib=work nolist nowarn; delete _probe_one; quit;
@@ -910,15 +1018,8 @@ data work.spec_final;
   /* NOTES field */
   notes = '';
   if _forced_char_reason ne '' then notes = _forced_char_reason;
-  if dup_rank > 0 then do; /* dup_rank not available here -- handled via sas_name suffix */
-    /* dup indicator: if sas_name ends with _dup */
-    if prxmatch('/_dup\d+$/', sas_name) then do;
-      if notes ne '' then notes = cats(notes, '; dup header');
-      else notes = 'dup header';
-    end;
-  end;
   /* Dup detection from sas_name pattern */
-  if prxmatch('/_dup\d+$/', sas_name) and index(notes, 'dup header') = 0 then do;
+  if prxmatch('/_dup\d+$/', strip(sas_name)) and index(notes, 'dup header') = 0 then do;
     if notes ne '' then notes = cats(notes, '; dup header');
     else notes = 'dup header';
   end;
@@ -1036,6 +1137,38 @@ run;
 
 %put NOTE: [03a_build_spec] docs\import_spec_generated.csv written;
 %put NOTE: [03a_build_spec] Gerard: create docs\import_spec_overrides.csv (same 10-column header) with only the rows where overrides are needed; 03_import.sas will merge at runtime (override row wins over generated row);
+
+/* P2: Read back the CSV and assert its data row count = pdd.import_spec row count */
+%macro _assert_csv_rowcount;
+  %local _nspec _ncsv_rows;
+
+  proc sql noprint;
+    select count(*) into :_nspec trimmed from pdd.import_spec;
+  quit;
+
+  /* Count data rows in the generated CSV (skip the header line) */
+  data work._csv_rc_check;
+    infile "C:\data_dictionary\docs\import_spec_generated.csv"
+           lrecl=5000 encoding='utf-8' firstobs=2 missover;
+    input;
+    _row + 1;
+    if eof then output;
+    retain _row 0;
+    eof = (eof = 1);
+    keep _row;
+  run;
+
+  proc sql noprint;
+    select max(_row) into :_ncsv_rows trimmed from work._csv_rc_check;
+  quit;
+
+  proc datasets lib=work nolist nowarn; delete _csv_rc_check; quit;
+
+  %if %trim(&_ncsv_rows) ne %trim(&_nspec) %then
+    %fail_out(msg=%str(import_spec_generated.csv has &_ncsv_rows data rows but pdd.import_spec has &_nspec -- write mismatch));
+  %put NOTE: [03a_build_spec] CSV row-count assert passed (&_ncsv_rows rows match pdd.import_spec);
+%mend _assert_csv_rowcount;
+%_assert_csv_rowcount;
 
 
 /* ============================================================
