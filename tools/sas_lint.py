@@ -14,6 +14,7 @@ C5  %if comparison RHS is a bare identifier that itself contains - or .
 C6  ORDER BY clause containing an aggregate function
 C7  fdelete / fexist / fopen called with a string literal as fileref
 C8  prxmatch with $ anchor on a variable not wrapped in strip()
+C9  LIBNAME statement with engine placed after the path string (wrong order)
 
 Usage
 -----
@@ -280,6 +281,35 @@ def check_sql_no_sqlrc(path, lines):
     return hits
 
 
+# ── C9: LIBNAME engine after path ────────────────────────────────────────────
+#
+# Correct: LIBNAME libref <engine> "path";
+# Wrong:   LIBNAME libref "path" <engine>;
+#
+# The pattern matches: libname <word> "<anything>" <word-identifier>;
+# where the token after the closing quote is a bare word (the misplaced engine).
+# Excludes the %sysfunc(libname(...)) function form and comments.
+
+_LIBNAME_ENGINE_AFTER_PATH = re.compile(
+    r'^\s*libname\s+\w+\s+'   # LIBNAME libref
+    r'(?:&[\w.]+\s+)?'         # optional macro-var prefix (not the path itself)
+    r'["\']'                   # opening quote of path
+    r'[^"\']*'                 # path contents
+    r'["\']'                   # closing quote
+    r'\s+\w+\s*;',             # bare word (engine) then semicolon
+    CI,
+)
+
+def check_libname_engine_after_path(path, lines):
+    hits = []
+    for i, raw in enumerate(lines, 1):
+        if re.search(_LIBNAME_ENGINE_AFTER_PATH, raw):
+            hits.append((path, i, 'C9',
+                'LIBNAME engine placed after the path string -- '
+                'correct syntax: LIBNAME libref <engine> "path";'))
+    return hits
+
+
 # ── runner ────────────────────────────────────────────────────────────────────
 
 CHECKS = [
@@ -292,6 +322,7 @@ CHECKS = [
     check_literal_fileref,
     check_prxmatch_dollar_no_strip,
     check_sql_no_sqlrc,
+    check_libname_engine_after_path,
 ]
 
 

@@ -250,7 +250,7 @@ engine inferred incorrectly (e.g., ID columns inferred as numeric).
 
 ```sas
 /* Source: SAS 9.4 LIBNAME XLSX documentation + Phase 2 Section 6 XLSX branch */
-libname _xl "&raw_master.\2018_2022_COLONOSCOPY_20240118.xlsx" xlsx;
+libname _xl xlsx "&raw_master.\2018_2022_COLONOSCOPY_20240118.xlsx";
 
 data pdd.src_s08;
   set _xl.'Sheet1'n;

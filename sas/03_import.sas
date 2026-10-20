@@ -584,7 +584,7 @@ proc datasets lib=work nolist nowarn; delete _s17_enc _s17n _s17_ambig; quit;
   quit;
 
   /* Assign XLSX libref to discover sheet names; clear before returning */
-  libname _xlsnt "&_fpath" xlsx;
+  libname _xlsnt xlsx "&_fpath";
   %let _librc = %sysfunc(libref(_xlsnt));
   %if &_librc ne 0 %then
     %put WARNING: [03_import] _get_sheet_name: LIBNAME XLSX failed for &scode -- &_fpath;
@@ -631,7 +631,7 @@ proc datasets lib=work nolist nowarn; delete _s17_enc _s17n _s17_ambig; quit;
   %put NOTE: [03_import] XLSX import &fc from &_fc_path sheet=&_sheet -> &target (&_ncols spec cols);
 
   /* Assign LIBNAME XLSX */
-  libname _xlimr "&_fc_path" xlsx;
+  libname _xlimr xlsx "&_fc_path";
 
   %if %sysfunc(libref(_xlimr)) ne 0 %then %do;
     %put WARNING: [03_import] LIBNAME XLSX failed for &fc -- &_fc_path;

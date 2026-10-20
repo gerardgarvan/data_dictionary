@@ -266,8 +266,7 @@ run;
     select s_code, full_path
     into :_csv_sc1-:_csv_sc999, :_csv_fp1-:_csv_fp999
     from work.file_list
-    where ftype = 'csv'
-    order by file_id;
+    where ftype = 'csv';
   quit;
 
   %put NOTE: [03a_build_spec] Running pre-pass over &_n_csv CSV files;
@@ -751,7 +750,7 @@ run;
 %macro _measure_xlsx_char_lens(fc=, fpath=);
   %local _librc _n_sheets _is _sheet _n_numforce _jnf;
 
-  libname _xlmsr "&fpath" xlsx;
+  libname _xlmsr xlsx "&fpath";
   %let _librc = %sysfunc(libref(_xlmsr));
   %if &_librc ne 0 %then
     %fail_out(msg=%str(_measure_xlsx_char_lens -- LIBNAME XLSX failed for &fc -- &fpath));
@@ -874,8 +873,7 @@ run;
     select s_code, full_path
     into :_xlsx_sc1-:_xlsx_sc999, :_xlsx_fp1-:_xlsx_fp999
     from work.file_list
-    where ftype = 'xlsx'
-    order by file_id;
+    where ftype = 'xlsx';
   quit;
 
   %do _ix = 1 %to &_n_xlsx;
@@ -905,8 +903,7 @@ proc datasets lib=work nolist nowarn; delete _xlsx_char_lens_all; quit;
     select s_code
     into :_xlv_sc1-:_xlv_sc999
     from work.file_list
-    where ftype = 'xlsx'
-    order by file_id;
+    where ftype = 'xlsx';
   quit;
 
   %do _ix = 1 %to &_n_xlsx_fc;
@@ -1190,8 +1187,7 @@ run;
     select s_code, full_path
     into :_prb_sc1-:_prb_sc999, :_prb_fp1-:_prb_fp999
     from work.file_list
-    where ftype = 'csv'
-    order by file_id;
+    where ftype = 'csv';
   quit;
 
   %do _i = 1 %to &_n_csv;
