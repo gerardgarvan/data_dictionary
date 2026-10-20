@@ -324,9 +324,10 @@ data _null_;
   array _sl  {2000}      _sl1-_sl2000;   /* spec_length */
   array _si  {2000} $40  _si1-_si2000;   /* informat */
   array _so  {2000} $256 _so1-_so2000;   /* orig_col_name */
+  length _target $50 _fpath $500;
   retain _sn1-_sn2000 ' ' _st1-_st2000 ' ' _sl1-_sl2000 0
          _si1-_si2000 ' ' _so1-_so2000 ' '
-         _nc 0 _target $50 ' ' _fpath $500 ' ';
+         _nc 0 _target _fpath ' ';
   length line $2000 _lbl $512;
 
   set work._spec_csv end=_last;
@@ -1037,8 +1038,8 @@ proc sort data=work._s06_cols3; by group_prefix col_name; run;
 data work._s06_examples;
   set work._s06_cols3;
   by group_prefix;
-  retain _eg_cnt 0 _examples '';
   length _examples $200;
+  retain _eg_cnt 0 _examples '';
   if first.group_prefix then do;
     _eg_cnt = 0;
     _examples = '';

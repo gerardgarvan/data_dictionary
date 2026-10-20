@@ -483,11 +483,104 @@ def check_array_special_before_set(path, lines):
     return hits
 
 
+# ── C15 / W3: RETAIN inline length spec / uninit char var ────────────────────
+#
+# C15  RETAIN contains a $ length specifier (e.g., retain x $50 ' ').
+#      SAS does not accept length specs in RETAIN; declare with LENGTH first.
+# W3   RETAIN initialises a char variable with '' / ' ' but no LENGTH has been
+#      declared for that variable earlier in the same DATA step; SAS will
+#      silently assign it length 1.
+#
+# Both checks join multi-line RETAIN statements before scanning.
+
+def _check_retain_stmt(path, lineno, stmt, length_vars, hits):
+    if re.search(r'\$\s*\d+', stmt):
+        hits.append((path, lineno, 'C15',
+            'RETAIN statement contains a $ length specifier -- '
+            'declare character lengths with a LENGTH statement before RETAIN'))
+    for m in re.finditer(r"\b([a-z_]\w*)\s+(?:''|' ')", stmt, CI):
+        varname = m.group(1).lower()
+        before = stmt[:m.start()].rstrip()
+        if before.endswith('-'):
+            continue  # end of a range like foo1-foo2000; length set by ARRAY
+        if varname not in length_vars:
+            hits.append((path, lineno, 'W3',
+                f"RETAIN initialises '{varname}' with '' / ' ' but no prior LENGTH "
+                "in this DATA step -- variable will be length 1; "
+                "add a LENGTH statement before RETAIN"))
+            break  # one W3 per RETAIN stmt is enough
+
+
+def check_retain_issues(path, lines):
+    hits = []
+    in_data = False
+    length_vars = set()
+    stmt_buf = []
+    stmt_start = None
+
+    for i, raw in enumerate(lines, 1):
+        stripped = raw.strip()
+
+        if re.match(r'data\s+\S', stripped, CI) and \
+                not re.search(r'\bproc\s+sql\b', stripped, CI):
+            in_data = True
+            length_vars = set()
+            stmt_buf = []
+            stmt_start = None
+
+        if in_data and re.match(r'run\s*;', stripped, CI):
+            in_data = False
+            length_vars = set()
+            stmt_buf = []
+            stmt_start = None
+            continue
+
+        if not in_data:
+            continue
+
+        # Accumulate multi-line RETAIN
+        if stmt_start is not None:
+            stmt_buf.append(raw)
+            if ';' in raw:
+                _check_retain_stmt(path, stmt_start, ' '.join(stmt_buf),
+                                   length_vars, hits)
+                stmt_buf = []
+                stmt_start = None
+            continue
+
+        # Track LENGTH declarations (establishes char var lengths for W3)
+        if re.match(r'length\b', stripped, CI):
+            for m in re.finditer(r'\b([a-z_]\w*)\s+\$\d', raw, CI):
+                length_vars.add(m.group(1).lower())
+
+        # Track ARRAY declarations (also establish char var lengths)
+        if re.match(r'array\b', stripped, CI):
+            arr_m = re.match(
+                r'array\s+\w+\s*\{[^}]*\}\s*(?:\$\d+\s+)?(.+?)\s*;',
+                stripped, CI)
+            if arr_m:
+                for vm in re.finditer(r'\b([a-z_]\w*)', arr_m.group(1), CI):
+                    length_vars.add(vm.group(1).lower())
+
+        # Start buffering RETAIN
+        if re.match(r'retain\b', stripped, CI):
+            stmt_start = i
+            stmt_buf = [raw]
+            if ';' in raw:
+                _check_retain_stmt(path, stmt_start, ' '.join(stmt_buf),
+                                   length_vars, hits)
+                stmt_buf = []
+                stmt_start = None
+
+    return hits
+
+
 # ── runner ────────────────────────────────────────────────────────────────────
 
 CHECKS = [
     check_qq_in_sql,
     check_ansi_sql,
+    check_retain_issues,
     check_opencode_if,
     check_then_double_semi,
     check_if_unquoted_special,
