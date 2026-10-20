@@ -16,6 +16,7 @@ C7  fdelete / fexist / fopen called with a string literal as fileref
 C8  prxmatch with $ anchor on a variable not wrapped in strip()
 C9  LIBNAME statement with engine placed after the path string (wrong order)
 C10 array _character_ / _numeric_ declared before SET/MERGE/INPUT in a DATA step
+W2  Assert-style count query: reports dataset name and WHERE-clause columns for reviewer
 
 Usage
 -----
@@ -320,6 +321,61 @@ def check_libname_engine_after_path(path, lines):
 # statements -- not the dataset columns the programmer intended.
 # Fix: move the SET/MERGE/INPUT statement above the array declaration.
 
+_W2_KEYWORDS = frozenset(
+    'and or not in is null missing between like ne eq gt lt ge le then do end '
+    'as from where select inner join on group by order having distinct count sum '
+    'max min avg case when else into trimmed strip upcase cats compress input put '
+    'prxmatch index lengthn substr scan trim left right coalesce best32'.split()
+)
+
+def check_assert_query_columns(path, lines):
+    """W2: Report dataset name and WHERE columns in assert-style count(*) INTO queries."""
+    hits = []
+    in_sql = False
+    sql_lines = []
+    is_count_into = False
+
+    for i, raw in enumerate(lines, 1):
+        if re.search(r'\bPROC\s+SQL\b', raw, CI):
+            in_sql = True
+            sql_lines = []
+            is_count_into = False
+        if in_sql:
+            sql_lines.append(raw)
+            if re.search(r'\bcount\s*\(\s*\*\s*\)\s+into\s+:', raw, CI):
+                is_count_into = True
+        if in_sql and re.search(r'^\s*QUIT\s*;', raw, CI):
+            if is_count_into:
+                sql_text = ' '.join(sql_lines)
+                # Extract dataset name(s) from FROM clause
+                ds_match = re.search(r'\bfrom\s+([\w.]+)', sql_text, CI)
+                ds_name = ds_match.group(1) if ds_match else '?'
+                # Extract column tokens from WHERE clause
+                where_match = re.search(r'\bwhere\b(.*?)(?:;|$)', sql_text, CI)
+                cols = []
+                if where_match:
+                    clause = where_match.group(1)
+                    # Strip quoted strings and regex literals before token extraction
+                    clause = re.sub(r"'[^']*'", '', clause)
+                    clause = re.sub(r'"[^"]*"', '', clause)
+                    clause = re.sub(r'/[^/]*/', '', clause)
+                    tokens = re.findall(r'\b([a-z_]\w*)\b(?!\s*\()', clause, CI)
+                    seen = set()
+                    for t in tokens:
+                        tl = t.lower()
+                        if (tl not in _W2_KEYWORDS and not t[0].isdigit()
+                                and len(t) > 1 and tl not in seen):
+                            seen.add(tl)
+                            cols.append(t)
+                col_str = ', '.join(cols) if cols else '(none extracted)'
+                hits.append((path, i, 'W2',
+                    f'assert count query on {ds_name} -- WHERE columns: {col_str}'))
+            in_sql = False
+            sql_lines = []
+            is_count_into = False
+    return hits
+
+
 def check_array_special_before_set(path, lines):
     hits = []
     in_data = False
@@ -357,6 +413,7 @@ CHECKS = [
     check_sql_no_sqlrc,
     check_libname_engine_after_path,
     check_array_special_before_set,
+    check_assert_query_columns,
 ]
 
 

@@ -342,7 +342,7 @@ run;
     %fail_out(msg=%str(_assert_csv_cols -- count not populated -- proc sql may have failed));
   %if &_ncc = 0 %then
     %fail_out(msg=%str(work._csv_cols has 0 rows -- CSV header parse failed -- check source paths));
-  %put NOTE: [03a_build_spec] work._csv_cols has &_ncc rows across &_n_csv CSV files;
+  %put NOTE: [03a_build_spec] work._csv_cols has &_ncc rows;
 %mend _assert_csv_cols;
 %_assert_csv_cols;
 
@@ -1255,7 +1255,9 @@ quit;
 /* Compute length, informat, format, and notes */
 data work.spec_final;
   set work.spec_final_base;
-  length length_ 8 informat $30 format $30 notes $500;
+  /* Variable named 'length' matches the CSV export header column exactly. */
+  attrib length length=8;
+  length informat $30 format $30 notes $500;
   length _is_id_col 8;
 
   /* Is this a "ID/code/ENCRYPTED" style forced-char column? */
@@ -1266,18 +1268,18 @@ data work.spec_final;
   /* LENGTH derivation */
   if sas_type = 'C' then do;
     if ftype = 'csv' then do;
-      if _is_id_col then length_ = max(raw_max_len + 4, 8);
-      else               length_ = max(raw_max_len, 8);
+      if _is_id_col then length = max(raw_max_len + 4, 8);
+      else               length = max(raw_max_len, 8);
     end;
     else do; /* XLSX: measured max from pdd.xlsx_char_lengths */
-      if _is_id_col then length_ = max(xlsx_max_len + 4, 8);
-      else               length_ = max(xlsx_max_len, 8);
+      if _is_id_col then length = max(xlsx_max_len + 4, 8);
+      else               length = max(xlsx_max_len, 8);
     end;
-    informat = cats('$', strip(put(length_, best32.)), '.');
+    informat = cats('$', strip(put(length, best32.)), '.');
     format   = '';
   end;
   else do; /* N */
-    length_ = 8;
+    length = 8;
     if ftype = 'xlsx' then do;
       informat = 'best32.';
       format   = '';
@@ -1291,8 +1293,8 @@ data work.spec_final;
       else if best_informat = 'FORCE_CHAR' then do;
         /* Should have been reclassified to C already; fallback */
         sas_type = 'C';
-        length_  = max(raw_max_len, 8);
-        informat = cats('$', put(length_, 8.), '.');
+        length   = max(raw_max_len, 8);
+        informat = cats('$', put(length, 8.), '.');
         format   = '';
       end;
       else do;
@@ -1323,9 +1325,6 @@ data work.spec_final;
     if notes ne '' then notes = cats(notes, '; forced to char -- no numeric informat parsed 100%');
     else notes = 'forced to char -- no numeric informat parsed 100%';
   end;
-
-  /* Rename length_ to length for the output dataset */
-  rename length_ = length;
 
   keep file_code col_order src_name orig_col_name sas_name sas_type length
        informat format notes xlsx_max_len;
@@ -1369,16 +1368,16 @@ quit;
 %_assert_col_order;
 
 
-/* --- 5f.2. Hard asserts on spec_final before CSV write --- */
+/* --- 5f.2. Hard asserts on spec_final -- called after pdd.import_spec is written --- */
 
 %macro _assert_spec_final;
   %local _n1 _n2 _n3 _n4;
 
-  /* Assert 1: no missing or < 1 length */
+  /* Assert 1: no missing or < 1 length (checks pdd.import_spec -- the exported dataset) */
   %let _n1 = -1;
   proc sql noprint;
     select count(*) into :_n1 trimmed
-    from work.spec_final
+    from pdd.import_spec
     where missing(length) or length < 1;
   quit;
   %if %length(&_n1) = 0 or &_n1 = -1 %then
@@ -1386,11 +1385,11 @@ quit;
   %if &_n1 > 0 %then %do;
     proc sql;
       select file_code, count(*) as n
-      from work.spec_final
+      from pdd.import_spec
       where missing(length) or length < 1
       group by file_code;
     quit;
-    %fail_out(msg=%str(&_n1 spec_final rows have missing or < 1 length -- counts by file_code shown above));
+    %fail_out(msg=%str(&_n1 import_spec rows have missing or < 1 length -- counts by file_code shown above));
   %end;
   %put NOTE: [03a_build_spec] Assert 1 passed -- no missing or < 1 length;
 
@@ -1398,7 +1397,7 @@ quit;
   %let _n2 = -1;
   proc sql noprint;
     select count(*) into :_n2 trimmed
-    from work.spec_final
+    from pdd.import_spec
     where missing(informat) or strip(informat) = '';
   quit;
   %if %length(&_n2) = 0 or &_n2 = -1 %then
@@ -1406,11 +1405,11 @@ quit;
   %if &_n2 > 0 %then %do;
     proc sql;
       select file_code, count(*) as n
-      from work.spec_final
+      from pdd.import_spec
       where missing(informat) or strip(informat) = ''
       group by file_code;
     quit;
-    %fail_out(msg=%str(&_n2 spec_final rows have missing informat -- counts by file_code shown above));
+    %fail_out(msg=%str(&_n2 import_spec rows have missing informat -- counts by file_code shown above));
   %end;
   %put NOTE: [03a_build_spec] Assert 2 passed -- no missing informat;
 
@@ -1418,7 +1417,7 @@ quit;
   %let _n3 = -1;
   proc sql noprint;
     select count(*) into :_n3 trimmed
-    from work.spec_final
+    from pdd.import_spec
     where sas_type = 'C'
       and input(compress(strip(informat), '$.'), best32.) ne length;
   quit;
@@ -1427,7 +1426,7 @@ quit;
   %if &_n3 > 0 %then %do;
     proc sql;
       select file_code, sas_name, length, informat
-      from work.spec_final
+      from pdd.import_spec
       where sas_type = 'C'
         and input(compress(strip(informat), '$.'), best32.) ne length;
     quit;
@@ -1435,31 +1434,34 @@ quit;
   %end;
   %put NOTE: [03a_build_spec] Assert 3 passed -- all C row informat lengths match length;
 
-  /* Assert 4: XLSX C rows -- spec length >= measured xlsx_max_len */
+  /* Assert 4: XLSX C rows -- exported length >= measured xlsx_max_len (from work.spec_final) */
   %let _n4 = -1;
   proc sql noprint;
     select count(*) into :_n4 trimmed
-    from work.spec_final s
+    from pdd.import_spec s
+    inner join work.spec_final sf
+      on s.file_code = sf.file_code and s.col_order = sf.col_order
     inner join work.file_list f on s.file_code = f.s_code
     where f.ftype = 'xlsx'
       and s.sas_type = 'C'
-      and s.length < s.xlsx_max_len;
+      and s.length < sf.xlsx_max_len;
   quit;
   %if %length(&_n4) = 0 or &_n4 = -1 %then
     %fail_out(msg=%str(_assert_spec_final assert4 -- count not populated));
   %if &_n4 > 0 %then %do;
     proc sql;
-      select s.file_code, s.sas_name, s.xlsx_max_len, s.length, s.informat
-      from work.spec_final s
+      select s.file_code, s.sas_name, sf.xlsx_max_len, s.length, s.informat
+      from pdd.import_spec s
+      inner join work.spec_final sf
+        on s.file_code = sf.file_code and s.col_order = sf.col_order
       inner join work.file_list f on s.file_code = f.s_code
-      where f.ftype = 'xlsx' and s.sas_type = 'C' and s.length < s.xlsx_max_len;
+      where f.ftype = 'xlsx' and s.sas_type = 'C' and s.length < sf.xlsx_max_len;
     quit;
-    %fail_out(msg=%str(&_n4 XLSX C columns whose spec length is below measured xlsx_max_len -- rows shown above));
+    %fail_out(msg=%str(&_n4 XLSX C columns whose exported length is below measured xlsx_max_len -- rows shown above));
   %end;
   %put NOTE: [03a_build_spec] Assert 4 passed -- all XLSX C lengths >= measured xlsx_max_len;
 
 %mend _assert_spec_final;
-%_assert_spec_final;
 
 
 /* --- 5f.3. 10-row sample of XLSX char columns --- */
@@ -1479,6 +1481,9 @@ data pdd.import_spec;
 run;
 
 %_note_written_ds(ds=pdd.import_spec, label=pdd.import_spec);
+
+/* Asserts run on pdd.import_spec so they validate exactly what gets exported */
+%_assert_spec_final;
 
 /* Fail fast: must have EXACTLY 20 distinct file_codes matching work.file_list s_code set */
 %macro _assert_spec_complete;
