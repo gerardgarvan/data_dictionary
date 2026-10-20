@@ -53,11 +53,10 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
 /* =========================================================================
    PHASE 3 -- Direct Import of 20 Raw Sources
    ========================================================================= */
-/*
 %put NOTE: ---- Phase 3: Direct import of 20 raw sources ------------;
 %include "&sas_path.\03_import.sas";
 %put NOTE: ---- Phase 3 complete --------------------------------------;
-*/
+
 
 
 /* =========================================================================
@@ -104,7 +103,7 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
    PIPELINE COMPLETE
    ========================================================================= */
 %put NOTE: ============================================================;
-%put NOTE: 99_run_all.sas -- PIPELINE COMPLETE (phases enabled: 2);
+%put NOTE: 99_run_all.sas -- PIPELINE COMPLETE (phases enabled: 2,3);
 %put NOTE: Logs are in: &logs_path;
 %put NOTE: Output is in: &out_root;
 %put NOTE: ============================================================;
