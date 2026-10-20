@@ -37,12 +37,12 @@ Plans:
 - s01 PACU_STAY and s08 COLONOSCOPY: import as-is; both confirmed 1:1 per PRECEDE_STUDY_ID (PDD-D-17 fully closed); join spine like any 1:1 file
 - Crosswalk-keyed files (s04, s05) and other non-PRECEDE_STUDY_ID-keyed files: import and stage; linkage follows PDD-D-18
 - **Done when:** `pdd.src_s01`…`pdd.src_s20` exist; row counts reconciled in QC; **blocks on PDD-D-17 and PDD-D-18 for affected files**
-- **Plans:** 2/3 plans executed
+- **Plans:** 3/3 plans complete
 
 Plans:
 - [x] 03-01-PLAN.md — 03a_build_spec.sas: raw char-length pre-pass + import_spec.csv generation + s17 ambiguous-encounter extraction (wave 1)
 - [x] 03-02-PLAN.md — 03_import.sas: spec-driven CSV + XLSX import of all 20 sources; s19 drop, s18 exclusion, s17 enc_for_linkage, s06 group profile (wave 2)
-- [ ] 03-03-PLAN.md — %pdd_norm_psid on all 20 + QC row-count reconciliation + wire into 99_run_all.sas (wave 3)
+- [x] 03-03-PLAN.md — %pdd_norm_psid on all 20 + QC row-count reconciliation + wire into 99_run_all.sas (wave 3)
 
 ### Phase 4: Name map
 - `04_name_map.sas`: original header → cleaned name → `PCNR_` name (≤32 chars, collision-checked) → label

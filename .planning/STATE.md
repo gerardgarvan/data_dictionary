@@ -2,29 +2,29 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: PCNR_ raw layer and dictionary framework
-status: Ready to execute
-last_updated: "2026-10-20T00:55:54.865Z"
+status: Phase complete — ready for verification
+last_updated: "2026-10-20T01:00:33.038Z"
 progress:
   total_phases: 7
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 8
-  completed_plans: 7
+  completed_plans: 8
 ---
 
 # GSD State: PeCAN Data Dictionary (PDD)
 
 ## Current position
 
-Phase: 03 (direct-import-of-the-20-sources) — EXECUTING
-Plan: 3 of 3
-Next: Phase 03 Plan 02 — 03_import.sas runtime import
+Phase: 03 (direct-import-of-the-20-sources) — COMPLETE
+Plan: 3 of 3 (all complete)
+Next: Phase 04 — Name map (original header to PCNR_)
 | Field | Value |
 |-------|-------|
 | Milestone | v1.0 — PCNR_ raw layer and dictionary framework |
 | Phase | 03 — Direct import of the 20 sources |
-| Status | Plan 01 complete — 03a_build_spec.sas written; docs/import_spec_generated.csv committed (header only; SAS run required to populate) |
-| Last updated | 2026-10-19 |
-| Stopped at | Completed 03-01-PLAN.md |
+| Status | All 3 plans complete — 03a_build_spec.sas, 03_import.sas (Sections 0-15), 99_run_all.sas Phase 3 wired |
+| Last updated | 2026-10-20 |
+| Stopped at | Completed 03-03-PLAN.md |
 
 ## Milestone v1.0 phase checklist
 
@@ -32,7 +32,7 @@ Next: Phase 03 Plan 02 — 03_import.sas runtime import
 |-------|-------|--------|
 | 1 | Repo and config scaffold | âœ… Complete |
 | 2 | Source guard and header inventory | âœ… Complete â€” live run passed 2026-10-19 14:15 |
-| 3 | Direct import of the 20 sources | In progress — Plan 01 complete (03a_build_spec.sas); Plans 02-03 pending |
+| 3 | Direct import of the 20 sources | Complete — 03a_build_spec.sas + 03_import.sas (norm_psid + D-19 assert + qc_rowcounts) + 99_run_all.sas Phase 3 wired |
 | 4 | Name map | â¬œ Not started |
 | 5 | Build PCNR_ on the spine | â¬œ Blocked (PDD-D-15, PDD-D-16, PDD-D-17 closed, PDD-D-18 pending) |
 | 6 | Distribution engine | â¬œ Not started |
@@ -72,6 +72,8 @@ Next: Phase 03 Plan 02 — 03_import.sas runtime import
 | 2026-10-19 | 03a_build_spec.sas is separate from 03_import.sas: spec generation is one-time; import is repeatable (per research recommendation) |
 | 2026-10-19 | import_spec_generated.csv committed to git (no PHI -- metadata only); overrides via import_spec_overrides.csv (not committed) |
 | 2026-10-19 | .gitignore updated with !docs/import_spec_generated.csv exception (blocked by *.csv blanket rule) |
+| 2026-10-20 | D-19 assert re-derives ambiguous s17 encounter set from pdd.src_s17 post-norm_psid (Section 13 self-contained; work._s17_ambig cleaned up in Section 6) |
+| 2026-10-20 | pdd.qc_import_rowcounts built via SET-union accumulator %do loop (PCM-compliant; no CALL EXECUTE) |
 
 ## Notes
 
