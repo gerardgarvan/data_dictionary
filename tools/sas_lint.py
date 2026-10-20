@@ -575,6 +575,45 @@ def check_retain_issues(path, lines):
     return hits
 
 
+# ── C16: unescaped " or ' inside %str() / %nrstr() ───────────────────────────
+#
+# %str(") leaves the macro parser with an unmatched quote, causing everything
+# after it to be consumed as a string literal (which produced the missing %MEND
+# error observed in 03_import.sas).  The correct escapes are %" and %'.
+
+_STR_CALL = re.compile(r'%(?:nrstr|str)\s*\(', CI)
+
+def check_str_unescaped_quote(path, lines):
+    hits = []
+    for i, raw in enumerate(lines, 1):
+        for m in _STR_CALL.finditer(raw):
+            rest = raw[m.end():]
+            # Neutralise %%  %"  %' before scanning for bare quotes
+            neutralized = re.sub(r'%[%"\']', 'X', rest)
+            if re.search(r'["\']', neutralized):
+                hits.append((path, i, 'C16',
+                    '%str() / %nrstr() contains an unescaped " or \' -- '
+                    "use %\" for a literal double-quote or %' for a literal single-quote"))
+    return hits
+
+
+# ── C17: %let syscc = 0 ───────────────────────────────────────────────────────
+#
+# Resetting syscc to 0 hides step failures from downstream error checks.
+# Remove it; check &syserr explicitly instead.
+
+_SYSCC_RESET = re.compile(r'%let\s+syscc\s*=\s*0\s*;', CI)
+
+def check_syscc_reset(path, lines):
+    hits = []
+    for i, raw in enumerate(lines, 1):
+        if _SYSCC_RESET.search(raw):
+            hits.append((path, i, 'C17',
+                '%let syscc = 0 resets the SAS condition code, masking step failures -- '
+                'remove and check &syserr explicitly'))
+    return hits
+
+
 # ── runner ────────────────────────────────────────────────────────────────────
 
 CHECKS = [
@@ -594,6 +633,8 @@ CHECKS = [
     check_call_before_define,
     check_bare_data_set,
     check_assert_query_columns,
+    check_str_unescaped_quote,
+    check_syscc_reset,
 ]
 
 
