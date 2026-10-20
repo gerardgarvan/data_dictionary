@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python tools\\sas_lint.py \"$CLAUDE_TOOL_INPUT_FILE_PATH\"",
+            "command": "python tools/sas_lint.py \"$CLAUDE_TOOL_INPUT_FILE_PATH\"",
             "condition": "$CLAUDE_TOOL_INPUT_FILE_PATH matches '^sas\\\\.*\\.sas$'"
           }
         ]

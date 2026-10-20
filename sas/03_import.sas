@@ -182,8 +182,8 @@ s20|All_YEARS_LAT_LONG_20231127.csv|csv
 /* Read import_spec_generated.csv into work.spec_gen */
 options errors=1;
 data work.spec_gen;
-  length file_code $4 col_order 8 src_name $32 orig_col_name $256
-         sas_name $32 sas_type $1 length_ 8 informat $16 format $16 notes $100;
+  length file_code $4 col_order 8 src_name $256 orig_col_name $256
+         sas_name $32 sas_type $1 length_ 8 informat $16 format $16 notes $200;
   infile "C:\data_dictionary\docs\import_spec_generated.csv"
          encoding='utf-8' dsd dlm=',' missover firstobs=2 lrecl=32767;
   input file_code $ col_order src_name $ orig_col_name $ sas_name $
@@ -215,8 +215,8 @@ options errors=20;
 
     options errors=1;
     data work.spec_ovr;
-      length file_code $4 col_order 8 src_name $32 orig_col_name $256
-             sas_name $32 sas_type $1 length_ 8 informat $16 format $16 notes $100;
+      length file_code $4 col_order 8 src_name $256 orig_col_name $256
+             sas_name $32 sas_type $1 length_ 8 informat $16 format $16 notes $200;
       infile "&_ovr_path"
              encoding='utf-8' dsd dlm=',' missover firstobs=2 lrecl=32767;
       input file_code $ col_order src_name $ orig_col_name $ sas_name $
@@ -604,15 +604,16 @@ run;
 
 /* Rebuild pdd.src_s17 with enc_for_linkage column added (PDD-D-20).
    Use work intermediate to avoid in-place rewrite. */
+%macro _blank_ambig;
+  %if &_nambig > 0 %then %do;
+    if enc_for_linkage in (&_ambig_quoted_list) then enc_for_linkage = '';
+  %end;
+%mend _blank_ambig;
+
 data work._s17_enc;
   set pdd.src_s17;
   length enc_for_linkage $64;
   enc_for_linkage = ENCRYPTED_ENCOUNTER;
-  %macro _blank_ambig;
-    %if &_nambig > 0 %then %do;
-      if enc_for_linkage in (&_ambig_quoted_list) then enc_for_linkage = '';
-    %end;
-  %mend _blank_ambig;
   %_blank_ambig;
   label enc_for_linkage = 'ENCRYPTED_ENCOUNTER blanked for ambiguous linkage (PDD-D-20)';
   /* Raw ENCRYPTED_ENCOUNTER stays unchanged */
@@ -635,6 +636,11 @@ proc datasets lib=work nolist nowarn; delete _s17_enc _s17n _s17_ambig; quit;
    Uses LIBNAME XLSX + spec-driven RENAME= + forced-char recast.
    Sheet names discovered at runtime via dictionary.members (XLSX libref).
    ============================================================ */
+
+/* Save and set validvarname=any so XLSX name literals work for columns
+   with spaces / special chars; restore at end of section. */
+%let _vvn_save = %sysfunc(getoption(validvarname));
+options validvarname=any;
 
 /* Helper macro: get the data sheet name for a given s_code.
    Assigns a temporary XLSX libref, queries dictionary.members for data sheets,
@@ -670,12 +676,12 @@ proc datasets lib=work nolist nowarn; delete _s17_enc _s17n _s17_ambig; quit;
       order by memname;
     quit;
     libname _xlsnt clear;
-    %if &_n_sn > 0 %then %do;
+    %if &_n_sn ne 1 %then
+      %fail_out(msg=%str(_get_sheet_name -- expected exactly 1 data sheet for &scode but found &_n_sn in &_fpath));
+    %else %do;
       %let _sn = &&_xlsnt_sh1;
-      %put NOTE: [03_import] &scode sheet name from dictionary.members: &_sn (&_n_sn sheet(s) found);
+      %put NOTE: [03_import] &scode sheet name from dictionary.members: &_sn (&_n_sn sheet found);
     %end;
-    %else
-      %fail_out(msg=%str(_get_sheet_name -- no data sheets found for &scode in &_fpath));
   %end;
 
   %let &outmv = &_sn;
@@ -688,7 +694,7 @@ proc datasets lib=work nolist nowarn; delete _s17_enc _s17n _s17_ambig; quit;
 /* No macro code touches spec column text (src_name, orig_col_name).      */
 /* sheet_mv: name of the macro var holding the sheet name (not its value) */
 %macro _gen_xlsx_import(fc=, target=, sheet_mv=);
-  %local _fc_path _sheet _gfile _chkfail_xl _ncols_xl;
+  %local _fc_path _sheet _gfile _chkfail_xl _ncols_xl _ncols_dc _nmatch_fail;
   %let _sheet = &&&sheet_mv;
 
   proc sql noprint;
@@ -703,6 +709,50 @@ proc datasets lib=work nolist nowarn; delete _s17_enc _s17n _s17_ambig; quit;
 
   %put NOTE: [03_import] XLSX gen &fc -- &_ncols_xl cols -- sheet=&_sheet -> &target;
 
+  /* Pre-flight: open XLSX, get engine column names and positions via dictionary.columns */
+  libname _xlimr xlsx "&_fc_path";
+  %if %sysfunc(libref(_xlimr)) ne 0 %then
+    %fail_out(msg=%str(_gen_xlsx_import -- LIBNAME XLSX failed for &fc: &_fc_path));
+
+  proc sql noprint;
+    select count(*) into :_ncols_dc trimmed
+    from dictionary.columns
+    where upcase(libname) = '_XLIMR'
+      and upcase(memname) = upcase("&_sheet");
+
+    create table work._xl_dc_&fc as
+    select varnum, strip(name) as eng_name length=256,
+           strip(type) as eng_type length=4,
+           strip(format) as eng_format length=40
+    from dictionary.columns
+    where upcase(libname) = '_XLIMR'
+      and upcase(memname) = upcase("&_sheet")
+    order by varnum;
+  quit;
+  libname _xlimr clear;
+
+  /* Fail if spec column count != engine column count */
+  %if &_ncols_dc ne &_ncols_xl %then
+    %fail_out(msg=%str(_gen_xlsx_import &fc -- spec has &_ncols_xl cols but XLSX engine has &_ncols_dc -- counts must match for positional import));
+
+  /* Join spec to engine columns by col_order=varnum; flag unmatched positions */
+  proc sql noprint;
+    create table work._xl_spec_&fc as
+    select s.col_order, s.sas_name, s.sas_type, s.spec_length,
+           s.orig_col_name, s.format as spec_format length=40,
+           d.eng_name, d.eng_type, d.eng_format,
+           (d.varnum is null) as no_match
+    from work.spec(where=(file_code="&fc")) s
+    left join work._xl_dc_&fc d on s.col_order = d.varnum
+    order by s.col_order;
+
+    select count(*) into :_nmatch_fail trimmed
+    from work._xl_spec_&fc where no_match = 1;
+  quit;
+
+  %if &_nmatch_fail > 0 %then
+    %fail_out(msg=%str(_gen_xlsx_import &fc -- &_nmatch_fail spec col_order(s) have no matching XLSX varnum -- check spec col_order vs actual column count));
+
   %let _gfile = &logs_path.\03_generated_xlsx_&fc..sas;
   filename _xl_gen "&_gfile" encoding='utf-8';
 
@@ -715,31 +765,37 @@ proc datasets lib=work nolist nowarn; delete _s17_enc _s17n _s17_ambig; quit;
   %let _chkfail_xl = 0;
   data _null_;
     /* Column metadata arrays -- 4500 slots covers s06 (~3987 cols) */
-    array _sn  {4500} $32   _sn1-_sn4500;   /* sas_name */
-    array _st  {4500} $1    _st1-_st4500;   /* sas_type C/N */
+    array _sn  {4500} $32   _sn1-_sn4500;   /* sas_name (target) */
+    array _st  {4500} $1    _st1-_st4500;   /* sas_type from spec (C/N = target type) */
     array _sl  {4500}       _sl1-_sl4500;   /* spec_length */
-    array _sr  {4500} $256  _sr1-_sr4500;   /* src_name (raw XLSX header) */
     array _so  {4500} $256  _so1-_so4500;   /* orig_col_name (label) */
-    array _sf  {4500} $40   _sf1-_sf4500;   /* format */
+    array _en  {4500} $256  _en1-_en4500;   /* eng_name (actual XLSX header from engine) */
+    array _et  {4500} $4    _et1-_et4500;   /* eng_type: char or num */
+    array _ef  {4500} $40   _ef1-_ef4500;   /* eng_format (source format for date recast) */
     retain _sn1-_sn4500 ' ' _st1-_st4500 ' ' _sl1-_sl4500 0
-           _sr1-_sr4500 ' ' _so1-_so4500 ' ' _sf1-_sf4500 ' '
+           _so1-_so4500 ' ' _en1-_en4500 ' ' _et1-_et4500 ' ' _ef1-_ef4500 ' '
            _nc 0 _chkfail 0;
-    length line $32000 qsrc $1000;
+    length line $32000 qsrc $1000 tmp $8;
 
-    set work.spec(where=(file_code="&fc")) end=_eof;
+    set work._xl_spec_&fc end=_eof;
     file _xl_gen lrecl=32767 mod;
 
     _nc + 1;
+    if _nc > 4500 then do;
+      put 'ERROR: [03_import gen] column buffer overflow at col_order=' col_order;
+      _chkfail + 1;
+    end;
     _sn{_nc} = strip(sas_name);
     _st{_nc} = strip(sas_type);
     _sl{_nc} = spec_length;
-    _sr{_nc} = strip(src_name);
     _so{_nc} = strip(orig_col_name);
-    _sf{_nc} = strip(format);
+    _en{_nc} = strip(eng_name);
+    _et{_nc} = strip(eng_type);
+    _ef{_nc} = strip(eng_format);
 
     if _eof then do;
 
-      /* LIBNAME XLSX -- path in single quotes to block macro expansion */
+      /* LIBNAME XLSX -- single quotes block macro expansion */
       line = "libname _xlimr xlsx '" || strip("&_fc_path") || "';";
       put line;
 
@@ -751,59 +807,70 @@ proc datasets lib=work nolist nowarn; delete _s17_enc _s17n _s17_ambig; quit;
       end;
       put line;
 
-      /* SET with multi-line RENAME= option (avoids line-length limit for s06) */
-      /* RENAME= in SET means PDV immediately uses sas_name for all downstream stmts */
-      _any_ren = 0;
+      /* SET with single-quoted name literal for sheet; RENAME by position:
+         engine name (single-quoted if needed) -> sas_name */
+      put "  set _xlimr.'" "&_sheet" "'n";
+      put '    (rename=(';
       do _j = 1 to _nc;
-        if strip(_sr{_j}) ne strip(_sn{_j}) then _any_ren = 1;
+        /* Always single-quoted name literal for RENAME source */
+        qsrc = quote(strip(_en{_j}), "'") || 'n';
+        line = '      ' || strip(qsrc) || '=' || strip(_sn{_j});
+        put line;
       end;
-      if _any_ren then do;
-        put "  set _xlimr." '"' "&_sheet" '"' "n";
-        put '    (rename=(';
-        do _j = 1 to _nc;
-          if strip(_sr{_j}) ne strip(_sn{_j}) then do;
-            if prxmatch('/^[A-Za-z_]\w*$/i', strip(_sr{_j})) then
-              qsrc = strip(_sr{_j});
-            else
-              qsrc = quote(strip(_sr{_j}), '"') || 'n';
-            line = '      ' || strip(qsrc) || '=' || strip(_sn{_j});
-            put line;
-          end;
-        end;
-        put '    ));';
-      end;
-      else
-        put "  set _xlimr." '"' "&_sheet" '"' "n;";
+      put '    ));';
 
-      /* LENGTH for C recast temp vars */
+      /* Buffer overflow guard */
+      if _nc > 4500 then do;
+        put 'ERROR: [03_import gen] column count exceeds 4500 buffer -- abort';
+        _chkfail + 1;
+      end;
+
+      /* LENGTH for positional C-recast temp vars (named _c0001, _c0002, ...) */
       do _j = 1 to _nc;
         if _st{_j} = 'C' then do;
-          line = '  length ' || strip(_sn{_j}) || '_c $' ||
+          tmp = cats('_c', put(_j, z4.));
+          line = '  length ' || strip(tmp) || ' $' ||
                  strip(put(_sl{_j}, best8.)) || ';';
+          if _nc > 4500 then do;
+            put 'ERROR: [03_import gen] nc > 4500 in LENGTH loop';
+            _chkfail + 1;
+          end;
           put line;
         end;
       end;
 
-      /* C-recast: cats() handles numeric or char source; PDV has sas_name from RENAME= */
-      /* N: apply format if specified */
+      /* C-recast by SOURCE type (eng_type):
+           numeric with date/time/datetime format -> strip(put(x, <eng_format>))
+           other numeric                          -> strip(put(x, best32.))
+           character source                       -> plain assignment */
       do _j = 1 to _nc;
         if _st{_j} = 'C' then do;
-          line = '  ' || strip(_sn{_j}) || '_c = cats(' || strip(_sn{_j}) || ');';
+          tmp = cats('_c', put(_j, z4.));
+          _is_dt = (upcase(strip(_ef{_j})) =: 'DATE'     or
+                    upcase(strip(_ef{_j})) =: 'DATETIME'  or
+                    upcase(strip(_ef{_j})) =: 'TIME'      or
+                    upcase(strip(_ef{_j})) =: 'MMDDYY'    or
+                    upcase(strip(_ef{_j})) =: 'DDMMYY'    or
+                    upcase(strip(_ef{_j})) =: 'YYMMDD'    or
+                    upcase(strip(_ef{_j})) =: 'MONYY');
+          if _et{_j} = 'num' and _is_dt and strip(_ef{_j}) ne '' then
+            line = '  ' || strip(tmp) || ' = strip(put(' || strip(_sn{_j}) ||
+                   ', ' || strip(_ef{_j}) || '));';
+          else if _et{_j} = 'num' then
+            line = '  ' || strip(tmp) || ' = strip(put(' || strip(_sn{_j}) || ', best32.));';
+          else
+            line = '  ' || strip(tmp) || ' = ' || strip(_sn{_j}) || ';';
           put line;
           line = '  drop ' || strip(_sn{_j}) || ';';
           put line;
-          line = '  rename ' || strip(_sn{_j}) || '_c = ' || strip(_sn{_j}) || ';';
-          put line;
-        end;
-        else if strip(_sf{_j}) ne '' then do;
-          line = '  format ' || strip(_sn{_j}) || ' ' || strip(_sf{_j}) || ';';
+          line = '  rename ' || strip(tmp) || ' = ' || strip(_sn{_j}) || ';';
           put line;
         end;
       end;
 
       put 'run;';
 
-      /* Move to target and apply labels in the same step (unambiguous after RENAME) */
+      /* Move to target and apply labels */
       line = cats("data &target;");
       if not prxmatch('/^data \S+;$/', strip(line)) then do;
         put 'ERROR: [03_import gen] unexpected target DATA line for ' "&fc" ': ' line;
@@ -824,19 +891,30 @@ proc datasets lib=work nolist nowarn; delete _s17_enc _s17n _s17_ambig; quit;
 
       call symputx('_chkfail_xl', _chkfail, 'L');
     end;
-    drop _j;
+    drop _j _is_dt;
   run;
 
   %if &_chkfail_xl > 0 %then
     %fail_out(msg=%str(XLSX generator for &fc emitted &_chkfail_xl malformed line(s)));
-  %put NOTE: [03_import] &fc generator syntax check passed;
+  %else
+    %put NOTE: [03_import] &fc generator syntax check passed;
 
   options errors=1;
   %include _xl_gen;
   options errors=20;
-  %if &syserr > 0 %then
-    %fail_out(msg=%str(XLSX generated include for &fc failed -- syserr=&syserr));
-
+  %if &syscc > 4 %then
+    %fail_out(msg=%str(XLSX generated include for &fc failed -- syscc=&syscc));
+  %else %if not %sysfunc(exist(&target)) %then
+    %fail_out(msg=%str(XLSX generated include for &fc -- target &target does not exist after include));
+  %else %do;
+    %local _xl_nobs;
+    %let _xl_nobs = -1;
+    proc sql noprint;
+      select count(*) into :_xl_nobs trimmed from &target;
+    quit;
+    %if &_xl_nobs = 0 %then
+      %fail_out(msg=%str(XLSX generated include for &fc -- target &target has 0 rows after include));
+  %end;
   filename _xl_gen clear;
   %put NOTE: [03_import] &fc XLSX import complete via generated code;
 %mend _gen_xlsx_import;
@@ -868,35 +946,53 @@ proc datasets lib=work nolist nowarn; delete _s17_enc _s17n _s17_ambig; quit;
 
 /* PDD-D-08: drop rows where PRECEDE_STUDY_ID missing OR all data cols blank/NULL */
 /* Get total row count from source_inventory for assertion */
-%local _s19_src_total;
+%let _s19_src_total = -1;
 proc sql noprint;
   select coalesce(row_count, .) into :_s19_src_total trimmed
   from pdd.source_inventory
   where s_code = 's19';
 quit;
 
+/* Assert PRECEDE_STUDY_ID is character in work._s19_raw before the blank test */
+%macro _assert_s19_id_char;
+  %local _s19_id_type;
+  %let _s19_id_type = ;
+  proc sql noprint;
+    select strip(type) into :_s19_id_type trimmed
+    from dictionary.columns
+    where upcase(libname) = 'WORK' and upcase(memname) = '_S19_RAW'
+      and upcase(name) = 'PRECEDE_STUDY_ID';
+  quit;
+  %if "%superq(_s19_id_type)" ne "char" %then
+    %fail_out(msg=%str(s19 PRECEDE_STUDY_ID is not character type (found: &_s19_id_type) -- check import spec));
+  %put NOTE: [03_import] s19 PRECEDE_STUDY_ID confirmed character type;
+%mend _assert_s19_id_char;
+%_assert_s19_id_char;
+
 data pdd.src_s19 work._s19_drop;
   set work._s19_raw;
   array _c {*} _character_;
   array _n {*} _numeric_;
   _any = 0;
+  /* Exclude PRECEDE_STUDY_ID from _any test: a row with only an ID must be dropped */
   do _k = 1 to dim(_c);
-    if strip(_c{_k}) not in ('', 'NULL') then _any = 1;
+    if upcase(vname(_c{_k})) ne 'PRECEDE_STUDY_ID'
+       and strip(_c{_k}) not in ('', 'NULL') then _any = 1;
   end;
   do _k = 1 to dim(_n);
-    if not missing(_n{_k}) then _any = 1;
+    if upcase(vname(_n{_k})) ne 'PRECEDE_STUDY_ID'
+       and not missing(_n{_k}) then _any = 1;
   end;
-  /* PRECEDE_STUDY_ID in s19 is character (per spec); adjust if numeric */
-  /* Check keeps row if ID non-missing/non-blank AND at least one data col non-null */
+  /* Keep row if ID non-blank AND at least one data col non-null (PDD-D-08) */
   if not missing(PRECEDE_STUDY_ID)
-     and strip(put(PRECEDE_STUDY_ID, $32767.)) ne ''
+     and strip(PRECEDE_STUDY_ID) ne ''
      and _any = 1
     then output pdd.src_s19;
   else output work._s19_drop;
   drop _any _k;
 run;
 
-/* Log kept/dropped counts (PDD-D-08) */
+/* Log kept/dropped counts and assert (PDD-D-08) */
 %macro _log_s19_counts;
   %local _k19 _d19 _tot19;
   proc sql noprint;
@@ -906,18 +1002,24 @@ run;
   %let _tot19 = %eval(&_k19 + &_d19);
   %put NOTE: [03_import] s19 kept=&_k19 dropped=&_d19 total=&_tot19 (PDD-D-08);
 
+  %if &_k19 = 0 %then
+    %fail_out(msg=%str(s19 PDD-D-08 -- 0 rows kept after blank-row drop -- all rows blank or missing ID));
+
   /* Assert kept+dropped = source total if known */
   %if &_s19_src_total > 0 %then %do;
     %if &_tot19 = &_s19_src_total %then
       %put NOTE: [03_import] s19 total rows match source_inventory (&_s19_src_total) -- OK;
     %else
-      %put WARNING: [03_import] s19 total=&_tot19 but source_inventory shows &_s19_src_total -- review;
+      %fail_out(msg=%str(s19 PDD-D-08 -- total &_tot19 != source_inventory &_s19_src_total -- row count mismatch));
   %end;
 %mend _log_s19_counts;
 %_log_s19_counts;
 
 %_note_written_ds(ds=pdd.src_s19, label=pdd.src_s19);
 proc datasets lib=work nolist nowarn; delete _s19_raw _s19_drop; quit;
+
+/* Restore validvarname to pre-XLSX value */
+options validvarname=&_vvn_save;
 
 
 /* ============================================================
@@ -1018,24 +1120,57 @@ proc sql noprint;
 quit;
 %put NOTE: [03_import] pdd.src_s06 row count = &_ns06;
 
-/* Use PROC FREQ / MEANS is impractical for 3987 cols.
-   Instead compute nmiss per column via PROC MEANS and derive pct_nonnull. */
-proc means data=pdd.src_s06 nmiss noprint;
-  output out=work._s06_nmiss(drop=_type_ _freq_) nmiss= / autoname;
+/* Compute nmiss per column via a single DATA step (handles char + numeric,
+   avoids PROC MEANS which skips character cols and truncates long names).
+   Temporary count arrays sized 4500 (covers s06 ~3987 cols). */
+data work._s06_nmiss_long(keep=col_name nmiss pct_nonnull);
+  set pdd.src_s06 end=_eof;
+  length col_name $256 nmiss 8 pct_nonnull 8;
+  array _n _numeric_;
+  array _c _character_;
+  array _ncnt_n {4500} _temporary_ (4500*0);   /* nmiss counts for numeric cols */
+  array _ncnt_c {4500} _temporary_ (4500*0);   /* nmiss counts for char cols */
+  retain _nrows 0;
+  _nrows + 1;
+
+  do _k = 1 to dim(_n);
+    if missing(_n{_k}) then _ncnt_n{_k} = _ncnt_n{_k} + 1;
+  end;
+  do _k = 1 to dim(_c);
+    if missing(_c{_k}) then _ncnt_c{_k} = _ncnt_c{_k} + 1;
+  end;
+
+  if _eof then do;
+    do _k = 1 to dim(_n);
+      col_name    = vname(_n{_k});
+      nmiss       = _ncnt_n{_k};
+      pct_nonnull = round(100 * (1 - nmiss / max(1, _nrows)), 0.1);
+      output;
+    end;
+    do _k = 1 to dim(_c);
+      col_name    = vname(_c{_k});
+      nmiss       = _ncnt_c{_k};
+      pct_nonnull = round(100 * (1 - nmiss / max(1, _nrows)), 0.1);
+      output;
+    end;
+  end;
+  drop _k;
 run;
 
-/* The output is 1 row wide with one var per column named <varname>_NMiss.
-   Transpose to long form. */
-proc transpose data=work._s06_nmiss out=work._s06_nmiss_long(rename=(col1=nmiss_val));
-run;
-
-data work._s06_nmiss_long;
-  set work._s06_nmiss_long;
-  /* _NAME_ = 'COLNAME_NMiss' -> strip suffix */
-  col_name = substr(_NAME_, 1, length(_NAME_) - 6);  /* strip '_NMiss' */
-  pct_nonnull = round(100 * (1 - nmiss_val / max(1, &_ns06)), 0.1);
-  keep col_name pct_nonnull;
-run;
+/* Assert rows output = column count in dictionary.columns for PDD.SRC_S06 */
+%macro _assert_s06_nmiss_rows;
+  %local _nmiss_rows _dict_cols;
+  proc sql noprint;
+    select count(*) into :_nmiss_rows trimmed from work._s06_nmiss_long;
+    select count(*) into :_dict_cols  trimmed
+    from dictionary.columns
+    where upcase(libname) = 'PDD' and upcase(memname) = 'SRC_S06';
+  quit;
+  %if &_nmiss_rows ne &_dict_cols %then
+    %fail_out(msg=%str(s06 nmiss DATA step output &_nmiss_rows rows but dictionary.columns shows &_dict_cols cols -- mismatch));
+  %put NOTE: [03_import] s06 nmiss step: &_nmiss_rows rows output matches dictionary.columns (&_dict_cols cols) -- OK;
+%mend _assert_s06_nmiss_rows;
+%_assert_s06_nmiss_rows;
 
 /* Step 9c: assign group prefix heuristic (Pattern 6).
    prefix = chars before first '_' or first digit run; min 3 / max 20 chars.
@@ -1300,7 +1435,10 @@ proc datasets lib=work nolist nowarn; delete _s06_key_legend; quit;
 
 /* ============================================================
    SECTION 13 -- D-19 assert: s17/s09 encounter join
-   PDD-D-19 LOCKED: n_pairs=9001, ndis=0.
+   PDD-D-19: n_pairs locked after first passing run; ndis=0 locked.
+   TODO: lock the exact n_pairs value after the first live run passes
+   (03 excludes ambiguous encounters differently from Phase 2; do not
+   hard-code 9001 until confirmed here).
    Join pdd.src_s17 to pdd.src_s09 on ENCRYPTED_ENCOUNTER.
    Exclude ambiguous encounters on both sides (re-derived here
    because work._s17_ambig was deleted in Section 6 cleanup).
@@ -1438,37 +1576,43 @@ proc datasets lib=work nolist nowarn; delete _s17_ambig_d19 _d19_check; quit;
       having count(*) > 0;
     quit;
 
+    /* Fail-fast if either count is blank or missing (prevents bad %eval) */
+    %if "&_imp_rows" = "" or "&_imp_rows" = "." %then
+      %fail_out(msg=%str(qc_rowcounts &_fc -- imported row count is blank or missing));
+    %if "&_inv_rows" = "" or "&_inv_rows" = "." %then
+      %put NOTE: [03_import] qc_rowcounts &_fc -- no inventory row found (skipping match check);
+
     /* Determine expected_delta and status */
     %if "&_fc" = "s18" %then %do;
       %let _d19_exp_delta = s18 -2 dup excl;
       /* s18: imported should be inventory - 2 */
-      %if &_imp_rows = %eval(&_inv_rows - 2) %then %let _status = expected-diff;
-      %else %let _status = MISMATCH;
+      %if "&_inv_rows" ne "." %then %do;
+        %if &_imp_rows = %eval(&_inv_rows - 2) %then %let _status = expected-diff;
+        %else %let _status = MISMATCH;
+      %end;
+      %else %let _status = no-inventory;
     %end;
     %else %if "&_fc" = "s19" %then %do;
       %let _d19_exp_delta = s19 kept<source blank-drop;
-      /* s19: imported <= inventory (blank-row drop, kept count < source) */
-      %if &_imp_rows <= &_inv_rows %then %let _status = expected-diff;
-      %else %let _status = MISMATCH;
+      /* s19: imported <= inventory (blank-row drop) */
+      %if "&_inv_rows" ne "." %then %do;
+        %if &_imp_rows <= &_inv_rows %then %let _status = expected-diff;
+        %else %let _status = MISMATCH;
+      %end;
+      %else %let _status = no-inventory;
     %end;
     %else %do;
       %let _d19_exp_delta = 0;
-      %if &_imp_rows = &_inv_rows %then %let _status = match;
-      %else %let _status = MISMATCH;
+      %if "&_inv_rows" ne "." %then %do;
+        %if &_imp_rows = &_inv_rows %then %let _status = match;
+        %else %let _status = MISMATCH;
+      %end;
+      %else %let _status = no-inventory;
     %end;
 
     %put NOTE: [03_import] qc_rowcounts &_fc imported=&_imp_rows inventory=&_inv_rows status=&_status;
 
-    /* Append one row */
-    data work._qc_rc_accum;
-      set work._qc_rc_accum
-          end=_eof;
-      output;
-      if _eof then do;
-        /* append new row after last existing */
-      end;
-    run;
-    /* Simpler: just append directly using a SET with NOBS */
+    /* Append one row via PROC APPEND (no redundant SET accumulation) */
     data work._qc_rc_new;
       length file_code $4 imported_rows 8 inventory_rows 8
              expected_delta $40 status $20;
@@ -1479,9 +1623,7 @@ proc datasets lib=work nolist nowarn; delete _s17_ambig_d19 _d19_check; quit;
       status         = "&_status";
       output;
     run;
-    data work._qc_rc_accum;
-      set work._qc_rc_accum work._qc_rc_new;
-    run;
+    proc append base=work._qc_rc_accum data=work._qc_rc_new force; run;
 
   %end;
 
@@ -1527,7 +1669,7 @@ proc datasets lib=work nolist nowarn; delete _s17_ambig_d19 _d19_check; quit;
   %if &_nqc = 20 %then
     %put NOTE: [03_import] qc_import_rowcounts has 20 rows -- OK;
   %else
-    %put WARNING: [03_import] qc_import_rowcounts has &_nqc rows expected 20 -- review;
+    %fail_out(msg=%str(qc_import_rowcounts has &_nqc rows expected exactly 20 -- check _build_qc_rowcounts));
 %mend _assert_qc_20;
 %_assert_qc_20;
 

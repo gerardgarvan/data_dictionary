@@ -614,6 +614,55 @@ def check_syscc_reset(path, lines):
     return hits
 
 
+# ── C18: %local / %global outside a macro definition ─────────────────────────
+#
+# %local and %global are only meaningful inside a %macro block.  At open-code
+# level they are silently ignored by some SAS versions and are often a symptom
+# of a misplaced statement (e.g. a %local that was meant to be inside a macro).
+
+def check_local_global_opencode(path, lines):
+    hits = []
+    depth = 0
+    for i, raw in enumerate(lines, 1):
+        depth += len(re.findall(r'%macro\b', raw, CI))
+        if depth == 0 and re.search(r'%\s*(local|global)\b', raw, CI):
+            hits.append((path, i, 'C18',
+                '%local / %global at open-code level (outside %macro ... %mend) -- '
+                'these statements have no effect; move into a macro or use %global for '
+                'cross-macro values'))
+        depth = max(0, depth - len(re.findall(r'%mend\b', raw, CI)))
+    return hits
+
+
+# ── W4: <name>_c temp variable style in generated code ───────────────────────
+#
+# Temp variables named <sas_name>_c (built by concatenating the source column
+# name with the suffix _c) can silently exceed the 32-char SAS name limit when
+# the column name is already near-maximal.  Use positional names (_c0001, etc.)
+# instead.  Flag any cats()/strip() expression that builds a string ending in
+# '_c' and uses it as a PUT target.
+
+_NAME_C_PATTERN = re.compile(
+    r'\b(\w{28,})\s*_c\s*=',   # assignment to a var that looks like name_c (long names)
+    CI,
+)
+
+_NAME_C_CATS = re.compile(
+    r"cats\s*\([^)]*,\s*['\"]_c['\"]\s*\)",  # cats(varname, '_c') pattern
+    CI,
+)
+
+def check_name_c_temp_vars(path, lines):
+    hits = []
+    for i, raw in enumerate(lines, 1):
+        if re.search(_NAME_C_PATTERN, raw) or re.search(_NAME_C_CATS, raw):
+            hits.append((path, i, 'W4',
+                '<name>_c style temp variable may exceed 32-char SAS name limit '
+                'when source name is near-maximal -- use positional names (_c0001) '
+                'via cats("_c", put(_j, z4.)) instead'))
+    return hits
+
+
 # ── runner ────────────────────────────────────────────────────────────────────
 
 CHECKS = [
@@ -635,6 +684,8 @@ CHECKS = [
     check_assert_query_columns,
     check_str_unescaped_quote,
     check_syscc_reset,
+    check_local_global_opencode,
+    check_name_c_temp_vars,
 ]
 
 
