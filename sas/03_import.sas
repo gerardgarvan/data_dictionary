@@ -1125,9 +1125,9 @@ quit;
    Temporary count arrays sized 4500 (covers s06 ~3987 cols). */
 data work._s06_nmiss_long(keep=col_name nmiss pct_nonnull);
   set pdd.src_s06 end=_eof;
-  length col_name $256 nmiss 8 pct_nonnull 8;
   array _n _numeric_;
   array _c _character_;
+  length col_name $256 nmiss 8 pct_nonnull 8;
   array _ncnt_n {4500} _temporary_ (4500*0);   /* nmiss counts for numeric cols */
   array _ncnt_c {4500} _temporary_ (4500*0);   /* nmiss counts for char cols */
   retain _nrows 0;
