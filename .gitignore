@@ -23,3 +23,6 @@ Thumbs.db
 .DS_Store
 *.tmp
 _reference_old/
+
+# D-21 column classification: column names and classes only, no data values
+!docs/s06_column_class.csv
