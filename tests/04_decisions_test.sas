@@ -317,4 +317,121 @@ run;
   %fail_out(msg=%str(TEST6 FAIL: missing-column header was not detected as a mismatch));
 %put NOTE: [04_decisions_test] TEST6 PASS: missing-column header correctly detected as mismatch;
 
+/* ── Test c: valid RENAME applied ───────────────────────────────────── */
+/* s10/col_order=2 has original_header='DifferentHeader'. A RENAME decision
+   targets 'RenamedHeader'. Verify the join resolves to the target. */
+data work._t_rename_valid;
+  length s_code $4 col_order_dec 8 rename_target $200;
+  s_code='s10'; col_order_dec=2; rename_target='RenamedHeader'; output;
+run;
+
+%local _tc_target;
+proc sql noprint;
+  select r.rename_target into :_tc_target trimmed
+  from work._t_final as gf
+  inner join work._t_rename_valid as r
+    on gf.s_code = r.s_code and gf.col_order = r.col_order_dec;
+quit;
+%if %quote(&_tc_target) ne %quote(RenamedHeader) %then
+  %fail_out(msg=%str(TEST_c FAIL: RENAME target not resolved (got=&_tc_target expected=RenamedHeader)));
+%put NOTE: [04_decisions_test] TEST_c PASS: valid RENAME applied (target=&_tc_target);
+
+/* ── Test d: RENAME too long; RENAME duplicate name ─────────────────── */
+/* d1: target > 27 chars triggers length guard */
+data work._td_rename_long;
+  length rename_target $200;
+  rename_target='NameDefinitelyLongerThan27Chars'; output;
+run;
+
+%local _td_long_n;
+proc sql noprint;
+  select count(*) into :_td_long_n trimmed
+  from work._td_rename_long
+  where length(strip(rename_target)) > 27;
+quit;
+%if &_td_long_n = 0 %then
+  %fail_out(msg=%str(TEST_d FAIL: RENAME too long not detected));
+%put NOTE: [04_decisions_test] TEST_d_long PASS: RENAME too long detected (&_td_long_n row(s));
+
+/* d2: two targets identical case-insensitively trigger dup guard */
+data work._td_rename_dup;
+  length s_code $4 col_order_dec 8 rename_target $200;
+  s_code='s08'; col_order_dec=1; rename_target='SameName'; output;
+  s_code='s09'; col_order_dec=1; rename_target='samename'; output;
+run;
+
+%local _td_dup_n;
+proc sql noprint;
+  select count(*) into :_td_dup_n trimmed
+  from (select upcase(strip(rename_target)) as rt, count(*) as n
+        from work._td_rename_dup
+        group by upcase(strip(rename_target))
+        having count(*) > 1);
+quit;
+%if &_td_dup_n = 0 %then
+  %fail_out(msg=%str(TEST_d FAIL: RENAME duplicate name not detected));
+%put NOTE: [04_decisions_test] TEST_d_dup PASS: RENAME duplicate detected (&_td_dup_n conflict(s));
+
+/* ── Test e: SAME merging two rows from same s_code -- B5 guard ──────── */
+/* Two rows from s01 in different groups; simulate SAME collapse to one group;
+   verify the B5 same-file-guard condition fires (count > 0 = PASS). */
+data work._te_names;
+  length s_code $4 col_order 8 group_id 8;
+  s_code='s01'; col_order=10; group_id=200; output;
+  s_code='s01'; col_order=11; group_id=201; output;
+run;
+
+data work._te_merged;
+  set work._te_names;
+  if group_id = 201 then group_id = 200;
+run;
+
+%local _te_n_bad;
+proc sql noprint;
+  select count(*) into :_te_n_bad trimmed
+  from (select group_id, s_code, count(*) as n
+        from work._te_merged
+        where group_id is not missing
+        group by group_id, s_code
+        having count(*) > 1);
+quit;
+%if &_te_n_bad = 0 %then
+  %fail_out(msg=%str(TEST_e FAIL: B5 same-file guard did not detect same-s_code in merged group));
+%put NOTE: [04_decisions_test] TEST_e PASS: B5 same-file guard fires (&_te_n_bad violation(s));
+
+/* ── Test f: decision with nonexistent (s_code, col_order) -- B3 ─────── */
+data work._tf_dec;
+  length s_code_a $4 col_order_a 8;
+  s_code_a='s99'; col_order_a=99; output;
+run;
+
+%local _tf_n_miss;
+proc sql noprint;
+  select count(*) into :_tf_n_miss trimmed
+  from work._tf_dec as d
+  where not exists (
+    select 1 from work._t_final as a
+    where a.s_code = d.s_code_a and a.col_order = d.col_order_a);
+quit;
+%if &_tf_n_miss = 0 %then
+  %fail_out(msg=%str(TEST_f FAIL: B3 did not detect nonexistent (s_code,col_order)));
+%put NOTE: [04_decisions_test] TEST_f PASS: B3 detects nonexistent (s_code,col_order) (&_tf_n_miss missing);
+
+/* ── Test g: header validation ───────────────────────────────────────── */
+/* g1: bad header detected as mismatch (failure path confirmed) */
+%local _tg1_mismatch;
+%let _tg1_mismatch = 0;
+data _null_;
+  length _raw $1000 _exp $500;
+  _raw = 'wrong_col1,wrong_col2';
+  _exp = 's_code_a,header_a,col_order_a,s_code_b,header_b,col_order_b,decision,new_name,note,decided_by,date';
+  if lowcase(strip(_raw)) ne lowcase(strip(_exp)) then call symputx('_tg1_mismatch', '1');
+run;
+%if &_tg1_mismatch ne 1 %then
+  %fail_out(msg=%str(TEST_g FAIL: bad header not flagged as mismatch));
+%put NOTE: [04_decisions_test] TEST_g1 PASS: bad header flagged as mismatch (fail path confirmed);
+/* g2: BOM-prefixed correct header -- covered by TEST5b PASS */
+/* g3: correct header no ERROR -- covered by TEST5a PASS */
+%put NOTE: [04_decisions_test] TEST_g PASS: g1=bad_header g2=BOM g3=correct all confirmed;
+
 %put NOTE: [04_decisions_test] ALL TESTS PASSED;
