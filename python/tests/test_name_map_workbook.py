@@ -10,8 +10,10 @@ from pathlib import Path
 import pytest
 
 from pdd.name_map_workbook import (
+    DECISIONS_TEMPLATE_COLS,
     SHEET_ORDER,
     assert_input,
+    make_decisions_template,
     read_csv,
     verify_workbook,
     write_workbook,
@@ -148,9 +150,9 @@ def test_verify_workbook(tmp_path: Path) -> None:
     sheets = _small_sheets()
     write_workbook(sheets, out)
 
-    # KEY sheet has 9 data rows (10 rows in _key_rows() minus the header row)
+    # KEY sheet has 24 data rows (25 rows in _key_rows() minus the header row)
     expected = {
-        "KEY": 9,
+        "KEY": 24,
         "NAME_MAP": 2,
         "VARIABLES": 2,
         "NAME_MAP_COLLISIONS": 2,
@@ -249,8 +251,12 @@ def _make_exchange(exchange: Path, n_name_map: int = 3) -> None:
     )
     _write_csv(exchange / "name_map_collisions.csv", ["col_a", "col_b"],
                [{"col_a": "x", "col_b": "y"}])
-    _write_csv(exchange / "name_map_nearmatches.csv", ["col_a", "col_b"],
-               [{"col_a": "x", "col_b": "y"}])
+    _write_csv(
+        exchange / "name_map_nearmatches.csv",
+        ["s_code_a", "header_a", "col_order_a", "s_code_b", "header_b", "col_order_b", "edit_dist"],
+        [{"s_code_a": "s01", "header_a": "Age", "col_order_a": "1",
+          "s_code_b": "s02", "header_b": "Age_yrs", "col_order_b": "2", "edit_dist": "4"}],
+    )
     _write_csv(exchange / "name_abbrev_applied.csv", ["group_id", "long", "short",
                "cleaned_before", "cleaned_after"],
                [{"group_id": "1", "long": "Number", "short": "N",
@@ -343,13 +349,84 @@ def test_script_header_only_csvs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 
 
 # ---------------------------------------------------------------------------
-# Test 11: script returns 1 on verify_workbook row-count mismatch
+# Test 11: script returns 1 when name_map.csv has wrong row count
 # ---------------------------------------------------------------------------
 
-def test_script_row_count_mismatch(tmp_path: Path) -> None:
-    out = tmp_path / "nm.xlsx"
-    sheets = _small_sheets()
-    write_workbook(sheets, out)
+def test_script_wrong_row_count(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    exchange = tmp_path / "exchange"
+    _make_exchange(exchange, n_name_map=3)
+    mod = _load_script()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "write_name_map_review.py",
+            "--exchange", str(exchange),
+            "--qc", str(tmp_path / "qc"),
+            "--logs", str(tmp_path / "logs"),
+            "--expected-name-map", "999",
+        ],
+    )
+    rc = mod.main()
+    assert rc == 1
 
-    with pytest.raises(ValueError):
-        verify_workbook(out, {"NAME_MAP": 999})
+
+# ---------------------------------------------------------------------------
+# Test 12: read_csv strips UTF-8 BOM from first header
+# ---------------------------------------------------------------------------
+
+def test_read_csv_bom(tmp_path: Path) -> None:
+    p = tmp_path / "bom.csv"
+    p.write_bytes(b"\xef\xbb\xbfcol_a,col_b\nval1,val2\n")
+    headers, rows = read_csv(p)
+    assert headers[0] == "col_a", f"BOM not stripped; got {headers[0]!r}"
+    assert rows[0]["col_a"] == "val1"
+
+
+# ---------------------------------------------------------------------------
+# Test 13: script writes decisions template with correct columns and row count
+# ---------------------------------------------------------------------------
+
+def test_decisions_template_written(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    exchange = tmp_path / "exchange"
+    qc = tmp_path / "qc"
+    logs = tmp_path / "logs"
+    _make_exchange(exchange, n_name_map=3)  # writes 1 near-match row
+
+    mod = _load_script()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "write_name_map_review.py",
+            "--exchange", str(exchange),
+            "--qc", str(qc),
+            "--logs", str(logs),
+            "--expected-name-map", "3",
+        ],
+    )
+    rc = mod.main()
+    assert rc == 0
+
+    tmpl = exchange / "name_map_decisions_template.csv"
+    assert tmpl.exists(), "decisions template not written"
+    headers, rows = read_csv(tmpl)
+    assert headers == DECISIONS_TEMPLATE_COLS
+    assert len(rows) == 1
+    # Source columns populated; decision columns blank
+    assert rows[0]["s_code_a"] == "s01"
+    assert rows[0]["header_a"] == "Age"
+    assert rows[0]["decision"] == ""
+
+
+# ---------------------------------------------------------------------------
+# Test 14: make_decisions_template handles missing source columns gracefully
+# ---------------------------------------------------------------------------
+
+def test_make_decisions_template_missing_cols() -> None:
+    rows = [{"col_a": "x", "col_b": "y"}]
+    result = make_decisions_template(rows)
+    assert len(result) == 1
+    assert result[0]["s_code_a"] == ""
+    assert result[0]["decision"] == ""
+    assert list(result[0].keys()) == DECISIONS_TEMPLATE_COLS

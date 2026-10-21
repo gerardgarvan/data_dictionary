@@ -16,6 +16,7 @@ Exit 0 on success, non-zero on any failure.
 from __future__ import annotations
 
 import argparse
+import csv
 import logging
 import sys
 from pathlib import Path
@@ -24,8 +25,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from pdd.config import EXCHANGE_PATH, LOGS_PATH, QC_PATH
 from pdd.name_map_workbook import (
+    DECISIONS_TEMPLATE_COLS,
     EXPECTED_ROWS,
     assert_input,
+    make_decisions_template,
     read_csv,
     verify_workbook,
     write_workbook,
@@ -114,6 +117,15 @@ def main() -> int:
     except ValueError as exc:
         logging.error("Workbook verification failed: %s", exc)
         return 1
+
+    _, near_rows = csv_data["NEAR_MATCHES"]
+    template_rows = make_decisions_template(near_rows)
+    template_path = exchange / "name_map_decisions_template.csv"
+    with template_path.open("w", newline="", encoding="utf-8") as fh:
+        w = csv.DictWriter(fh, fieldnames=DECISIONS_TEMPLATE_COLS)
+        w.writeheader()
+        w.writerows(template_rows)
+    logging.info("Decisions template: %s (%d rows)", template_path, len(template_rows))
 
     print(f"written: {xlsx_path}")
     return 0

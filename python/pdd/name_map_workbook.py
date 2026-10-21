@@ -49,7 +49,7 @@ def _int_col_indices(headers: list[str]) -> frozenset[int]:
 
 def read_csv(path: Path) -> tuple[list[str], list[dict[str, str]]]:
     """Return (fieldnames, rows).  fieldnames is non-empty even for header-only files."""
-    with path.open(encoding="utf-8", newline="") as fh:
+    with path.open(encoding="utf-8-sig", newline="") as fh:
         reader = csv.DictReader(fh)
         rows = list(reader)
         headers = list(reader.fieldnames or [])
@@ -96,56 +96,95 @@ def assert_input(
     logging.info("Input asserts passed: %d rows", len(name_map_rows))
 
 
-def _key_rows() -> list[list[str]]:
-    """D-02 cleaning-rule documentation for the KEY sheet."""
+DECISIONS_TEMPLATE_COLS: list[str] = [
+    "s_code_a", "header_a", "col_order_a",
+    "s_code_b", "header_b", "col_order_b",
+    "decision", "note", "new_name", "decided_by", "date",
+]
+
+
+def make_decisions_template(
+    near_match_rows: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    """One template row per near-match pair; decision columns are blank."""
     return [
-        ["Rule", "Step", "Description"],
+        {col: row.get(col, "") for col in DECISIONS_TEMPLATE_COLS}
+        for row in near_match_rows
+    ]
+
+
+def _key_rows() -> list[list[str]]:
+    """Documentation rows for the KEY sheet."""
+    return [
+        ["Rule", "Item", "Description"],
+        # D-02 cleaning steps
         ["D-02", "1", "Trim leading/trailing whitespace from the original header."],
-        [
-            "D-02",
-            "2",
-            "Replace every run of characters that are not ASCII letters or digits "
-            "with a single underscore (non-ASCII treated as non-keeping).",
-        ],
-        [
-            "D-02",
-            "3",
-            "Strip leading and trailing underscores. "
-            "A header that cleans to empty causes %fail_out.",
-        ],
-        [
-            "D-02",
-            "4",
-            "If the result starts with a digit, prefix N_.",
-        ],
-        [
-            "D-02",
-            "5",
-            "Keep original letter case.",
-        ],
-        [
-            "D-02",
-            "6",
-            "Apply abbreviation table (D-03) only if the result would exceed 27 chars "
-            "after PCNR_ prefix. Applies to all files.",
-        ],
-        [
-            "D-02",
-            "7",
-            "Prefix PCNR_.",
-        ],
-        [
-            "D-03",
-            "Abbrev",
-            "Abbreviation table (docs/name_abbrev.csv): Delayed->Dly, Recall->Rcl, "
-            "Recognition->Recog, Number->N, Norm_ZScore->Z, AgeScaled->AgeSc, Percent->Pct.",
-        ],
-        [
-            "D-03",
-            "Elide",
-            "If still >27 chars after abbreviation: keep first N and last M chars "
-            "separated by __ (double underscore) to preserve COM/COPY prefix and suffix.",
-        ],
+        ["D-02", "2",
+         "Replace every run of characters that are not ASCII letters or digits "
+         "with a single underscore (non-ASCII treated as non-keeping)."],
+        ["D-02", "3",
+         "Strip leading and trailing underscores. "
+         "A header that cleans to empty causes %fail_out."],
+        ["D-02", "4", "If the result starts with a digit, prefix N_."],
+        ["D-02", "5", "Keep original letter case."],
+        ["D-02", "6",
+         "Apply abbreviation table (D-03) only if the result would exceed 27 chars "
+         "after PCNR_ prefix. Applies to all files."],
+        ["D-02", "7", "Prefix PCNR_."],
+        # D-03 abbreviation/elide rules
+        ["D-03", "Abbrev",
+         "Apply abbreviations from the ABBREVIATIONS sheet (docs/name_abbrev.csv) "
+         "only when the cleaned name exceeds 27 chars. Apply longest abbreviation first. "
+         "Token boundaries: start/end of string, underscore, digit, or lower-to-upper "
+         "case change. Whole tokens only — never split mid-token."],
+        ["D-03", "Elide",
+         "If still > 27 chars after all abbreviations: keep first N and last M chars "
+         "separated by __ (double underscore) to preserve COM/COPY prefix and suffix."],
+        # Variable statuses
+        ["Status", "PCNR",
+         "Variable included in the PCNR_ namespace — appears in the final data dictionary."],
+        ["Status", "KEY",
+         "Linkage/identifier variable retained as-is; not renamed to PCNR_."],
+        ["Status", "LINKAGE_ONLY",
+         "Variable used for record linkage only; excluded from analytic output."],
+        ["Status", "EXCLUDED_CLK",
+         "Variable excluded because it is a clock-time or date field raising "
+         "re-identification risk."],
+        ["Status", "DUPLICATE_DROPPED",
+         "Variable is an exact duplicate of another in the same file; "
+         "dropped before naming."],
+        # Sheet descriptions
+        ["Sheet", "NAME_MAP",
+         "One row per variable per source file. Shows the cleaned name, status, "
+         "and group_id assigned by the SAS pipeline."],
+        ["Sheet", "VARIABLES",
+         "One row per unique PCNR_ variable across all source files. Shows type, "
+         "max length, and how many sources contribute it."],
+        ["Sheet", "NAME_MAP_COLLISIONS",
+         "Pairs of variables in the same source file whose cleaned names collide "
+         "(would produce the same PCNR_ name)."],
+        ["Sheet", "NEAR_MATCHES",
+         "Pairs of PCNR_ names across files that are similar but not identical — "
+         "candidates for manual harmonisation."],
+        ["Sheet", "ABBREVIATIONS",
+         "Abbreviation pairs applied by D-03 (docs/name_abbrev.csv). "
+         "long = original token, short = replacement."],
+        # group_id
+        ["group_id", "Meaning",
+         "Each distinct PCNR_ variable has one group_id. Rows in NAME_MAP from "
+         "different source files that share a group_id are overlaps — the same "
+         "real-world variable appearing in multiple files."],
+        # How to record a decision
+        ["Decision", "Columns",
+         "docs/name_map_decisions.csv: s_code_a, header_a, col_order_a, "
+         "s_code_b, header_b, col_order_b, decision, note, new_name, decided_by, date."],
+        ["Decision", "SAME",
+         "The two near-match variables are the same construct — keep existing group_id; "
+         "no rename needed."],
+        ["Decision", "DIFFERENT",
+         "The two near-match variables are distinct constructs — keep separate group_ids."],
+        ["Decision", "RENAME",
+         "One variable should be renamed; put the chosen PCNR_ name in new_name."],
     ]
 
 
