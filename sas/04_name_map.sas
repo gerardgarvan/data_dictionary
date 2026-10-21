@@ -793,7 +793,8 @@
       %fail_out(msg=%str(SAME decision places two columns from same file in one group));
     %end;
 
-    /* Union-find: iterative label propagation (min-label) until convergence, max 50 passes.
+    /* B1: SAME closure -- union-find: iterative label propagation (min-label) until
+       convergence, max 50 passes. Final group_id = smallest group_id in the merged set.
        A single UPDATE misses chains (A=B, B=C), so we repeat until no group_id changes.
        Each group maps to the minimum group_id reachable through SAME edges in both
        directions. */
