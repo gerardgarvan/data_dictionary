@@ -89,7 +89,9 @@
   if prxmatch('/^\d/', strip(&out)) then &out = cats('N_', strip(&out));
 %mend clean_name;
 
-/* Validate abbreviation CSV: every long/short non-blank and [A-Za-z0-9_] only */
+/* Validate abbreviation CSV: every long/short non-blank and [A-Za-z0-9_] only.
+   long must start with a letter [A-Za-z]; uppercase for standard entries,
+   lowercase for abbrev_lower entries applied case-insensitively. */
 %macro check_abbrev_csv;
   %local _nbad_ab;
   proc sql noprint;
@@ -100,7 +102,7 @@
        or strip(long) = strip(short)
        or prxmatch('/[^A-Za-z0-9_]/', strip(long))  > 0
        or prxmatch('/[^A-Za-z0-9_]/', strip(short)) > 0
-       or prxmatch('/^[^A-Z]/', strip(long)) > 0;
+       or prxmatch('/^[^A-Za-z]/', strip(long)) > 0;
   quit;
   %if &_nbad_ab > 0 %then %do;
     data _null_;
@@ -109,10 +111,10 @@
               or strip(long) = strip(short)
               or prxmatch('/[^A-Za-z0-9_]/', strip(long))  > 0
               or prxmatch('/[^A-Za-z0-9_]/', strip(short)) > 0
-              or prxmatch('/^[^A-Z]/', strip(long)) > 0));
+              or prxmatch('/^[^A-Za-z]/', strip(long)) > 0));
       put 'ERROR: [04_name_map] ABBREV_BAD: ' long= short=;
     run;
-    %fail_out(msg=%str(name_abbrev.csv &_nbad_ab rows: blank long/short, long=short, non-word chars, or long not starting with uppercase));
+    %fail_out(msg=%str(name_abbrev.csv &_nbad_ab rows: blank long/short, long=short, non-word chars, or long not starting with a letter [A-Za-z]));
   %end;
   %put NOTE: [04_name_map] name_abbrev.csv validated OK;
 %mend check_abbrev_csv;
@@ -868,11 +870,11 @@
            _nm $200 _cbe $200 _pat $400 _pre_elide $200
            long $200 short $200
            cleaned_before $200 cleaned_after $200
-           _elide_first 8 _elide_last 8 _nab_tot 8 _elided 8
+           _elide_first 8 _elide_last 8 _nab_tot 8 _elided 8 _is_lower 8
            _elide_head $200 _elide_tail $200;
 
     /* Load total abbreviation count once without reading row 0 */
-    if 0 then set work.abbrev (keep=long short _longlen) nobs=_nab_tot;
+    if 0 then set work.abbrev (keep=long short _longlen _is_lower) nobs=_nab_tot;
     retain _nab_tot;
 
     set work._grp_rep;
@@ -882,25 +884,30 @@
     if pcnr_name_override ne '' then _nm = pcnr_name_override;
     else do;
       /* Apply abbreviations longest-first; only when length > 27; stop early.
-         long/short validated [A-Za-z0-9_] only -- no regex escaping needed. */
+         long/short validated [A-Za-z0-9_] only -- no regex escaping needed.
+         Uppercase-start: token bounded right by [A-Z0-9_] or end.
+         Lowercase-start (abbrev_lower=1): bounded left by start or _ and right by _ or end,
+         matched case-insensitively. */
       if length(strip(_nm)) > 27 then do _ai = 1 to _nab_tot;
-        set work.abbrev (keep=long short _longlen) point=_ai;
+        set work.abbrev (keep=long short _longlen _is_lower) point=_ai;
         if length(strip(_nm)) <= 27 then leave;
-        _cbe = _nm;
-        /* Token boundary: start | after _ or digit | after lowercase (camelCase) */
-        /* Boundary: long must start [A-Z] (enforced by check_abbrev_csv);
-           require lookahead of [A-Z0-9_] or end-of-string after the match. */
-        _pat = cats('s/', strip(long), '(?=[A-Z0-9_]|$)/', strip(short), '/');
-        _nm  = prxchange(_pat, -1, strip(_nm));
-        if strip(_nm) ne strip(_cbe) then do;
-          if length(strip(_nm)) > length(strip(_cbe)) then do;
-            put 'ERROR: [04_name_map] abbreviation made name longer: '
-                long= short= _cbe= _nm=;
-            call symputx('_abbrev_longer', '1', 'L');
+        if not (_is_lower and not &abbrev_lower) then do;
+          _cbe = _nm;
+          if _is_lower then
+            _pat = cats('s/(?i)(?:^|(?<=_))', strip(long), '(?=_|$)/', strip(short), '/');
+          else
+            _pat = cats('s/', strip(long), '(?=[A-Z0-9_]|$)/', strip(short), '/');
+          _nm  = prxchange(_pat, -1, strip(_nm));
+          if strip(_nm) ne strip(_cbe) then do;
+            if length(strip(_nm)) > length(strip(_cbe)) then do;
+              put 'ERROR: [04_name_map] abbreviation made name longer: '
+                  long= short= _cbe= _nm=;
+              call symputx('_abbrev_longer', '1', 'L');
+            end;
+            cleaned_before = _cbe;
+            cleaned_after  = _nm;
+            output work._abbrev_hits;
           end;
-          cleaned_before = _cbe;
-          cleaned_after  = _nm;
-          output work._abbrev_hits;
         end;
       end;
       /* Elide if still > 27 chars after abbreviation */
@@ -1450,6 +1457,11 @@ data work.decisions;
   if strip(decision) = '' and strip(s_code_a) = '' then delete;
 run;
 
+/* D-03 abbrev_lower: when 1, also apply lowercase-start entries case-insensitively,
+   bounded by start-of-string or underscore on the left and underscore or end on the right.
+   Set to 0 to skip lowercase entries entirely. */
+%let abbrev_lower = 1;
+
 /* 2f. Abbreviation table -- DATA step INFILE; sort desc by long length */
 data work._abbrev_raw;
   length long $200 short $200;
@@ -1464,6 +1476,7 @@ run;
 data work.abbrev;
   set work._abbrev_raw;
   _longlen = length(long);
+  _is_lower = (prxmatch('/^[a-z]/', strip(long)) > 0);
 run;
 
 proc sort data=work.abbrev; by descending _longlen; run;
