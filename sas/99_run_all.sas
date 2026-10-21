@@ -42,20 +42,84 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
 
 
 /* =========================================================================
-   PHASE 2 -- Source Guard and Header Inventory
+   PHASE SELECTOR -- read PDD_PHASES from -set (run_pipeline.cmd) or default
    ========================================================================= */
-%put NOTE: ---- Phase 2: Source guard and header inventory -------------;
-%include "&sas_path.\02_source_guard.sas";
-%put NOTE: ---- Phase 2 complete --------------------------------------;
+
+/* Returns 1 if integer n is in comma-delimited list, 0 otherwise.
+   Pads with commas to avoid substring false-match (e.g. "2" in "20,3"). */
+%macro _phase_in(n, list);
+  %local _padded;
+  %let _padded = ,%sysfunc(compress(&list, %str( ))),;
+  %if %index(&_padded, ,&n,) > 0 %then 1;
+  %else 0;
+%mend _phase_in;
+
+/* Prerequisite check when phase 2 is skipped. */
+%macro run_hash_guard;
+  %local _hg_fail _hg_ds _hg_i;
+  %let _hg_fail = 0;
+  %let _hg_ds = source_inventory header_inventory key_analysis id_overlap qc_s18_dup;
+  %do _hg_i = 1 %to 5;
+    %local _hg_name;
+    %let _hg_name = %scan(&_hg_ds, &_hg_i, %str( ));
+    %if not %sysfunc(exist(pdd.&_hg_name)) %then %do;
+      %put ERROR: [99_run_all] hash guard: pdd.&_hg_name not found -- run full pipeline first;
+      %let _hg_fail = %eval(&_hg_fail + 1);
+    %end;
+    %else %put NOTE: [99_run_all] hash guard: pdd.&_hg_name exists -- OK;
+  %end;
+  %if &_hg_fail > 0 %then %do;
+    %put ERROR: [99_run_all] hash guard FAILED -- &_hg_fail prerequisite dataset(s) missing;
+    %abort cancel;
+  %end;
+  %put NOTE: [99_run_all] hash guard passed -- all Phase 2 prerequisite datasets present;
+%mend run_hash_guard;
+
+/* Read PDD_PHASES from sas -set option; default 2,3 if not supplied. */
+%macro _init_phases;
+  %global pdd_phases_run;
+  %local _raw;
+  %let _raw = %sysget(PDD_PHASES);
+  %if %length(%superq(_raw)) = 0 %then %let pdd_phases_run = 2,3;
+  %else %let pdd_phases_run = &_raw;
+  %put NOTE: [99_run_all] PDD_PHASES resolved to: &pdd_phases_run;
+%mend _init_phases;
+%_init_phases;
+
+/* Run phases in order; timing surrounds each. */
+%macro _run_phases;
+
+  /* =========================================================================
+     PHASE 2 -- Source Guard and Header Inventory
+     ========================================================================= */
+  %put NOTE: [timing] phase 2 start %sysfunc(datetime(), datetime20.);
+  %if %_phase_in(2, &pdd_phases_run) %then %do;
+    %put NOTE: ---- Phase 2: Source guard and header inventory -------------;
+    %include "&sas_path.\02_source_guard.sas";
+    %put NOTE: ---- Phase 2 complete --------------------------------------;
+  %end;
+  %else %do;
+    %put NOTE: [99_run_all] Phase 2 skipped -- running hash guard;
+    %run_hash_guard;
+  %end;
+  %put NOTE: [timing] phase 2 end %sysfunc(datetime(), datetime20.);
 
 
+  /* =========================================================================
+     PHASE 3 -- Direct Import of 20 Raw Sources
+     ========================================================================= */
+  %if %_phase_in(3, &pdd_phases_run) %then %do;
+    %put NOTE: [timing] phase 3 start %sysfunc(datetime(), datetime20.);
+    %put NOTE: ---- Phase 3: Direct import of 20 raw sources ------------;
+    %include "&sas_path.\03_import.sas";
+    %put NOTE: ---- Phase 3 complete --------------------------------------;
+    %put NOTE: [timing] phase 3 end %sysfunc(datetime(), datetime20.);
+  %end;
+  %else
+    %put NOTE: [99_run_all] Phase 3 skipped (not in PDD_PHASES=&pdd_phases_run);
 
-/* =========================================================================
-   PHASE 3 -- Direct Import of 20 Raw Sources
-   ========================================================================= */
-%put NOTE: ---- Phase 3: Direct import of 20 raw sources ------------;
-%include "&sas_path.\03_import.sas";
-%put NOTE: ---- Phase 3 complete --------------------------------------;
+%mend _run_phases;
+%_run_phases;
 
 
 
@@ -103,7 +167,7 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
    PIPELINE COMPLETE
    ========================================================================= */
 %put NOTE: ============================================================;
-%put NOTE: 99_run_all.sas -- PIPELINE COMPLETE (phases enabled: 2,3);
+%put NOTE: 99_run_all.sas -- PIPELINE COMPLETE (phases run: &pdd_phases_run);
 %put NOTE: Logs are in: &logs_path;
 %put NOTE: Output is in: &out_root;
 %put NOTE: ============================================================;

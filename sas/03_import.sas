@@ -103,6 +103,75 @@
     %put WARNING: [03_import] &label was NOT written;
 %mend _note_written_xlsx;
 
+/* Create pdd.import_cache if it does not already exist. */
+%macro _init_import_cache;
+  %if not %sysfunc(exist(pdd.import_cache)) %then %do;
+    data pdd.import_cache;
+      length s_code $4 sha256 $64 cache_dt $20;
+      stop;
+    run;
+    %put NOTE: [03_import] pdd.import_cache created (empty);
+  %end;
+  %else %put NOTE: [03_import] pdd.import_cache exists;
+%mend _init_import_cache;
+
+/* Set hit_mv=1 if pdd.src_<fc> exists and its cached sha256 matches
+   pdd.source_inventory.sha256.  PDD_FORCE_XLSX=1 bypasses the cache. */
+%macro _xlsx_cache_hit(fc=, hit_mv=);
+  %global &hit_mv;
+  %let &hit_mv = 0;
+  %local _force _cur_sha _cached_sha _ds_exists;
+  %let _force     = %sysget(PDD_FORCE_XLSX);
+  %let _ds_exists = %sysfunc(exist(pdd.src_&fc));
+  %if "%superq(_force)" = "1" %then
+    %put NOTE: [03_import] PDD_FORCE_XLSX=1 -- bypassing cache for &fc;
+  %else %if not &_ds_exists %then
+    %put NOTE: [03_import] cache miss: pdd.src_&fc not found;
+  %else %do;
+    %let _cur_sha = ;
+    proc sql noprint;
+      select strip(sha256) into :_cur_sha trimmed
+      from pdd.source_inventory where s_code = "&fc"
+      having count(*) > 0;
+    quit;
+    %if %length(%superq(_cur_sha)) = 0 %then
+      %put NOTE: [03_import] cache miss: sha256 not in source_inventory for &fc;
+    %else %do;
+      %let _cached_sha = ;
+      proc sql noprint;
+        select strip(sha256) into :_cached_sha trimmed
+        from pdd.import_cache where s_code = "&fc"
+        having count(*) > 0;
+      quit;
+      %if %length(%superq(_cached_sha)) = 0 %then
+        %put NOTE: [03_import] cache miss: no import_cache record for &fc;
+      %else %if "%superq(_cur_sha)" = "%superq(_cached_sha)" %then %do;
+        %put NOTE: [03_import] &fc unchanged (sha match) -- reusing pdd.src_&fc;
+        %let &hit_mv = 1;
+      %end;
+      %else
+        %put NOTE: [03_import] cache miss: sha mismatch for &fc;
+    %end;
+  %end;
+%mend _xlsx_cache_hit;
+
+/* Record a successful import in pdd.import_cache (delete existing row then insert). */
+%macro _xlsx_cache_update(fc=);
+  %local _upd_sha _upd_ts;
+  %let _upd_sha = ;
+  proc sql noprint;
+    select strip(sha256) into :_upd_sha trimmed
+    from pdd.source_inventory where s_code = "&fc"
+    having count(*) > 0;
+  quit;
+  %let _upd_ts = %sysfunc(put(%sysfunc(datetime()), datetime20.));
+  proc sql;
+    delete from pdd.import_cache where s_code = "&fc";
+    insert into pdd.import_cache values ("&fc", "%superq(_upd_sha)", "&_upd_ts");
+  quit;
+  %put NOTE: [03_import] import_cache updated for &fc (sha=%superq(_upd_sha));
+%mend _xlsx_cache_update;
+
 /* Begin log redirect immediately after macro definitions */
 %route_log;
 
@@ -448,9 +517,11 @@ run;
 %_guard_gen_syntax;
 
 /* Execute the generated CSV DATA steps */
+%put NOTE: [timing] csv_include start %sysfunc(datetime(), datetime20.);
 options errors=1;
 %include _gen;
 options errors=20;
+%put NOTE: [timing] csv_include end %sysfunc(datetime(), datetime20.);
 
 %put NOTE: [03_import] %include of generated CSV steps complete;
 
@@ -636,6 +707,9 @@ proc datasets lib=work nolist nowarn; delete _s17_enc _s17n _s17_ambig; quit;
    Uses LIBNAME XLSX + spec-driven RENAME= + forced-char recast.
    Sheet names discovered at runtime via dictionary.members (XLSX libref).
    ============================================================ */
+
+/* Initialise pdd.import_cache (created if absent). */
+%_init_import_cache;
 
 /* Save and set validvarname=any so XLSX name literals work for columns
    with spaces / special chars; restore at end of section. */
@@ -921,37 +995,53 @@ options validvarname=any;
 
 
 /* ---- s08: 2018_2022_COLONOSCOPY_20240118.xlsx ---- */
-%_get_sheet_name(scode=s08, outmv=_sh_s08);
-%_gen_xlsx_import(fc=s08, target=pdd.src_s08, sheet_mv=_sh_s08);
-%_note_written_ds(ds=pdd.src_s08, label=pdd.src_s08);
+%macro _import_s08;
+  %_xlsx_cache_hit(fc=s08, hit_mv=_hit_s08);
+  %if not &_hit_s08 %then %do;
+    %put NOTE: [timing] s08 start %sysfunc(datetime(), datetime20.);
+    %_get_sheet_name(scode=s08, outmv=_sh_s08);
+    %_gen_xlsx_import(fc=s08, target=pdd.src_s08, sheet_mv=_sh_s08);
+    %_xlsx_cache_update(fc=s08);
+    %put NOTE: [timing] s08 end %sysfunc(datetime(), datetime20.);
+  %end;
+  %_note_written_ds(ds=pdd.src_s08, label=pdd.src_s08);
+%mend _import_s08;
+%_import_s08;
 
 
 /* ---- s11: 2020_Precede_Database_Edu.xlsx ---- */
-%_get_sheet_name(scode=s11, outmv=_sh_s11);
-%_gen_xlsx_import(fc=s11, target=pdd.src_s11, sheet_mv=_sh_s11);
-%_note_written_ds(ds=pdd.src_s11, label=pdd.src_s11);
+%macro _import_s11;
+  %_xlsx_cache_hit(fc=s11, hit_mv=_hit_s11);
+  %if not &_hit_s11 %then %do;
+    %put NOTE: [timing] s11 start %sysfunc(datetime(), datetime20.);
+    %_get_sheet_name(scode=s11, outmv=_sh_s11);
+    %_gen_xlsx_import(fc=s11, target=pdd.src_s11, sheet_mv=_sh_s11);
+    %_xlsx_cache_update(fc=s11);
+    %put NOTE: [timing] s11 end %sysfunc(datetime(), datetime20.);
+  %end;
+  %_note_written_ds(ds=pdd.src_s11, label=pdd.src_s11);
+%mend _import_s11;
+%_import_s11;
 
 
 /* ---- s06: 2018_2019_Precede_Database.xlsx (~200 MB, ~3987 cols) ---- */
 /* Import ALL columns; no gating. PDD-D-21 scope decision deferred to Phases 4-5. */
-%_get_sheet_name(scode=s06, outmv=_sh_s06);
-%_gen_xlsx_import(fc=s06, target=pdd.src_s06, sheet_mv=_sh_s06);
-%_note_written_ds(ds=pdd.src_s06, label=pdd.src_s06);
+%macro _import_s06;
+  %_xlsx_cache_hit(fc=s06, hit_mv=_hit_s06);
+  %if not &_hit_s06 %then %do;
+    %put NOTE: [timing] s06 start %sysfunc(datetime(), datetime20.);
+    %_get_sheet_name(scode=s06, outmv=_sh_s06);
+    %_gen_xlsx_import(fc=s06, target=pdd.src_s06, sheet_mv=_sh_s06);
+    %_xlsx_cache_update(fc=s06);
+    %put NOTE: [timing] s06 end %sysfunc(datetime(), datetime20.);
+  %end;
+  %_note_written_ds(ds=pdd.src_s06, label=pdd.src_s06);
+%mend _import_s06;
+%_import_s06;
 
 
 /* ---- s19: ALL_AIM2_MASTER_DATASET_20210917.xlsx ---- */
 /* Import to work._s19_raw first, then apply PDD-D-08 blank-row drop */
-%_get_sheet_name(scode=s19, outmv=_sh_s19);
-%_gen_xlsx_import(fc=s19, target=work._s19_raw, sheet_mv=_sh_s19);
-
-/* PDD-D-08: drop rows where PRECEDE_STUDY_ID missing OR all data cols blank/NULL */
-/* Get total row count from source_inventory for assertion */
-%let _s19_src_total = -1;
-proc sql noprint;
-  select coalesce(row_count, .) into :_s19_src_total trimmed
-  from pdd.source_inventory
-  where s_code = 's19';
-quit;
 
 /* Assert PRECEDE_STUDY_ID is character in work._s19_raw before the blank test */
 %macro _assert_s19_id_char;
@@ -967,33 +1057,9 @@ quit;
     %fail_out(msg=%str(s19 PRECEDE_STUDY_ID is not character type (found: &_s19_id_type) -- check import spec));
   %put NOTE: [03_import] s19 PRECEDE_STUDY_ID confirmed character type;
 %mend _assert_s19_id_char;
-%_assert_s19_id_char;
 
-data pdd.src_s19 work._s19_drop;
-  set work._s19_raw;
-  array _c {*} _character_;
-  array _n {*} _numeric_;
-  _any = 0;
-  /* Exclude PRECEDE_STUDY_ID from _any test: a row with only an ID must be dropped */
-  do _k = 1 to dim(_c);
-    if upcase(vname(_c{_k})) ne 'PRECEDE_STUDY_ID'
-       and strip(_c{_k}) not in ('', 'NULL') then _any = 1;
-  end;
-  do _k = 1 to dim(_n);
-    if upcase(vname(_n{_k})) ne 'PRECEDE_STUDY_ID'
-       and not missing(_n{_k}) then _any = 1;
-  end;
-  /* Keep row if ID non-blank AND at least one data col non-null (PDD-D-08) */
-  if not missing(PRECEDE_STUDY_ID)
-     and strip(PRECEDE_STUDY_ID) ne ''
-     and _any = 1
-    then output pdd.src_s19;
-  else output work._s19_drop;
-  drop _any _k;
-run;
-
-/* Log kept/dropped counts and assert (PDD-D-08) */
-%macro _log_s19_counts;
+/* Log kept/dropped counts and assert (PDD-D-08). src_total: row_count from source_inventory. */
+%macro _log_s19_counts(src_total=-1);
   %local _k19 _d19 _tot19;
   proc sql noprint;
     select count(*) into :_k19 trimmed from pdd.src_s19;
@@ -1006,17 +1072,74 @@ run;
     %fail_out(msg=%str(s19 PDD-D-08 -- 0 rows kept after blank-row drop -- all rows blank or missing ID));
 
   /* Assert kept+dropped = source total if known */
-  %if &_s19_src_total > 0 %then %do;
-    %if &_tot19 = &_s19_src_total %then
-      %put NOTE: [03_import] s19 total rows match source_inventory (&_s19_src_total) -- OK;
+  %if &src_total > 0 %then %do;
+    %if &_tot19 = &src_total %then
+      %put NOTE: [03_import] s19 total rows match source_inventory (&src_total) -- OK;
     %else
-      %fail_out(msg=%str(s19 PDD-D-08 -- total &_tot19 != source_inventory &_s19_src_total -- row count mismatch));
+      %fail_out(msg=%str(s19 PDD-D-08 -- total &_tot19 != source_inventory &src_total -- row count mismatch));
   %end;
 %mend _log_s19_counts;
-%_log_s19_counts;
 
-%_note_written_ds(ds=pdd.src_s19, label=pdd.src_s19);
-proc datasets lib=work nolist nowarn; delete _s19_raw _s19_drop; quit;
+%macro _import_s19;
+  %_xlsx_cache_hit(fc=s19, hit_mv=_hit_s19);
+  %if not &_hit_s19 %then %do;
+    %put NOTE: [timing] s19 start %sysfunc(datetime(), datetime20.);
+    %_get_sheet_name(scode=s19, outmv=_sh_s19);
+    %_gen_xlsx_import(fc=s19, target=work._s19_raw, sheet_mv=_sh_s19);
+
+    /* Log XLSX engine row count before PDD-D-08 filter */
+    %local _s19_raw_cnt;
+    %let _s19_raw_cnt = -1;
+    proc sql noprint;
+      select count(*) into :_s19_raw_cnt trimmed from work._s19_raw;
+    quit;
+    %put NOTE: [03_import] s19 XLSX engine rows before PDD-D-08 filter=&_s19_raw_cnt;
+
+    /* PDD-D-08: drop rows where PRECEDE_STUDY_ID missing OR all data cols blank/NULL */
+    /* Get total row count from source_inventory for assertion */
+    %local _s19_src_total;
+    %let _s19_src_total = -1;
+    proc sql noprint;
+      select coalesce(row_count, .) into :_s19_src_total trimmed
+      from pdd.source_inventory
+      where s_code = 's19';
+    quit;
+
+    %_assert_s19_id_char;
+
+    data pdd.src_s19 work._s19_drop;
+      set work._s19_raw;
+      array _c {*} _character_;
+      array _n {*} _numeric_;
+      _any = 0;
+      /* Exclude PRECEDE_STUDY_ID from _any test: a row with only an ID must be dropped */
+      do _k = 1 to dim(_c);
+        if upcase(vname(_c{_k})) ne 'PRECEDE_STUDY_ID'
+           and strip(_c{_k}) not in ('', 'NULL') then _any = 1;
+      end;
+      do _k = 1 to dim(_n);
+        if upcase(vname(_n{_k})) ne 'PRECEDE_STUDY_ID'
+           and not missing(_n{_k}) then _any = 1;
+      end;
+      /* Keep row if ID non-blank AND at least one data col non-null (PDD-D-08) */
+      if not missing(PRECEDE_STUDY_ID)
+         and strip(PRECEDE_STUDY_ID) ne ''
+         and _any = 1
+        then output pdd.src_s19;
+      else output work._s19_drop;
+      drop _any _k;
+    run;
+
+    %_log_s19_counts(src_total=&_s19_src_total);
+
+    proc datasets lib=work nolist nowarn; delete _s19_raw _s19_drop; quit;
+    %_xlsx_cache_update(fc=s19);
+    %put NOTE: [timing] s19 end %sysfunc(datetime(), datetime20.);
+  %end;
+  %else %put NOTE: [03_import] s19 reused from cache (PDD-D-08 filter applied on prior run);
+  %_note_written_ds(ds=pdd.src_s19, label=pdd.src_s19);
+%mend _import_s19;
+%_import_s19;
 
 /* Restore validvarname to pre-XLSX value */
 options validvarname=&_vvn_save;
@@ -1366,7 +1489,7 @@ proc datasets lib=work nolist nowarn; delete _s06_key_legend; quit;
 %_check_key_analysis;
 
 %macro _norm_psid_loop;
-  %local _nds _ids _dsname _fc _idvar _n_applied _skipped_list;
+  %local _nds _ids _dsname _fc _idvar _n_applied _skipped_list _has_np;
   %let _nds = -1;
   %let _n_applied = 0;
   %let _skipped_list = ;
@@ -1410,9 +1533,22 @@ proc datasets lib=work nolist nowarn; delete _s06_key_legend; quit;
       %let _skipped_list = &_skipped_list &_fc;
     %end;
     %else %do;
-      %put NOTE: [03_import] applying pdd_norm_psid to pdd.&_dsname idvar=&_idvar (PRECEDE_STUDY_ID);
-      %pdd_norm_psid(in=pdd.&_dsname, out=pdd.&_dsname, idvar=&_idvar);
-      %let _n_applied = %eval(&_n_applied + 1);
+      /* Skip if norm_psid already present (XLSX cache reuse -- must not append twice) */
+      %let _has_np = 0;
+      proc sql noprint;
+        select count(*) into :_has_np trimmed
+        from dictionary.columns
+        where upcase(libname) = 'PDD'
+          and upcase(memname) = upcase("&_dsname")
+          and upcase(name) = 'NORM_PSID';
+      quit;
+      %if &_has_np > 0 %then
+        %put NOTE: [03_import] norm_psid already on pdd.&_dsname (cache reuse) -- skipping;
+      %else %do;
+        %put NOTE: [03_import] applying pdd_norm_psid to pdd.&_dsname idvar=&_idvar (PRECEDE_STUDY_ID);
+        %pdd_norm_psid(in=pdd.&_dsname, out=pdd.&_dsname, idvar=&_idvar);
+        %let _n_applied = %eval(&_n_applied + 1);
+      %end;
     %end;
   %end;
 
