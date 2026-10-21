@@ -47,11 +47,15 @@ Plans:
 
 ### Phase 4: Name map
 - `04_name_map.sas`: original header → cleaned name → `PCNR_` name (≤32 chars, collision-checked) → label
+- Reads `docs/s06_column_class.csv`; excludes class=CLOCK rows from the PCNR_ name map (D-21 LOCKED)
+- CLOCK columns written to a separate CLK_ candidate list for Phase 9
+- **Gate:** Gerard must review `qc\s06_clock_classification.xlsx` UNSURE sheet and resolve all UNSURE tokens before Phase 4 starts
 - **Done when:** NAME_MAP has no duplicates or truncation collisions, and Gerard has reviewed it
 
 ### Phase 5: Build PCNR_ on the spine
 - `05_build_pcnr.sas`: start from s09 (spine confirmed by Phase 2), left-join 1:1 PRECEDE_STUDY_ID files
 - s01 and s08 join spine 1:1 (PDD-D-17 fully closed); crosswalk-keyed files (s04, s05) integrated per PDD-D-18
+- s06 columns: only class != CLOCK in `docs/s06_column_class.csv` are included in pdd.pcnr (D-21 LOCKED)
 - Overlapping variables: spine value first, gap-fill from the other files (PDD-D-05; tie-break waits on PDD-D-15)
 - Values exactly as in source (PDD-D-02); type-conflicting columns kept as character
 - QC: gap-fill counts per variable, non-missing disagreements written to `qc\pcnr_conflicts`

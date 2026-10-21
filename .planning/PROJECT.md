@@ -78,18 +78,18 @@ Older copies of some files exist at `P:\PeCAN Master Data\Gerard\raw\master` â�
 | PDD-D-17 | **CLOSED (2026-10-19).** Every file is one row per PRECEDE_STUDY_ID (case) â€” confirmed by Phase 2. s01 (PACU_STAY) and s08 (COLONOSCOPY) are the only multi-row files. How they enter PCNR_ remains to be decided (aggregate, first/last, wide, or separate long table) â€” Gerard to decide in Phase 3. s18 has 2 duplicate/blank key rows (qc_s18_dup) to be reviewed in Phase 3 |
 | PDD-D-19 | **LOCKED (2026-10-19).** 2022 ID normalisation: all-digit IDs (text or numeric) â†’ `cats('Precede', put(input(strip(id), ?? 8.), z5.))`. Already-`Precede99999` unchanged. Run 19:21: s16/s17 9,215; s18 9,215/9,484; s01 41,149/41,423; s08 3,456/3,456; s20 41,150/41,150; 9,001 encounter-linked pairs, 0 disagreements. Assert in 02_source_guard.sas fails if `_ndis > 0`. `%pdd_norm_psid(in=, out=, idvar=)` macro in `00_config.sas` for Phases 3-5. Phase 3 QC: s01 274 not in spine (1 spine case no PACU row); s18 269 not in spine + 2 dup/blank rows (`pdd.qc_s18_dup`); s06 29 and s11 1 not in spine; s04/s05 4 not in spine |
 | PDD-D-20 | **LOCKED (2026-10-19).** The 6 s17 ENCRYPTED_ENCOUNTER values that map to >1 PRECEDE_STUDY_ID are treated as an encrypted blank: set to missing for linkage only. Values stay unchanged in PCNR_ |
+| PDD-D-21 | **LOCKED (2026-10-20).** Clock-drawing columns (COM*/COPY* + clock token: ClockFace, HH, MH, HandPair, Digit, Hooklet, PCF, Intersect) are EXCLUDED from PCNR_. All other s06 columns are PCNR_ candidates. pdd.src_s06 keeps all 3,987 columns unchanged; split applied from Phase 4 onward via docs/s06_column_class.csv. Clock columns are the candidate CLK_ source (PDD-D-13 note added). |
 
 ## Open decisions
 | ID | Question | Owner |
 |----|----------|-------|
 | PDD-D-11 | Source location of PCNC_ clinic data | Gerard |
 | PDD-D-12 | PCND_ derived-variable list and definitions | Gerard (Price consulted on naming) |
-| PDD-D-13 | Source of CLK_ clock variables (dCDT extract, master columns, or other) | Gerard (researching) |
+| PDD-D-13 | Source of CLK_ clock variables (dCDT extract, master columns, or other). **Note (2026-10-20):** s06 clock columns (COM*/COPY* + clock token) are now the confirmed candidate CLK_ source; D-21 LOCKED. D-13 remains open pending confirmation that s06 clock columns are the authoritative CLK_ source. | Gerard (researching) |
 | PDD-D-14 | Source paths for LAB_, MED_, INTRA_ extracts and their linkage key | Gerard |
 | PDD-D-15 | Gap-fill tie-break order among non-spine sources when the spine is missing and several files disagree | Gerard |
 | PDD-D-16 | Whether gap-filled values are flagged per cell (e.g. a `PCNR_<var>_SRC` column) or only summarized in QC | Gerard |
 | PDD-D-18 | s04/s05 are linkage/QC files with the same encryption as the masters and 100% match â€” **not dictionary variables**. Pending Gerard confirmation. Linkage path and whether they resolve the old 2022 ID mismatch to be decided in Phase 3 | Gerard |
-| PDD-D-21 | s06 has 3,987 columns. Phase 3 will profile column groups (by name prefix/suffix) first; Gerard to decide the scope of which columns enter PCNR_ | Gerard |
 
 ## Constraints
 - No PHI committed to git. Code and docs live in the repo; data, QC output and logs stay on P:.

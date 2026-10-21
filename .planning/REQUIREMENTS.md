@@ -59,7 +59,7 @@ Imports raw data with full fidelity, no PROC IMPORT guessing.
 | Output: `pdd.src_s01` â€¦ `pdd.src_s20` | Row counts reconciled in QC |
 | s01 PACU_STAY and s08 COLONOSCOPY: import as-is; Phase 2 confirmed both are 1:1 per PRECEDE_STUDY_ID (s01 41,423 distinct, s08 3,456 distinct) -- join to spine like any other 1:1 file; 274 s01 IDs not in spine are a QC item | PDD-D-17 fully closed |
 | Crosswalk-keyed files (s04 ENCOUNTER Crypto, s05 MRN Crypto): import and assess; linkage method follows PDD-D-18 (pending Gerard confirmation that s04/s05 are not dictionary variables) | **Blocks on PDD-D-18** for s04, s05 |
-| s06 (2018_2019_Precede_Database.xlsx, 3,987 columns): profile column groups by name prefix/suffix first; import scope follows PDD-D-21 (Gerard decides in Phase 3) | **Blocks on PDD-D-21** for s06 |
+| s06 (2018_2019_Precede_Database.xlsx, 3,987 columns): imported as pdd.src_s06 with all 3,987 columns; D-21 LOCKED (2026-10-20) -- clock-drawing columns (class=CLOCK in docs/s06_column_class.csv) are excluded from PCNR_ starting Phase 4; DIGITAL_OTHER and PCNR class columns remain PCNR_ candidates; UNSURE columns deferred to Phase 4 after Gerard review | PDD-D-21 LOCKED |
 | s17 2022 ID normalisation and blank-encounter handling: apply PDD-D-19 normalisation; set the 6 blank ENCRYPTED_ENCOUNTER values to missing for linkage per PDD-D-20; values stay unchanged in PCNR_ | PDD-D-19 (pending lock), PDD-D-20 |
 
 ---
@@ -73,6 +73,8 @@ Establishes the authoritative variable naming contract for PCNR_.
 |-------------|--------|
 | `04_name_map.sas`: original header â†’ cleaned name â†’ `PCNR_` prefixed name | PDD-D-07 |
 | Names truncated to â‰¤ 32 characters (â‰¤ 27 after the `PCNR_` prefix); full original name kept as the SAS label and in the NAME_MAP sheet | PDD-D-07 |
+| Reads docs/s06_column_class.csv; excludes class=CLOCK rows from the PCNR_ name map; CLOCK columns written to a separate CLK_ candidate list | PDD-D-21 LOCKED |
+| Phase 4 gate: Gerard must have reviewed qc\s06_clock_classification.xlsx UNSURE sheet and resolved all UNSURE tokens before 04_name_map.sas runs | PDD-D-21 review gate |
 | Collision detection: no two variables share the same `PCNR_` name | Logged as ERROR if any collision found |
 | Output: `pdd.name_map` and `qc\name_map.xlsx` for Gerard review | Phase gate requires Gerard sign-off |
 
@@ -86,6 +88,7 @@ Assembles the integrated PCNR_ analytic dataset.
 | Requirement | Detail |
 |-------------|--------|
 | `05_build_pcnr.sas`: start from `pdd.src_s09` (spine, confirmed by Phase 2) | PDD-D-01, PDD-D-04 |
+| s06 columns included in PCNR_ are only those with class != CLOCK in docs/s06_column_class.csv; class=CLOCK columns are excluded from pdd.pcnr | PDD-D-21 LOCKED |
 | Left-join 1:1 PRECEDE_STUDY_ID files on the spine; multi-row files (s01, s08) and crosswalk-keyed files (s04, s05) integrated per PDD-D-17 / PDD-D-18 | **Blocks on PDD-D-17, PDD-D-18** for those files |
 | Spine value wins for overlapping variables; other files gap-fill where spine is missing | PDD-D-05 |
 | Tie-break order among gap-fill sources follows PDD-D-15 once resolved | **Blocks on PDD-D-15 (open)** |
