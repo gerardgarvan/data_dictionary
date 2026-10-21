@@ -37,6 +37,7 @@ Plans:
 - s01 PACU_STAY and s08 COLONOSCOPY: import as-is; both confirmed 1:1 per PRECEDE_STUDY_ID (PDD-D-17 fully closed); join spine like any 1:1 file
 - Crosswalk-keyed files (s04, s05) and other non-PRECEDE_STUDY_ID-keyed files: import and stage; linkage follows PDD-D-18
 - **Done when:** `pdd.src_s01`…`pdd.src_s20` exist; row counts reconciled in QC; **blocks on PDD-D-17 and PDD-D-18 for affected files**
+- **Status: ✅ VERIFIED 2026-10-20** — live run 9fd8943; all 20 src_s* reconciled (0 MISMATCH); n_pairs=9,001 ndis=0; exit=1 warnings only.
 - **Plans:** 3/3 plans complete
 
 Plans:

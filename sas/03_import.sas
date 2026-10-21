@@ -573,13 +573,13 @@ quit;
 
 %put NOTE: [03_import] s17 ambiguous ENCRYPTED_ENCOUNTER count=&_nambig (PDD-D-20 expected 6);
 
-%macro _assert_s17_ambig;
+%macro _check_s17_d20_early;
   %if &_nambig ne 6 %then
     %put WARNING: [03_import] s17 ambiguous ENCRYPTED_ENCOUNTER count=&_nambig expected 6 (PDD-D-20) -- review before Phase 5;
   %else
     %put NOTE: [03_import] s17 ambiguous ENCRYPTED_ENCOUNTER count=6 confirmed (PDD-D-20);
-%mend _assert_s17_ambig;
-%_assert_s17_ambig;
+%mend _check_s17_d20_early;
+%_check_s17_d20_early;
 
 /* Load ambiguous tokens into global macro vars _ambig1 .. _ambig&_nambig */
 data _null_;

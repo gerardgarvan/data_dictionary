@@ -2,7 +2,7 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: PCNR_ raw layer and dictionary framework
-status: Phase complete — ready for verification
+status: Phase 03 verified — ready for Phase 04
 last_updated: "2026-10-20T01:00:33.038Z"
 progress:
   total_phases: 7
@@ -32,7 +32,7 @@ Next: Phase 04 — Name map (original header to PCNR_)
 |-------|-------|--------|
 | 1 | Repo and config scaffold | âœ… Complete |
 | 2 | Source guard and header inventory | âœ… Complete â€” live run passed 2026-10-19 14:15 |
-| 3 | Direct import of the 20 sources | Complete — 03a_build_spec.sas + 03_import.sas (norm_psid + D-19 assert + qc_rowcounts) + 99_run_all.sas Phase 3 wired |
+| 3 | Direct import of the 20 sources | ✅ Complete — live run 2026-10-20 20:58 passed all criteria (0 MISMATCH, n_pairs=9001 ndis=0, exit=1 warnings only) |
 | 4 | Name map | â¬œ Not started |
 | 5 | Build PCNR_ on the spine | â¬œ Blocked (PDD-D-15, PDD-D-16, PDD-D-17 closed, PDD-D-18 pending) |
 | 6 | Distribution engine | â¬œ Not started |
