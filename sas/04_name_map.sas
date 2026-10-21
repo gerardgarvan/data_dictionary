@@ -550,18 +550,34 @@
 %mend apply_decisions_rename;
 
 /* Validate decisions CSV header: must be exactly 11 columns in the specified order (B6).
-   Reads line 1 raw and compares to expected string. */
+   Comparison is done entirely in a DATA step to avoid passing comma-containing text
+   as macro arguments (which SAS would split on commas as positional parameters). */
 %macro check_decisions_header;
-  %local _dec_hdr_raw _exp_dec_hdr;
-  %let _exp_dec_hdr = s_code_a,header_a,col_order_a,s_code_b,header_b,col_order_b,decision,new_name,note,decided_by,date;
+  %local _dec_hdr_ok;
+  %let _dec_hdr_ok = 0;
   data _null_;
+    length _raw $1000 _exp $500;
     infile "&sas_path.\..\docs\name_map_decisions.csv"
            encoding='utf-8' firstobs=1 obs=1 lrecl=32767;
     input;
-    call symputx('_dec_hdr_raw', strip(_infile_));
+    _raw = strip(_infile_);
+    /* Strip leading UTF-8 BOM ('EFBBBF'x) if present */
+    if length(_raw) >= 3 and substr(_raw, 1, 3) = 'EFBBBF'x then
+      _raw = strip(substr(_raw, 4));
+    /* Strip trailing CR */
+    if length(_raw) > 0 and substr(_raw, length(_raw), 1) = '0D'x then
+      _raw = strip(substr(_raw, 1, length(_raw) - 1));
+    _exp = 's_code_a,header_a,col_order_a,s_code_b,header_b,col_order_b,decision,new_name,note,decided_by,date';
+    if lowcase(strip(_raw)) ne lowcase(strip(_exp)) then do;
+      put 'ERROR: [04_name_map] name_map_decisions.csv header mismatch.';
+      put 'ERROR: [04_name_map]   expected: ' _exp;
+      put 'ERROR: [04_name_map]   got:      ' _raw;
+      call symputx('_dec_hdr_ok', '0');
+    end;
+    else call symputx('_dec_hdr_ok', '1');
   run;
-  %if %lowcase(&_dec_hdr_raw) ne %lowcase(&_exp_dec_hdr) %then %do;
-    %fail_out(msg=%str(name_map_decisions.csv header mismatch -- expected: &_exp_dec_hdr -- got: &_dec_hdr_raw));
+  %if &_dec_hdr_ok ne 1 %then %do;
+    %fail_out(msg=%str(name_map_decisions.csv header mismatch -- see ERROR above));
   %end;
   %put NOTE: [04_name_map] name_map_decisions.csv header validated OK;
 %mend check_decisions_header;

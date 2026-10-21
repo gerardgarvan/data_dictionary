@@ -250,4 +250,71 @@ run;
   %fail_out(msg=%str(TEST4 FAIL: suffix re-elision produced invalid name -- see ERROR above));
 %put NOTE: [04_decisions_test] TEST4 PASS: suffix re-elision via %elide_middle fits within 27 chars;
 
+/* ── Test 5: Header check -- correct header emits no ERROR ───────────── */
+/* Verifies the DATA-step comparison logic used by check_decisions_header. */
+
+/* 5a: correct header, no BOM -- must match and set flag to 1 */
+%local _t5a_ok;
+%let _t5a_ok = 0;
+data _null_;
+  length _raw $1000 _exp $500;
+  _raw = 's_code_a,header_a,col_order_a,s_code_b,header_b,col_order_b,decision,new_name,note,decided_by,date';
+  _exp = 's_code_a,header_a,col_order_a,s_code_b,header_b,col_order_b,decision,new_name,note,decided_by,date';
+  if length(_raw) >= 3 and substr(_raw, 1, 3) = 'EFBBBF'x then
+    _raw = strip(substr(_raw, 4));
+  if length(_raw) > 0 and substr(_raw, length(_raw), 1) = '0D'x then
+    _raw = strip(substr(_raw, 1, length(_raw) - 1));
+  if lowcase(strip(_raw)) ne lowcase(strip(_exp)) then do;
+    put 'ERROR: [04_decisions_test] TEST5a FAIL: correct header rejected';
+    call symputx('_t5a_ok', '0');
+  end;
+  else call symputx('_t5a_ok', '1');
+run;
+%if &_t5a_ok ne 1 %then
+  %fail_out(msg=%str(TEST5a FAIL: correct header without BOM was rejected));
+%put NOTE: [04_decisions_test] TEST5a PASS: correct header accepted without ERROR;
+
+/* 5b: correct header with leading BOM -- strip then match */
+%local _t5b_ok;
+%let _t5b_ok = 0;
+data _null_;
+  length _raw $1000 _exp $500;
+  _raw = cats('EFBBBF'x,
+    's_code_a,header_a,col_order_a,s_code_b,header_b,col_order_b,decision,new_name,note,decided_by,date');
+  _exp = 's_code_a,header_a,col_order_a,s_code_b,header_b,col_order_b,decision,new_name,note,decided_by,date';
+  if length(_raw) >= 3 and substr(_raw, 1, 3) = 'EFBBBF'x then
+    _raw = strip(substr(_raw, 4));
+  if length(_raw) > 0 and substr(_raw, length(_raw), 1) = '0D'x then
+    _raw = strip(substr(_raw, 1, length(_raw) - 1));
+  if lowcase(strip(_raw)) ne lowcase(strip(_exp)) then do;
+    put 'ERROR: [04_decisions_test] TEST5b FAIL: BOM-prefixed correct header rejected';
+    call symputx('_t5b_ok', '0');
+  end;
+  else call symputx('_t5b_ok', '1');
+run;
+%if &_t5b_ok ne 1 %then
+  %fail_out(msg=%str(TEST5b FAIL: BOM-prefixed correct header was rejected));
+%put NOTE: [04_decisions_test] TEST5b PASS: BOM-prefixed correct header accepted without ERROR;
+
+/* ── Test 6: Header check -- missing column is detected as mismatch ──── */
+/* Header is missing 'new_name' (10 cols instead of 11). */
+%local _t6_mismatch;
+%let _t6_mismatch = 0;
+data _null_;
+  length _raw $1000 _exp $500;
+  _raw = 's_code_a,header_a,col_order_a,s_code_b,header_b,col_order_b,decision,note,decided_by,date';
+  _exp = 's_code_a,header_a,col_order_a,s_code_b,header_b,col_order_b,decision,new_name,note,decided_by,date';
+  if length(_raw) >= 3 and substr(_raw, 1, 3) = 'EFBBBF'x then
+    _raw = strip(substr(_raw, 4));
+  if length(_raw) > 0 and substr(_raw, length(_raw), 1) = '0D'x then
+    _raw = strip(substr(_raw, 1, length(_raw) - 1));
+  if lowcase(strip(_raw)) ne lowcase(strip(_exp)) then
+    call symputx('_t6_mismatch', '1');
+  else
+    call symputx('_t6_mismatch', '0');
+run;
+%if &_t6_mismatch ne 1 %then
+  %fail_out(msg=%str(TEST6 FAIL: missing-column header was not detected as a mismatch));
+%put NOTE: [04_decisions_test] TEST6 PASS: missing-column header correctly detected as mismatch;
+
 %put NOTE: [04_decisions_test] ALL TESTS PASSED;
