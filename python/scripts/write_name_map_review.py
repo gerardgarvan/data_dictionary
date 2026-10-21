@@ -105,7 +105,7 @@ def main() -> int:
         data = [list(r.values()) for r in rows]
         sheets[sheet_name] = (headers, data)
 
-    # Inject original_header and s_codes into VARIABLES and NAME_MAP_COLLISIONS
+    # Inject group meta into VARIABLES (original_header only) and NAME_MAP_COLLISIONS (both)
     group_meta = build_group_meta(name_map_rows)
     for sheet_name in ("VARIABLES", "NAME_MAP_COLLISIONS"):
         if sheet_name not in sheets:
@@ -114,14 +114,21 @@ def main() -> int:
         if "group_id" not in hdrs:
             continue
         gid_idx = hdrs.index("group_id")
-        new_hdrs = hdrs + ["original_header", "s_codes"]
-        new_rows = [
-            row + [
-                group_meta.get(str(row[gid_idx]), {}).get("original_header", ""),
-                group_meta.get(str(row[gid_idx]), {}).get("s_codes", ""),
+        if sheet_name == "VARIABLES":
+            new_hdrs = hdrs + ["original_header"]
+            new_rows = [
+                row + [group_meta.get(str(row[gid_idx]), {}).get("original_header", "")]
+                for row in rows
             ]
-            for row in rows
-        ]
+        else:
+            new_hdrs = hdrs + ["original_header", "s_codes"]
+            new_rows = [
+                row + [
+                    group_meta.get(str(row[gid_idx]), {}).get("original_header", ""),
+                    group_meta.get(str(row[gid_idx]), {}).get("s_codes", ""),
+                ]
+                for row in rows
+            ]
         sheets[sheet_name] = (new_hdrs, new_rows)
 
     xlsx_path = qc / "name_map_review.xlsx"

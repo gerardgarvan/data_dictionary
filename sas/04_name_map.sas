@@ -116,6 +116,21 @@
     run;
     %fail_out(msg=%str(name_abbrev.csv &_nbad_ab rows: blank long/short, long=short, non-word chars, or long not starting with a letter [A-Za-z]));
   %end;
+  %local _nbad_mode;
+  proc sql noprint;
+    select count(*) into :_nbad_mode trimmed
+    from work._abbrev_raw
+    where strip(long) ne ''
+      and upcase(strip(mode)) not in ('ALWAYS', 'AS_NEEDED');
+  quit;
+  %if &_nbad_mode > 0 %then %do;
+    data _null_;
+      set work._abbrev_raw (where=(strip(long) ne ''
+              and upcase(strip(mode)) not in ('ALWAYS', 'AS_NEEDED')));
+      put 'ERROR: [04_name_map] ABBREV_MODE_BAD: ' long= short= mode=;
+    run;
+    %fail_out(msg=%str(name_abbrev.csv &_nbad_mode rows have missing or invalid mode (expected always or as_needed)));
+  %end;
   %put NOTE: [04_name_map] name_abbrev.csv validated OK;
 %mend check_abbrev_csv;
 
@@ -459,6 +474,40 @@
       %fail_out(msg=%str(&_n_rename_long RENAME targets exceed 27 chars (after stripping PCNR_)));
     %end;
 
+    /* B4: RENAME target must be a valid SAS V7 name when prefixed with PCNR_ */
+    %local _n_rename_invalid_v7;
+    proc sql noprint;
+      select count(*) into :_n_rename_invalid_v7 trimmed
+      from work._rename_dec
+      where not nvalid(cats('PCNR_', strip(rename_target)), 'v7');
+    quit;
+    %if &_n_rename_invalid_v7 > 0 %then %do;
+      data _null_;
+        set work._rename_dec (where=(not nvalid(cats('PCNR_', strip(rename_target)), 'v7')));
+        put 'ERROR: [04_name_map] RENAME_INVALID_V7: ' s_code= orig_header= rename_target=;
+      run;
+      %fail_out(msg=%str(B4: &_n_rename_invalid_v7 RENAME targets are not valid SAS V7 names when prefixed PCNR_));
+    %end;
+
+    /* B4: RENAME targets must be unique case-insensitively across all RENAME decisions */
+    %local _n_rename_dup_targets;
+    proc sql noprint;
+      select count(*) into :_n_rename_dup_targets trimmed
+      from (select upcase(strip(rename_target)) as rt, count(*) as n
+            from work._rename_dec
+            group by upcase(strip(rename_target))
+            having count(*) > 1);
+    quit;
+    %if &_n_rename_dup_targets > 0 %then %do;
+      data _null_;
+        set work._rename_dec;
+        by rename_target;
+        if not (first.rename_target and last.rename_target) then
+          put 'ERROR: [04_name_map] RENAME_DUP_TARGET: ' s_code= orig_header= rename_target=;
+      run;
+      %fail_out(msg=%str(B4: &_n_rename_dup_targets RENAME target values are duplicated case-insensitively));
+    %end;
+
     /* RENAME single-row match: each RENAME decision must resolve to exactly one row */
     proc sql noprint;
       create table work._rename_multimatch as
@@ -499,6 +548,77 @@
     quit;
   %end;
 %mend apply_decisions_rename;
+
+/* Validate decisions CSV header: must be exactly 11 columns in the specified order (B6).
+   Reads line 1 raw and compares to expected string. */
+%macro check_decisions_header;
+  %local _dec_hdr_raw _exp_dec_hdr;
+  %let _exp_dec_hdr = s_code_a,header_a,col_order_a,s_code_b,header_b,col_order_b,decision,new_name,note,decided_by,date;
+  data _null_;
+    infile "&sas_path.\..\docs\name_map_decisions.csv"
+           encoding='utf-8' firstobs=1 obs=1 lrecl=32767;
+    input;
+    call symputx('_dec_hdr_raw', strip(_infile_));
+  run;
+  %if %lowcase(&_dec_hdr_raw) ne %lowcase(&_exp_dec_hdr) %then %do;
+    %fail_out(msg=%str(name_map_decisions.csv header mismatch -- expected: &_exp_dec_hdr -- got: &_dec_hdr_raw));
+  %end;
+  %put NOTE: [04_name_map] name_map_decisions.csv header validated OK;
+%mend check_decisions_header;
+
+/* A3 assertion: for each always-row, verify no auto-generated pcnr_name_base
+   still contains the long token (after always-pass substitution). Fails with list. */
+%macro assert_always_applied;
+  %local _n_always_ab _i _long_i _is_lower_i _n_match_i _bad_total;
+  %let _bad_total = 0;
+
+  proc sql noprint;
+    select count(*) into :_n_always_ab trimmed
+    from work.abbrev
+    where upcase(strip(mode)) = 'ALWAYS';
+    create table work._always_ab as
+    select long, short, _is_lower,
+           monotonic() as rn
+    from work.abbrev
+    where upcase(strip(mode)) = 'ALWAYS';
+  quit;
+
+  %do _i = 1 %to &_n_always_ab;
+    proc sql noprint;
+      select strip(long), _is_lower
+      into :_long_i trimmed, :_is_lower_i trimmed
+      from work._always_ab
+      where rn = &_i;
+    quit;
+
+    %local _pat_i;
+    %if &_is_lower_i = 1 %then
+      %let _pat_i = /(?i)(?:^|(?<=_))&_long_i(?=_|$)/;
+    %else
+      %let _pat_i = /&_long_i(?=[A-Z0-9_]|$)/;
+
+    proc sql noprint;
+      select count(*) into :_n_match_i trimmed
+      from work._grp_names as gn
+      inner join work._grp_rep as gr on gn.group_id = gr.group_id
+      where gr.pcnr_name_override = ''
+        and prxmatch("&_pat_i", strip(gn.pcnr_name_base)) > 0;
+    quit;
+
+    %if &_n_match_i > 0 %then %do;
+      %let _bad_total = %eval(&_bad_total + &_n_match_i);
+      data _null_;
+        set work._grp_names (where=(prxmatch("&_pat_i", strip(pcnr_name_base)) > 0));
+        put 'ERROR: [04_name_map] ALWAYS_NOT_APPLIED: long=' "&_long_i"
+            ' group_id=' group_id ' pcnr_name_base=' pcnr_name_base;
+      run;
+    %end;
+  %end;
+
+  %if &_bad_total > 0 %then
+    %fail_out(msg=%str(A3: &_bad_total auto-generated names still contain always-abbreviation long tokens -- see ERROR above));
+  %put NOTE: [04_name_map] A3 always-abbreviation assertion passed (&_n_always_ab always-rows, &_bad_total violations);
+%mend assert_always_applied;
 
 /* Form variable groups (D-01a) and apply D-03 shortening (Section 6 body).
 
@@ -593,6 +713,47 @@
                and lowcase(d.header_b) = lowcase(b.original_header))
       where a.group_id ne b.group_id;
     quit;
+
+    /* B3: fail if any SAME side (s_code, col_order) does not exist in _group_assign */
+    proc sql noprint;
+      create table work._same_missing_a as
+      select d.s_code_a, d.header_a, d.col_order_a
+      from work._same_dec as d
+      where d.s_code_a is not missing
+        and not exists (
+          select 1 from work._group_assign as a
+          where a.s_code = d.s_code_a
+            and (d.col_order_a is not missing and a.col_order = d.col_order_a
+                 or d.col_order_a is missing
+                    and lowcase(a.original_header) = lowcase(d.header_a)));
+      create table work._same_missing_b as
+      select d.s_code_b, d.header_b, d.col_order_b
+      from work._same_dec as d
+      where d.s_code_b is not missing
+        and not exists (
+          select 1 from work._group_assign as a
+          where a.s_code = d.s_code_b
+            and (d.col_order_b is not missing and a.col_order = d.col_order_b
+                 or d.col_order_b is missing
+                    and lowcase(a.original_header) = lowcase(d.header_b)));
+    quit;
+    %local _n_same_miss;
+    proc sql noprint;
+      select count(*) + (select count(*) from work._same_missing_b)
+      into :_n_same_miss trimmed
+      from work._same_missing_a;
+    quit;
+    %if &_n_same_miss > 0 %then %do;
+      data _null_;
+        set work._same_missing_a;
+        put 'ERROR: [04_name_map] SAME_SIDE_MISSING_A: ' s_code_a= header_a= col_order_a=;
+      run;
+      data _null_;
+        set work._same_missing_b;
+        put 'ERROR: [04_name_map] SAME_SIDE_MISSING_B: ' s_code_b= header_b= col_order_b=;
+      run;
+      %fail_out(msg=%str(B3: &_n_same_miss SAME decision side(s) do not match any name_map row by (s_code,col_order)));
+    %end;
 
     /* Validate: SAME must not place two same-s_code rows in one group */
     proc sql noprint;
@@ -701,6 +862,46 @@
   quit;
 
   %if &_ndiff > 0 %then %do;
+    /* B3: fail if any DIFFERENT side (s_code, col_order) does not exist in _group_final */
+    proc sql noprint;
+      create table work._diff_missing_a as
+      select d.s_code_a, d.header_a, d.col_order_a
+      from work._diff_dec as d
+      where d.s_code_a is not missing
+        and not exists (
+          select 1 from work._group_final as a
+          where a.s_code = d.s_code_a
+            and (d.col_order_a is not missing and a.col_order = d.col_order_a
+                 or d.col_order_a is missing
+                    and lowcase(a.original_header) = lowcase(d.header_a)));
+      create table work._diff_missing_b as
+      select d.s_code_b, d.header_b, d.col_order_b
+      from work._diff_dec as d
+      where d.s_code_b is not missing
+        and not exists (
+          select 1 from work._group_final as a
+          where a.s_code = d.s_code_b
+            and (d.col_order_b is not missing and a.col_order = d.col_order_b
+                 or d.col_order_b is missing
+                    and lowcase(a.original_header) = lowcase(d.header_b)));
+    quit;
+    %local _n_diff_miss;
+    proc sql noprint;
+      select count(*) + (select count(*) from work._diff_missing_b)
+      into :_n_diff_miss trimmed
+      from work._diff_missing_a;
+    quit;
+    %if &_n_diff_miss > 0 %then %do;
+      data _null_;
+        set work._diff_missing_a;
+        put 'ERROR: [04_name_map] DIFF_SIDE_MISSING_A: ' s_code_a= header_a= col_order_a=;
+      run;
+      data _null_;
+        set work._diff_missing_b;
+        put 'ERROR: [04_name_map] DIFF_SIDE_MISSING_B: ' s_code_b= header_b= col_order_b=;
+      run;
+      %fail_out(msg=%str(B3: &_n_diff_miss DIFFERENT decision side(s) do not match any name_map row by (s_code,col_order)));
+    %end;
     /* Find b-side rows whose group_id now equals their a-side partner's group_id */
     proc sql noprint;
       create table work._diff_splits as
@@ -864,17 +1065,17 @@
   %let _abbrev_longer = 0;
 
   data work._grp_names (keep=group_id pcnr_name_base _elided)
-       work._abbrev_hits (keep=group_id long short cleaned_before cleaned_after);
+       work._abbrev_hits (keep=group_id long short cleaned_before cleaned_after mode);
     length group_id 8
            pcnr_name_base $200
            _nm $200 _cbe $200 _pat $400 _pre_elide $200
-           long $200 short $200
+           long $200 short $200 mode $10
            cleaned_before $200 cleaned_after $200
            _elide_first 8 _elide_last 8 _nab_tot 8 _elided 8 _is_lower 8
            _elide_head $200 _elide_tail $200;
 
     /* Load total abbreviation count once without reading row 0 */
-    if 0 then set work.abbrev (keep=long short _longlen _is_lower) nobs=_nab_tot;
+    if 0 then set work.abbrev (keep=long short _longlen _is_lower mode) nobs=_nab_tot;
     retain _nab_tot;
 
     set work._grp_rep;
@@ -883,14 +1084,15 @@
     _elided = 0;
     if pcnr_name_override ne '' then _nm = pcnr_name_override;
     else do;
-      /* Apply abbreviations longest-first; only when length > 27; stop early.
+      /* Pass 1: apply always-rows unconditionally (regardless of name length).
+         Token boundary rules still apply.
          long/short validated [A-Za-z0-9_] only -- no regex escaping needed.
          Uppercase-start: token bounded right by [A-Z0-9_] or end.
          Lowercase-start (abbrev_lower=1): bounded left by start or _ and right by _ or end,
          matched case-insensitively. */
-      if length(strip(_nm)) > 27 then do _ai = 1 to _nab_tot;
-        set work.abbrev (keep=long short _longlen _is_lower) point=_ai;
-        if length(strip(_nm)) <= 27 then leave;
+      do _ai = 1 to _nab_tot;
+        set work.abbrev (keep=long short _longlen _is_lower mode) point=_ai;
+        if upcase(strip(mode)) ne 'ALWAYS' then continue;
         if not (_is_lower and not &abbrev_lower) then do;
           _cbe = _nm;
           if _is_lower then
@@ -910,7 +1112,31 @@
           end;
         end;
       end;
-      /* Elide if still > 27 chars after abbreviation */
+      /* Pass 2: apply as_needed rows longest-first; stop as soon as length <= 27. */
+      if length(strip(_nm)) > 27 then do _ai = 1 to _nab_tot;
+        set work.abbrev (keep=long short _longlen _is_lower mode) point=_ai;
+        if length(strip(_nm)) <= 27 then leave;
+        if upcase(strip(mode)) ne 'AS_NEEDED' then continue;
+        if not (_is_lower and not &abbrev_lower) then do;
+          _cbe = _nm;
+          if _is_lower then
+            _pat = cats('s/(?i)(?:^|(?<=_))', strip(long), '(?=_|$)/', strip(short), '/');
+          else
+            _pat = cats('s/', strip(long), '(?=[A-Z0-9_]|$)/', strip(short), '/');
+          _nm  = prxchange(_pat, -1, strip(_nm));
+          if strip(_nm) ne strip(_cbe) then do;
+            if length(strip(_nm)) > length(strip(_cbe)) then do;
+              put 'ERROR: [04_name_map] abbreviation made name longer: '
+                  long= short= _cbe= _nm=;
+              call symputx('_abbrev_longer', '1', 'L');
+            end;
+            cleaned_before = _cbe;
+            cleaned_after  = _nm;
+            output work._abbrev_hits;
+          end;
+        end;
+      end;
+      /* Elide if still > 27 chars after abbreviation passes */
       _pre_elide = _nm;
       %elide_middle(nm=_nm);
       _elided = (strip(_nm) ne strip(_pre_elide));
@@ -962,6 +1188,7 @@
       on m.s_code = sc.s_code and m.col_name = sc.col_name;
   quit;
 
+  %assert_always_applied;
   %put NOTE: [04_name_map] Section 6 groups and shortening complete;
 %mend form_groups_and_shorten;
 
@@ -1147,6 +1374,20 @@
       put 'ERROR: [04_name_map] S1_MISSED: ' pcnr_name_final= group_id= pcnr_name_base= s_code= col_order= original_header=;
     run;
     %fail_out(msg=%str(Stage 1 missed &_n_s1_missed case-insensitive collisions -- see ERROR above));
+  %end;
+  /* B7: assert no final suffixed name contains triple underscore */
+  %local _n_triple_und;
+  proc sql noprint;
+    select count(*) into :_n_triple_und trimmed
+    from work._suffix_final
+    where prxmatch('/___/', strip(pcnr_name_final)) > 0;
+  quit;
+  %if &_n_triple_und > 0 %then %do;
+    data _null_;
+      set work._suffix_final (where=(prxmatch('/___/', strip(pcnr_name_final)) > 0));
+      put 'ERROR: [04_name_map] TRIPLE_UND: ' group_id= pcnr_name_base= pcnr_name_final=;
+    run;
+    %fail_out(msg=%str(B7: &_n_triple_und pcnr_name_final values contain triple underscore after suffix));
   %end;
   %put NOTE: [04_name_map] Stage 1 self-check passed (&_n_s1_missed missed collisions);
 %mend stage1_suffix;
@@ -1456,6 +1697,7 @@ data work.decisions;
   date       = strip(date);
   if strip(decision) = '' and strip(s_code_a) = '' then delete;
 run;
+%check_decisions_header;
 
 /* D-03 abbrev_lower: when 1, also apply lowercase-start entries case-insensitively,
    bounded by start-of-string or underscore on the left and underscore or end on the right.
@@ -1464,12 +1706,13 @@ run;
 
 /* 2f. Abbreviation table -- DATA step INFILE; sort desc by long length */
 data work._abbrev_raw;
-  length long $200 short $200;
+  length long $200 short $200 mode $10;
   infile "&sas_path.\..\docs\name_abbrev.csv"
          encoding='utf-8' dsd dlm=',' missover firstobs=2 lrecl=32767;
-  input long $ short $;
+  input long $ short $ mode $;
   long  = strip(long);
   short = strip(short);
+  mode  = strip(mode);
   if long = '' then delete;
 run;
 

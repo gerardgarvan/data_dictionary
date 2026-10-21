@@ -131,7 +131,7 @@ def assert_input(
 DECISIONS_TEMPLATE_COLS: list[str] = [
     "s_code_a", "header_a", "col_order_a",
     "s_code_b", "header_b", "col_order_b",
-    "decision", "note", "new_name", "decided_by", "date",
+    "decision", "new_name", "note", "decided_by", "date",
 ]
 
 
@@ -191,7 +191,7 @@ def _key_rows() -> list[list[str]]:
          "and group_id assigned by the SAS pipeline."],
         ["Sheet", "VARIABLES",
          "One row per unique PCNR_ variable across all source files. Shows type, "
-         "max length, how many sources contribute it, plus original_header and s_codes."],
+         "max length, how many sources contribute it, plus original_header."],
         ["Sheet", "NAME_MAP_COLLISIONS",
          "Groups of variables whose cleaned names collide (same PCNR_ base name). "
          "Includes original_header and s_codes for the group."],
@@ -200,7 +200,7 @@ def _key_rows() -> list[list[str]]:
          "candidates for manual harmonisation."],
         ["Sheet", "ABBREVIATIONS",
          "Abbreviation pairs applied by D-03 (docs/name_abbrev.csv). "
-         "long = original token, short = replacement."],
+         "long = original token, short = replacement, mode = always|as_needed."],
         # group_id
         ["group_id", "Meaning",
          "Each distinct PCNR_ variable has one group_id. Rows in NAME_MAP from "
@@ -209,7 +209,7 @@ def _key_rows() -> list[list[str]]:
         # How to record a decision
         ["Decision", "Columns",
          "docs/name_map_decisions.csv: s_code_a, header_a, col_order_a, "
-         "s_code_b, header_b, col_order_b, decision, note, new_name, decided_by, date."],
+         "s_code_b, header_b, col_order_b, decision, new_name, note, decided_by, date."],
         ["Decision", "SAME",
          "The two near-match variables are the same construct — keep existing group_id; "
          "no rename needed."],

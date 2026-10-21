@@ -346,8 +346,8 @@ def test_script_header_only_csvs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     wb = lw(qc / "name_map_review.xlsx", read_only=True)
     ws = wb["VARIABLES"]
     header_row = [c.value for c in next(ws.iter_rows(min_row=1, max_row=1))]
-    # original_header and s_codes are injected even when data rows are empty
-    assert header_row == ["pcnr_name", "group_id", "result_type", "original_header", "s_codes"]
+    # original_header is injected into VARIABLES (s_codes is NOT injected; s_codes_contributing comes from the CSV)
+    assert header_row == ["pcnr_name", "group_id", "result_type", "original_header"]
     wb.close()
 
 
@@ -420,6 +420,9 @@ def test_decisions_template_written(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert rows[0]["s_code_a"] == "s01"
     assert rows[0]["header_a"] == "Age"
     assert rows[0]["decision"] == ""
+    # Verify new_name comes before note in column order
+    cols = list(rows[0].keys())
+    assert cols.index("new_name") < cols.index("note")
 
 
 # ---------------------------------------------------------------------------
@@ -509,5 +512,5 @@ def test_script_injects_group_meta(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     ws = wb["VARIABLES"]
     headers = [c.value for c in next(ws.iter_rows(min_row=1, max_row=1))]
     assert "original_header" in headers
-    assert "s_codes" in headers
+    assert "s_codes" not in headers  # s_codes_contributing comes from CSV; s_codes not injected into VARIABLES
     wb.close()
