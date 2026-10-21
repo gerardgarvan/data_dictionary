@@ -861,9 +861,10 @@
     quit;
   %end;
 
-  /* 6b-ii. DIFFERENT decisions: split b-side rows that ended up in the same group
-     as their a-side partner after SAME merging.  The a-side row keeps the original
-     group_id; the b-side row is reassigned a new group_id beyond the current maximum.
+  /* B2: DIFFERENT split -- split b-side rows that ended up in the same group as their
+     a-side partner after SAME merging.  The a-side row keeps the original group_id;
+     the b-side row is reassigned a new group_id beyond the current maximum.
+     If already in different groups: no-op (logged).
      After splitting, %fail_out if any DIFFERENT pair still shares a group. */
   proc sql noprint;
     create table work._diff_dec as
