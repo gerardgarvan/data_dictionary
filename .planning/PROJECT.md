@@ -62,7 +62,7 @@ This project replaces the Master_Renamed_same_format_accross pipeline (`C:\Maste
 
 Older copies of some files exist at `P:\PeCAN Master Data\Gerard\raw\master` â€” Phase 2 compares hashes.
 
-## Locked decisions (2026-10-15 / 2026-10-19)
+## Locked decisions (2026-10-15 / 2026-10-21)
 | ID | Decision |
 |----|----------|
 | PDD-D-01 | PCNR_ draws on **all 20** shared-folder files; all files are 1:1 PRECEDE_STUDY_ID grain (Phase 2 confirmed); files are merged onto the s09 spine; crosswalk-keyed files (s04, s05) follow PDD-D-18 |
@@ -79,6 +79,7 @@ Older copies of some files exist at `P:\PeCAN Master Data\Gerard\raw\master` â�
 | PDD-D-19 | **LOCKED (2026-10-19).** 2022 ID normalisation: all-digit IDs (text or numeric) â†’ `cats('Precede', put(input(strip(id), ?? 8.), z5.))`. Already-`Precede99999` unchanged. Run 19:21: s16/s17 9,215; s18 9,215/9,484; s01 41,149/41,423; s08 3,456/3,456; s20 41,150/41,150; 9,001 encounter-linked pairs, 0 disagreements. Assert in 02_source_guard.sas fails if `_ndis > 0`. `%pdd_norm_psid(in=, out=, idvar=)` macro in `00_config.sas` for Phases 3-5. Phase 3 QC: s01 274 not in spine (1 spine case no PACU row); s18 269 not in spine + 2 dup/blank rows (`pdd.qc_s18_dup`); s06 29 and s11 1 not in spine; s04/s05 4 not in spine |
 | PDD-D-20 | **LOCKED (2026-10-19).** The 6 s17 ENCRYPTED_ENCOUNTER values that map to >1 PRECEDE_STUDY_ID are treated as an encrypted blank: set to missing for linkage only. Values stay unchanged in PCNR_ |
 | PDD-D-21 | **LOCKED (2026-10-20).** Clock-drawing columns (COM*/COPY* + clock token: ClockFace, HH, MH, HandPair, Digit, Hooklet, PCF, Intersect) are EXCLUDED from PCNR_. All other s06 columns are PCNR_ candidates. pdd.src_s06 keeps all 3,987 columns unchanged; split applied from Phase 4 onward via docs/s06_column_class.csv. Clock columns are the candidate CLK_ source (PDD-D-13 note added). |
+| PDD-D-22 | **LOCKED (2026-10-21).** Pipeline is SAS/Python split. SAS owns all data (imports, merges, gap-fill, norm_psid, D-19/D-20 checks, distributions, all pdd.* datasets). Python owns file plumbing and Excel output (QC workbooks, Phase 7 dictionary workbook, and later hashing/spec building when that code next needs changing). Phase 3 is verified and is NOT rewritten. SAS writes small CSV extracts (UTF-8, no index) to `<out_root>\exchange\` on P:; Python reads only from exchange\ or docs\*.csv and writes workbooks to qc\ or out\ on P:. Python never reads raw_master and never writes inside the repo except docs\ metadata CSVs with no data values. |
 
 ## Open decisions
 | ID | Question | Owner |

@@ -121,11 +121,11 @@ Produces the v1.0 deliverable workbook.
 
 | Requirement | Detail |
 |-------------|--------|
-| `07_dictionary_xlsx.sas` writes one ODS Excel workbook | PDD-D-09 |
+| SAS (`07_build_profile.sas`) writes distribution data to `pdd` library; Python (`python\scripts\write_dictionary.py`) writes the xlsx workbook | PDD-D-22 LOCKED: Python owns xlsx output |
 | Sheet order: KEY (leftmost), PCNR_, NAME_MAP, SOURCES, QC | PDD-D-09 |
 | PCNR_ sheet: variables listed alphabetically; distribution inline next to each variable | PDD-D-06, PDD-D-09 |
-| Placeholder sheets for PCNC_, PCND_, CLK_, LAB_, MED_, INTRA_ marked "source pending" | Communicates roadmap status |
-| UF colors (#0021A5, #FA4616) in workbook header | Constraint from PROJECT.md |
+| Placeholder sheets for PCNC_, PCND_, CLK_, LAB_, MED_, INTRA_ marked “source pending” | Communicates roadmap status |
+| UF colors (#0021A5, #FA4616) in workbook header via `python\pdd\xlsx_style.py` | Constraint from PROJECT.md |
 | Output: `P:\PeCAN Master Data\Gerard\data_dictionary\out\pdd_v1_0.xlsx` | Gerard reviews and approves for v1.0 ship |
 
 ---

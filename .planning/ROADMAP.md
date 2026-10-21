@@ -67,8 +67,8 @@ Plans:
 - **Done when:** run on `pdd.pcnr`, its sex and Patient_Type counts match PROC FREQ and missing counts are exact
 
 ### Phase 7: Dictionary workbook writer
-- `07_dictionary_xlsx.sas`: one workbook with sheets KEY (leftmost) | PCNR | NAME_MAP | SOURCES | QC
-- Variables listed alphabetically; the distribution sits next to each variable; UF header colors
+- SAS writes distribution data to `pdd` library; Python (`python\scripts\write_dictionary.py`) writes the xlsx workbook (PDD-D-22)
+- Sheet order: KEY (leftmost) | PCNR_ | NAME_MAP | SOURCES | QC; UF header colors via `python\pdd\xlsx_style.py`
 - Placeholder sheets for PCNC, PCND, CLK, LAB, MED, INTRA, each marked "source pending"
 - **Done when:** Gerard reviews the workbook and v1.0 ships
 

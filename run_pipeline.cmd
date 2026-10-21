@@ -33,6 +33,26 @@ REM    Writes one summary line to MASTER_LOG per program.
 REM    Stops driver (goto :fail from caller) on exit code >= 2.
 goto :main
 
+:run_python
+  set _LABEL=%~1
+  set _SCRIPT=%~2
+  set _LOG_FILE=%LOGS_PATH%\%~n2.log
+
+  echo Running %_LABEL% ...
+  "%PDD_PYTHON%" "%~dp0python\scripts\%_SCRIPT%" > "%_LOG_FILE%" 2>&1
+  set _EC=!ERRORLEVEL!
+
+  echo %DATE% %TIME%  [%_LABEL%]  exit=%_EC% >> "%MASTER_LOG%"
+
+  if !_EC! NEQ 0 (
+    echo.
+    echo PIPELINE STOPPED: %_LABEL% exited with code !_EC!
+    echo See log: %_LOG_FILE%
+    echo PIPELINE STOPPED: %_LABEL% exit=!_EC! >> "%MASTER_LOG%"
+    exit /b !_EC!
+  )
+  exit /b 0
+
 :run_program
   set _LABEL=%~1
   set _PROG=%~2
@@ -70,8 +90,9 @@ goto :main
 
 REM ---- Machine-specific SAS_EXE override ----
 if exist "%~dp0config.local.cmd" call "%~dp0config.local.cmd"
-if not defined SAS_EXE set "SAS_EXE=C:\Program Files\SAS94\SASFoundation\9.4\sas.exe"
-if not defined SAS_CFG set "SAS_CFG=C:\Program Files\SAS94\SASFoundation\9.4\nls\u8\sasv9.cfg"
+if not defined SAS_EXE    set "SAS_EXE=C:\Program Files\SAS94\SASFoundation\9.4\sas.exe"
+if not defined SAS_CFG    set "SAS_CFG=C:\Program Files\SAS94\SASFoundation\9.4\nls\u8\sasv9.cfg"
+if not defined PDD_PYTHON set "PDD_PYTHON=%~dp0.venv\Scripts\python.exe"
 if not exist "%SAS_EXE%" (
   echo SAS_EXE not found: "%SAS_EXE%"
   echo SAS_EXE not found: "%SAS_EXE%" >> "%MASTER_LOG%"

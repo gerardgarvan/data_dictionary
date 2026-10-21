@@ -49,6 +49,10 @@ Next: Phase 04 — Name map (original header to PCNR_)
 | 12 | INTRA_ intra-op | PDD-D-14 | â¬œ Gated |
 | 13 | PCND_ derived variables | PDD-D-12 + all inputs | â¬œ Gated |
 
+## D-22 (2026-10-21)
+
+SAS/Python split locked. SAS owns data; Python owns xlsx output. Phase 3 unchanged. Python package at `python/pdd/`; entry-point scripts at `python/scripts/`; tests at `python/tests/`. Exchange dir `<out_root>\exchange\` on P: for SAS→Python CSV handoff. Pilot: 03b writes `exchange\s06_class_nn.csv`; `python\scripts\write_s06_clock_classification.py` writes `qc\s06_clock_classification.xlsx`.
+
 ## Open decisions
 
 | ID | Question | Blocks |

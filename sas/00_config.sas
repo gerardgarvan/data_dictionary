@@ -30,7 +30,8 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
 %let out_root   = P:\PeCAN Master Data\Gerard\data_dictionary;
 %let qc_path    = &out_root.\qc;
 %let logs_path  = &out_root.\logs;
-%let out_path   = &out_root.\out;
+%let out_path      = &out_root.\out;
+%let exchange_path = &out_root.\exchange;
 
 /* ===== 3. OUTPUT FOLDER AUTO-CREATION ===================================
    options dlcreatedir causes each libname assignment to create the target
@@ -42,6 +43,7 @@ libname _pddout  "&out_root.";
 libname _pddqc   "&qc_path.";
 libname _pddlogs "&logs_path.";
 libname _pddout2 "&out_path.";
+libname _pddexch "&exchange_path.";
 options nodlcreatedir;
 
 /* ===== 4. %PDD_LIB MACRO ================================================
@@ -72,7 +74,7 @@ options nodlcreatedir;
   %put NOTE: [00_config] sysencoding = &sysencoding;
   /* Quote both sides: unquoted utf-8 causes %EVAL to parse - as subtraction */
   %if "%lowcase(&sysencoding)" ne "utf-8" %then %do;
-    %fail_out(msg=%str(SESSION ENCODING ERROR -- sysencoding=&sysencoding expected utf-8. Add -config ".../nls/u8/sasv9.cfg" to the sas.exe call; run_pipeline.cmd does this automatically));
+    %fail_out(msg=%str(SESSION ENCODING ERROR -- sysencoding=&sysencoding expected utf-8. Add -config %".../nls/u8/sasv9.cfg%" to the sas.exe call; run_pipeline.cmd does this automatically));
   %end;
   %put NOTE: [00_config] sysencoding check passed (UTF-8 confirmed);
 %mend check_encoding;
@@ -125,8 +127,9 @@ options nodlcreatedir;
 %put NOTE: [00_config] out_root    = &out_root;
 %put NOTE: [00_config] qc_path     = &qc_path;
 %put NOTE: [00_config] logs_path   = &logs_path;
-%put NOTE: [00_config] out_path    = &out_path;
-%put NOTE: [00_config] in_pipeline = &in_pipeline;
+%put NOTE: [00_config] out_path      = &out_path;
+%put NOTE: [00_config] exchange_path = &exchange_path;
+%put NOTE: [00_config] in_pipeline   = &in_pipeline;
 
 /* ===== 8. %PDD_NORM_PSID MACRO ==========================================
    PDD-D-19 LOCKED 2026-10-19. Normalise PRECEDE_STUDY_ID (char) to the

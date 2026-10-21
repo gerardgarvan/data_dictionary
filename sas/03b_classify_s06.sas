@@ -47,7 +47,7 @@
             dictionary.columns (SAS metadata)
 
   Writes  : C:\data_dictionary\docs\s06_column_class.csv  (committed)
-            &qc_path.\s06_clock_classification.xlsx  (P: only)
+            &exchange_path.\s06_class_nn.csv  (P: exchange -- Python input; D-22)
             &logs_path.\03b_classify_s06.log  (standalone; not committed)
 
   PCM compliance:
@@ -550,234 +550,45 @@ quit;
 %mend _assert_coverage;
 %_assert_coverage;
 
-/* Class-level subsets for individual xlsx sheets */
-data work.s06_clock        (keep=sas_name orig_col_name token rule pct_nonnull)
-     work.s06_digital_other(keep=sas_name orig_col_name token rule pct_nonnull)
-     work.s06_pcnr          (keep=sas_name orig_col_name token rule pct_nonnull);
-  set work.s06_class_nn;
-  if      class = 'CLOCK'         then output work.s06_clock;
-  else if class = 'DIGITAL_OTHER' then output work.s06_digital_other;
-  else if class = 'PCNR'          then output work.s06_pcnr;
-run;
-
-
 /* ============================================================
-   SECTION 9 -- Build KEY legend dataset
-   KEY sheet shows column definitions and class definitions only.
-   The full 3,987-row list goes to the ALL_COLUMNS sheet.
+   SECTION 9 -- Write exchange CSV for Python workbook writer
+   D-22 (2026-10-21): Python owns xlsx output.
+   work.s06_class_nn -> &exchange_path.\s06_class_nn.csv
+   Python reads this and writes qc\s06_clock_classification.xlsx
    ============================================================ */
 
-data work.s06_legend;
-  length section $20 item $40 description $400;
-
-  /* ---- Output column descriptions ---- */
-  section = 'Output column';
-  item = 'sas_name';
-  description = 'SAS variable name in pdd.src_s06 (max 32 chars; V7 name rules; from pdd.import_spec)';
-  output;
-  item = 'orig_col_name';
-  description = 'Original column header from the source file as imported';
-  output;
-  item = 'token';
-  description = 'Text extracted after COM or COPY prefix; LINUS for LINUS-prefix columns; blank for PCNR/COMP';
-  output;
-  item = 'class';
-  description = 'Classification assigned by D-21 rules: CLOCK | DIGITAL_OTHER | PCNR | UNSURE';
-  output;
-  item = 'rule';
-  description = 'Text description of the matching classification rule';
-  output;
-  item = 'pct_nonnull';
-  description = 'Percentage of rows in pdd.src_s06 with a non-missing value (0-100)';
-  output;
-
-  /* ---- Class value descriptions ---- */
-  section = 'Class value';
-  item = 'CLOCK';
-  description = 'Clock-drawing features: COM/COPY + clock token OR LINUS DCTclock prefix. Excluded from PCNR_. n=2,747 (D-21 reviewed 2026-10-20).';
-  output;
-  item = 'DIGITAL_OTHER';
-  description = 'Other digital cognitive battery tests: COM/COPY + non-clock digital token. Stay in PCNR_. n=809.';
-  output;
-  item = 'PCNR';
-  description = 'All other source columns: no COM/COPY/LINUS/COMP prefix, or COM_/COPY_ (underscore), or COMP## complication codes. Always PCNR_. n=431. Includes clock admin flags and Mini-Cog clock scores.';
-  output;
-  item = 'UNSURE';
-  description = 'COM/COPY prefix with unrecognized token. Must be 0 after D-21 review; Phase 4 is blocked if UNSURE > 0.';
-  output;
-run;
-
-
-/* ============================================================
-   SECTION 10 -- Write qc\s06_clock_classification.xlsx
-   Sheet order: KEY | SUMMARY | ALL_COLUMNS | CLOCK | DIGITAL_OTHER | PCNR
-   Header color #0021A5 (UF blue) / white text applied via PROC REPORT style.
-   Class column accented #FA4616 (UF orange) where shown.
-   No UNSURE sheet when UNSURE=0 (asserted above).
-   ============================================================ */
-
-/* Macro to emit PROC REPORT style options without repeating the string */
-%macro _rpt_hdr;
-  style(header)=[background=cx0021A5 foreground=white font_weight=bold font_size=10pt]
-%mend _rpt_hdr;
-
-ods listing close;
-ods excel file="&qc_path.\s06_clock_classification.xlsx"
-  style=styles.minimal
-  options(sheet_name='KEY'
-          sheet_interval='none'
-          frozen_headers='yes'
-          autofilter='all');
-
-  title "s06 Column Classification Legend -- D-21 (2026-10-20, LOCKED)";
-  title2 "See ALL_COLUMNS sheet for the full 3,987-row list.";
-
-  proc report data=work.s06_legend nowd %_rpt_hdr;
-    columns section item description;
-    define section     / display 'Section';
-    define item        / display 'Item';
-    define description / display 'Description';
-  run;
-
-ods excel options(sheet_name='SUMMARY' sheet_interval='now');
-ods excel options(sheet_interval='none');
-
-  title  "Class Counts (D-21 reviewed 2026-10-20)";
-  title2 "CLOCK excluded from PCNR_; DIGITAL_OTHER stays PCNR_";
-
-  proc report data=work.class_summary nowd %_rpt_hdr;
-    columns class n_cols;
-    define class  / display 'Class'
-                    style(column)=[background=cxFA4616 foreground=white];
-    define n_cols / display 'Column count';
-  run;
-
-  title  "Rule x Class Counts";
-  title2 "(all 3,987 source columns)";
-
-  proc report data=work.rule_class_summary nowd %_rpt_hdr;
-    columns rule class n_cols;
-    define rule   / display 'Rule';
-    define class  / display 'Class'
-                    style(column)=[background=cxFA4616 foreground=white];
-    define n_cols / display 'Column count';
-  run;
-
-ods excel options(sheet_name='ALL_COLUMNS' sheet_interval='now');
-
-  title  "All 3,987 s06 Source Columns -- D-21 Classification";
-  title2 "CLOCK=2747 excluded from PCNR_.  DIGITAL_OTHER=809.  PCNR=431.  UNSURE=0.";
-
-  proc report data=work.s06_class_nn nowd %_rpt_hdr;
-    columns sas_name orig_col_name token class rule pct_nonnull;
-    define sas_name      / display 'SAS Name';
-    define orig_col_name / display 'Original Column';
-    define token         / display 'Token';
-    define class         / display 'Class'
-                           style(column)=[background=cxFA4616 foreground=white];
-    define rule          / display 'Rule';
-    define pct_nonnull   / display '% Non-null' format=6.1;
-  run;
-
-ods excel options(sheet_name='CLOCK' sheet_interval='now');
-
-  title  "CLOCK Columns (n=2,747) -- Excluded from PCNR_";
-  title2 "COM/COPY clock tokens + LINUS DCTclock summary";
-
-  proc report data=work.s06_clock nowd %_rpt_hdr;
-    columns sas_name orig_col_name token rule pct_nonnull;
-    define sas_name      / display 'SAS Name';
-    define orig_col_name / display 'Original Column';
-    define token         / display 'Token';
-    define rule          / display 'Rule';
-    define pct_nonnull   / display '% Non-null' format=6.1;
-  run;
-
-ods excel options(sheet_name='DIGITAL_OTHER' sheet_interval='now');
-
-  title  "DIGITAL_OTHER Columns (n=809) -- Stay in PCNR_";
-  title2 "COM/COPY non-clock digital battery tokens";
-
-  proc report data=work.s06_digital_other nowd %_rpt_hdr;
-    columns sas_name orig_col_name token rule pct_nonnull;
-    define sas_name      / display 'SAS Name';
-    define orig_col_name / display 'Original Column';
-    define token         / display 'Token';
-    define rule          / display 'Rule';
-    define pct_nonnull   / display '% Non-null' format=6.1;
-  run;
-
-ods excel options(sheet_name='PCNR' sheet_interval='now');
-
-  title  "PCNR Columns (n=431) -- Always PCNR_";
-  title2 "No COM/COPY/LINUS/COMP prefix + clock admin/Mini-Cog flags";
-
-  proc report data=work.s06_pcnr nowd %_rpt_hdr;
-    columns sas_name orig_col_name token rule pct_nonnull;
-    define sas_name      / display 'SAS Name';
-    define orig_col_name / display 'Original Column';
-    define token         / display 'Token';
-    define rule          / display 'Rule';
-    define pct_nonnull   / display '% Non-null' format=6.1;
-  run;
-
-title;
-ods excel close;
-ods listing;
-
-%macro _check_xlsx_syscc;
-  %if &syscc > 4 %then
-    %fail_out(msg=%str(ODS Excel failed -- syscc=&syscc after ods excel close));
-  %put NOTE: [03b_classify_s06] ods excel close ok -- syscc=&syscc;
-%mend _check_xlsx_syscc;
-%_check_xlsx_syscc;
-
-/* Assert xlsx and CSV written; %fail_out (not WARNING) on any failure */
-%macro _assert_artifacts;
-  %local _nx_all _nx_sum _nx_clock _nx_do _nx_pcnr _csv_ok _xlsx_ok;
-  %let _nx_all   = -1;
-  %let _nx_sum   = -1;
-  %let _nx_clock = -1;
-  %let _nx_do    = -1;
-  %let _nx_pcnr  = -1;
-  %let _csv_ok   = 0;
-  %let _xlsx_ok  = 0;
-
+%macro _export_exchange_csv;
+  %local _exc_ok _nx_all _csv_ok;
   proc sql noprint;
-    select nobs into :_nx_all   trimmed
+    select nobs into :_nx_all trimmed
       from dictionary.tables
-      where upcase(libname)='WORK' and upcase(memname)='S06_CLASS_NN';
-    select nobs into :_nx_sum   trimmed
-      from dictionary.tables
-      where upcase(libname)='WORK' and upcase(memname)='CLASS_SUMMARY';
-    select nobs into :_nx_clock trimmed
-      from dictionary.tables
-      where upcase(libname)='WORK' and upcase(memname)='S06_CLOCK';
-    select nobs into :_nx_do    trimmed
-      from dictionary.tables
-      where upcase(libname)='WORK' and upcase(memname)='S06_DIGITAL_OTHER';
-    select nobs into :_nx_pcnr  trimmed
-      from dictionary.tables
-      where upcase(libname)='WORK' and upcase(memname)='S06_PCNR';
+      where upcase(libname) = 'WORK' and upcase(memname) = 'S06_CLASS_NN';
   quit;
+  %if &_nx_all <= 0 %then
+    %fail_out(msg=%str(ASSERT FAILED -- work.s06_class_nn has 0 rows before export));
 
-  %let _csv_ok  = %sysfunc(fileexist(C:\data_dictionary\docs\s06_column_class.csv));
-  %let _xlsx_ok = %sysfunc(fileexist(&qc_path.\s06_clock_classification.xlsx));
+  proc export
+    data    = work.s06_class_nn
+              (keep=sas_name orig_col_name token class rule pct_nonnull)
+    outfile = "&exchange_path.\s06_class_nn.csv"
+    dbms    = csv
+    replace;
+  run;
 
-  %if &syscc > 4 or &_nx_all  <= 0 or &_nx_sum  <= 0 or &_nx_clock <= 0
-                 or &_nx_do   <= 0 or &_nx_pcnr <= 0
-                 or not &_csv_ok   or not &_xlsx_ok
-  %then
-    %fail_out(msg=%str(ASSERT FAILED -- artifact check: syscc=&syscc ALL=&_nx_all CLOCK=&_nx_clock DO=&_nx_do PCNR=&_nx_pcnr csv_ok=&_csv_ok xlsx_ok=&_xlsx_ok));
+  %let _exc_ok = %sysfunc(fileexist(&exchange_path.\s06_class_nn.csv));
+  %let _csv_ok = %sysfunc(fileexist(C:\data_dictionary\docs\s06_column_class.csv));
 
-  %put NOTE: [03b_classify_s06] xlsx written -- ALL=&_nx_all CLOCK=&_nx_clock DO=&_nx_do PCNR=&_nx_pcnr;
-  %put NOTE: [03b_classify_s06] csv written -- docs/s06_column_class.csv;
-%mend _assert_artifacts;
-%_assert_artifacts;
+  %if not &_exc_ok or not &_csv_ok %then
+    %fail_out(msg=%str(ASSERT FAILED -- artifact check: exchange_csv=&_exc_ok docs_csv=&_csv_ok));
+
+  %put NOTE: [03b_classify_s06] exchange CSV written -- &exchange_path.\s06_class_nn.csv (&_nx_all rows);
+  %put NOTE: [03b_classify_s06] docs CSV confirmed -- docs/s06_column_class.csv;
+%mend _export_exchange_csv;
+%_export_exchange_csv;
 
 
 /* ============================================================
-   SECTION 11 -- Final log summary
+   SECTION 10 -- Final log summary
    ============================================================ */
 
 data _null_;
@@ -786,6 +597,8 @@ data _null_;
 run;
 
 %put NOTE: [03b_classify_s06] Artifact: docs/s06_column_class.csv (committed -- no PHI);
+%put NOTE: [03b_classify_s06] Artifact: exchange CSV at &exchange_path.\s06_class_nn.csv (Python input -- D-22);
 %put NOTE: [03b_classify_s06] Phase 4 gate: UNSURE=0 -- ready to proceed;
+%put NOTE: [03b_classify_s06] Next step: "%PDD_PYTHON%" python\scripts\write_s06_clock_classification.py;
 
 %restore_log;

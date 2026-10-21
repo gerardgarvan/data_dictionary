@@ -15,8 +15,9 @@
 *.log
 *.lst
 
-# Network drive data (all paths under P:)
-P:\
+# Network drive data (all paths under P: -- PHI lives there, never committed)
+# Note: gitignore uses repo-relative paths; P: is excluded implicitly since
+# this repo is on C: and git only tracks C:\data_dictionary contents.
 
 # OS / editor artifacts
 Thumbs.db
@@ -24,5 +25,15 @@ Thumbs.db
 *.tmp
 _reference_old/
 
+# Python cache and venv
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.pytest_cache/
+
 # D-21 column classification: column names and classes only, no data values
 !docs/s06_column_class.csv
+
+# Python exchange files (written to P: but guard against accidental placement in repo)
+exchange/

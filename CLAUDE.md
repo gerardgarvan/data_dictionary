@@ -11,6 +11,17 @@ sasjs lint
 
 Both must show zero errors on the edited file.
 
+## After any Python edit
+
+Run both quality gates before committing:
+
+```
+ruff check python\
+pytest python\tests
+```
+
+Both must show zero errors / all tests pass.
+
 ## PCM compliance (enforced by sas_lint.py)
 
 - No open-code `%if`/`%else` outside `%macro … %mend` (C3)

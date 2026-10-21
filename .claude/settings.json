@@ -8,6 +8,11 @@
             "type": "command",
             "command": "python tools/sas_lint.py \"$CLAUDE_TOOL_INPUT_FILE_PATH\"",
             "condition": "$CLAUDE_TOOL_INPUT_FILE_PATH matches '^sas\\\\.*\\.sas$'"
+          },
+          {
+            "type": "command",
+            "command": "ruff check python\\",
+            "condition": "$CLAUDE_TOOL_INPUT_FILE_PATH matches '^python\\\\.*\\.py$'"
           }
         ]
       }
