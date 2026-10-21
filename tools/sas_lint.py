@@ -731,6 +731,50 @@ def check_sysfunc_put_input(path, lines):
     return hits
 
 
+# ── C22: datalines / cards inside a %macro...%mend block ─────────────────────
+#
+# SAS processes DATALINES at compile time, before macro execution.  A macro
+# that contains a DATALINES block will trigger "The macro ... generated CARDS
+# (data lines) for the DATA step" and stop executing.  Build the dataset with
+# an INFILE/FILENAME step instead.
+
+_DATALINES_KWD = re.compile(
+    r'^\s*(datalines4?|cards4?)\s*;', CI)
+
+def check_datalines_in_macro(path, lines):
+    hits = []
+    depth = 0
+    for i, raw in enumerate(lines, 1):
+        depth += len(re.findall(r'%macro\b', raw, CI))
+        if depth > 0 and re.search(_DATALINES_KWD, raw):
+            hits.append((path, i, 'C22',
+                'datalines/cards inside a %macro...%mend block -- '
+                'SAS processes DATALINES before macro execution and will stop the macro; '
+                'build the dataset with INFILE/FILENAME instead'))
+        depth = max(0, depth - len(re.findall(r'%mend\b', raw, CI)))
+    return hits
+
+
+# ── W5: %run_hash_guard call not followed by pdd_hash_ok check ───────────────
+#
+# %run_hash_guard sets pdd_hash_ok=1 only on success.  If the caller does not
+# check the flag, a hash-guard failure will not stop the pipeline.
+
+_HASH_GUARD_CALL = re.compile(r'%run_hash_guard\s*;', CI)
+_HASH_OK_CHECK   = re.compile(r'pdd_hash_ok', CI)
+
+def check_hash_guard_no_ok(path, lines):
+    hits = []
+    for i, raw in enumerate(lines, 1):
+        if re.search(_HASH_GUARD_CALL, raw):
+            window = lines[i:i + 10]
+            if not any(re.search(_HASH_OK_CHECK, l) for l in window):
+                hits.append((path, i, 'W5',
+                    '%run_hash_guard called but pdd_hash_ok not checked within 10 lines -- '
+                    'add: %if &pdd_hash_ok ne 1 %then %fail_out(...);'))
+    return hits
+
+
 # ── runner ────────────────────────────────────────────────────────────────────
 
 CHECKS = [
@@ -757,6 +801,8 @@ CHECKS = [
     check_global_via_param,
     check_name_c_temp_vars,
     check_sysfunc_put_input,
+    check_datalines_in_macro,
+    check_hash_guard_no_ok,
 ]
 
 

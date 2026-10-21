@@ -32,6 +32,20 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
    programs from redirecting the log to their own per-program file.           */
 %let in_pipeline = 1;
 
+/* ---- Pipeline abort macro: logs message and halts SAS execution ---- */
+%macro fail_out(msg=);
+  %put ERROR: [pipeline] &msg;
+  %abort cancel;
+%mend fail_out;
+
+/* ---- Phase pre-flight: stop if a prior step left SAS in a bad state ---- */
+%macro _check_pipeline_ok(phase=);
+  %if &syserr > 4 %then
+    %fail_out(msg=%str(phase &phase aborted -- syserr=&syserr from previous step; pipeline cannot continue));
+  %if %sysfunc(getoption(obs)) = 0 %then
+    %fail_out(msg=%str(phase &phase aborted -- SAS is in syntax-check mode (OBS=0) from a prior error; pipeline cannot continue));
+%mend _check_pipeline_ok;
+
 %put NOTE: ============================================================;
 %put NOTE: 99_run_all.sas -- PeCAN Data Dictionary pipeline start;
 %put NOTE: sas_path    = &sas_path;
@@ -63,40 +77,31 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
    docs/source_guard_baseline.csv -- same logic as 02_source_guard run_hash_guard.
    Aborts on any hash drift or missing baseline.                              */
 %macro run_hash_guard;
-  %local _baseline_path _n_base_rows;
+  %global pdd_hash_ok;
+  %let pdd_hash_ok = 0;
+  %local _baseline_path _n_base_rows _n_filelist;
   %let _baseline_path = C:\data_dictionary\docs\source_guard_baseline.csv;
-  %let _n_base_rows = 0;
+  %let _n_base_rows  = 0;
+  %let _n_filelist   = 0;
 
-  /* ---- Build work.file_list (20 source files) ---- */
+  /* ---- Build work.file_list from the baseline CSV (no datalines in macro) ---- */
+  %if not %sysfunc(fileexist(&_baseline_path)) %then %do;
+    %fail_out(msg=%str(run_hash_guard: baseline not found (&_baseline_path) -- run full pipeline (Phase 2) first));
+  %end;
   data work.file_list;
-    length s_code $4 filename $200 ftype $5 full_path $500;
-    infile datalines dsd dlm='|' truncover;
-    input s_code $ filename $ ftype $;
-    full_path = cats("&raw_master.\", filename);
+    length s_code $4 filename $200 full_path $500;
+    infile "&_baseline_path" dsd dlm=',' firstobs=2 truncover lrecl=500;
+    input s_code $ filename $ @;  /* third column (sha256) not needed here */
+    full_path = cats("&raw_master.\", strip(filename));
     file_id + 1;
-    datalines;
-s01|2018-2022_PACU_STAY_20260813.csv|csv
-s02|2018_2019_2020_Induction_Emergent20231121.csv|csv
-s03|2018_2019_CPT_ROLLUP_X_MASTER_DATASET_20200801.csv|csv
-s04|2018_2019_ENCOUNTER_Crypto_Data_20260814.csv|csv
-s05|2018_2019_MRN_Crypto_Data20260814.csv|csv
-s06|2018_2019_Precede_Database.xlsx|xlsx
-s07|2018_2019_X_MASTER_DATASET_20200801.csv|csv
-s08|2018_2022_COLONOSCOPY_20240118.xlsx|xlsx
-s09|2018_2022_X_MASTER_DATASET_20240402.csv|csv
-s10|2020_CPT_ROLLUP_X_MASTER_DATASET_20210609.csv|csv
-s11|2020_Precede_Database_Edu.xlsx|xlsx
-s12|2020_X_MASTER_DATASET_20210519.csv|csv
-s13|2021_Education_20240124.csv|csv
-s14|2021_Frailty_20240123.csv|csv
-s15|2021_X_MASTER_DATASET_20230512.csv|csv
-s16|2022_Education_20240124.csv|csv
-s17|2022_MASTER_DATASET_20231024.csv|csv
-s18|2022_RES_20230927.csv|csv
-s19|ALL_AIM2_MASTER_DATASET_20210917.xlsx|xlsx
-s20|All_YEARS_LAT_LONG_20231127.csv|csv
-;
-  %put NOTE: [99_run_all] run_hash_guard: work.file_list built;
+  run;
+
+  proc sql noprint;
+    select count(*) into :_n_filelist trimmed from work.file_list;
+  quit;
+  %if &_n_filelist ne 20 %then
+    %fail_out(msg=%str(run_hash_guard: file_list has &_n_filelist rows from baseline -- expected 20; run Phase 2 first to seed the baseline));
+  %put NOTE: [99_run_all] run_hash_guard: work.file_list built (&_n_filelist rows);
 
   /* ---- Compute SHA-256 for all 20 files via certutil PIPE FILEVAR ---- */
   data work.sha_results;
@@ -205,6 +210,8 @@ s20|All_YEARS_LAT_LONG_20231127.csv|csv
   %if &_n_sha > 0 %then
     %fail_out(msg=%str(SOURCE GUARD FAILED -- &_n_sha file(s) changed since baseline. Delete docs/source_guard_baseline.csv to reseed.));
   %put NOTE: [02_source_guard] PASS -- all 20 SHA-256 values and filenames match baseline;
+  %let pdd_hash_ok = 1;
+  %put NOTE: [99_run_all] run_hash_guard: pdd_hash_ok set to 1;
 
   proc datasets lib=work nolist nowarn;
     delete _hg_baseline file_list sha_results;
@@ -268,6 +275,8 @@ s20|All_YEARS_LAT_LONG_20231127.csv|csv
   %else %do;
     %put NOTE: [99_run_all] Phase 2 skipped -- running hash guard;
     %run_hash_guard;
+    %if &pdd_hash_ok ne 1 %then
+      %fail_out(msg=%str(run_hash_guard did not set pdd_hash_ok=1 -- pipeline cannot continue));
   %end;
   %put NOTE: [timing] phase 2 end %sysfunc(datetime(), datetime20.);
 
@@ -275,6 +284,7 @@ s20|All_YEARS_LAT_LONG_20231127.csv|csv
   /* =========================================================================
      PHASE 3 -- Direct Import of 20 Raw Sources
      ========================================================================= */
+  %_check_pipeline_ok(phase=3);
   %if %_phase_in(3) %then %do;
     %put NOTE: [timing] phase 3 start %sysfunc(datetime(), datetime20.);
     %put NOTE: ---- Phase 3: Direct import of 20 raw sources ------------;
