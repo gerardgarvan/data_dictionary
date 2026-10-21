@@ -1366,9 +1366,10 @@ proc datasets lib=work nolist nowarn; delete _s06_key_legend; quit;
 %_check_key_analysis;
 
 %macro _norm_psid_loop;
-  %local _nds _ids _dsname _fc _kt _idvar _n_applied;
+  %local _nds _ids _dsname _fc _idvar _n_applied _skipped_list;
   %let _nds = -1;
   %let _n_applied = 0;
+  %let _skipped_list = ;
 
   /* Build list of actual pdd.src_sNN datasets from dictionary (two-digit suffix only) */
   proc sql noprint;
@@ -1393,25 +1394,31 @@ proc datasets lib=work nolist nowarn; delete _s06_key_legend; quit;
     /* Derive s_code: SRC_S01 -> s01 */
     %let _fc = %lowcase(%substr(&_dsname, 5));
 
-    %let _kt    = ;
+    /* Use only the PRECEDE_STUDY_ID key row; ignore ENCRYPTED_* rows */
     %let _idvar = ;
     proc sql noprint;
-      select strip(key_column_type) into :_kt    trimmed
-      from pdd.key_analysis where strip(s_code) = "&_fc";
-      select strip(key_var_name)    into :_idvar trimmed
-      from pdd.key_analysis where strip(s_code) = "&_fc";
+      select strip(key_var_name) into :_idvar trimmed
+      from pdd.key_analysis
+      where strip(s_code) = "&_fc"
+        and upcase(strip(key_column_type)) = 'PRECEDE_STUDY_ID';
     quit;
 
-    %if %length(%superq(_idvar)) = 0 or "%superq(_kt)" = "NONE_DETECTED" %then %do;
-      %put NOTE: [03_import] &_fc (&_dsname) skipped -- no key column (key_column_type=&_kt);
+    %if %length(%superq(_idvar)) = 0 %then %do;
+      /* Spine and linkage files must have a Study ID key — fail if s09 or s17 */
+      %if "&_fc" = "s09" or "&_fc" = "s17" %then
+        %fail_out(msg=%str(_norm_psid_loop -- &_fc has no PRECEDE_STUDY_ID key row in pdd.key_analysis (expected for spine/linkage file)));
+      %let _skipped_list = &_skipped_list &_fc;
     %end;
     %else %do;
-      %put NOTE: [03_import] applying pdd_norm_psid to pdd.&_dsname idvar=&_idvar (key_column_type=&_kt);
+      %put NOTE: [03_import] applying pdd_norm_psid to pdd.&_dsname idvar=&_idvar (PRECEDE_STUDY_ID);
       %pdd_norm_psid(in=pdd.&_dsname, out=pdd.&_dsname, idvar=&_idvar);
       %let _n_applied = %eval(&_n_applied + 1);
     %end;
   %end;
 
+  /* Report all skipped files in one NOTE; expected: s04 s05 (crypto linkage, PDD-D-18) */
+  %if %length(%superq(_skipped_list)) > 0 %then
+    %put NOTE: [03_import] norm_psid skipped (no PRECEDE_STUDY_ID key row): &_skipped_list;
   %put NOTE: [03_import] norm_psid applied to &_n_applied of &_nds src_s* datasets;
 
   /* Spot check: norm_psid on pdd.src_s01 */
@@ -1431,6 +1438,31 @@ proc datasets lib=work nolist nowarn; delete _s06_key_legend; quit;
 
 %mend _norm_psid_loop;
 %_norm_psid_loop;
+
+/* Sanity assert: >99% of non-blank norm_psid in s09 and s17 must match Precede##### */
+%macro _assert_psid_fmt(fc=);
+  %local _n_total _n_match _pct_int;
+  %let _n_total = 0;
+  %let _n_match = 0;
+  proc sql noprint;
+    select count(*) into :_n_total trimmed
+    from pdd.src_&fc
+    where not missing(norm_psid) and strip(norm_psid) ne '';
+    select count(*) into :_n_match trimmed
+    from pdd.src_&fc
+    where prxmatch('/^Precede\d{5}$/', strip(norm_psid));
+  quit;
+  %put NOTE: [03_import] &fc norm_psid format check: match=&_n_match total=&_n_total;
+  %if &_n_total = 0 %then
+    %fail_out(msg=%str(norm_psid sanity assert &fc -- no non-blank norm_psid values found));
+  /* Integer percent: multiply by 100 then divide; fail if < 99 */
+  %let _pct_int = %sysfunc(floor(%sysevalf(&_n_match * 100 / &_n_total)));
+  %if &_pct_int < 99 %then
+    %fail_out(msg=%str(norm_psid sanity assert &fc -- only &_n_match of &_n_total match Precede##### (&_pct_int pct) expected >99 pct));
+  %put NOTE: [03_import] norm_psid sanity assert PASS -- &fc &_n_match/&_n_total match Precede##### (&_pct_int pct);
+%mend _assert_psid_fmt;
+%_assert_psid_fmt(fc=s09);
+%_assert_psid_fmt(fc=s17);
 
 
 /* ============================================================
@@ -1487,9 +1519,33 @@ proc sql noprint;
 quit;
 
 %put NOTE: [03_import] D-19 pre-check: s17 ambiguous encounter count = &_nambig_d19 (expected 6);
+/* PDD-D-20: fail if s17 ambiguous count deviates from the locked value of 6 */
+%macro _assert_s17_ambig;
+  %if &_nambig_d19 ne 6 %then
+    %fail_out(msg=%str(PDD-D-19/D-20 assert failed -- s17 ambiguous ENCRYPTED_ENCOUNTER count=&_nambig_d19 expected 6));
+  %put NOTE: [03_import] PDD-D-20 assert passed -- s17 ambiguous ENCRYPTED_ENCOUNTER count=6;
+%mend _assert_s17_ambig;
+%_assert_s17_ambig;
+
+/* Derive ambiguous s09 ENCRYPTED_ENCOUNTER tokens (Phase 2 found 317; locked). */
+proc sql noprint;
+  create table work._s09_ambig_d19 as
+  select &_s09_enc_col as ENCRYPTED_ENCOUNTER length=64
+  from pdd.src_s09
+  where not missing(&_s09_enc_col)
+    and strip(&_s09_enc_col) ne ''
+  group by &_s09_enc_col
+  having count(distinct norm_psid) > 1
+  order by &_s09_enc_col;
+
+  select count(*) into :_nambig_s09_d19 trimmed from work._s09_ambig_d19;
+quit;
+
+%put NOTE: [03_import] D-19 pre-check: s09 ambiguous encounter count = &_nambig_s09_d19 (Phase 2 found 317);
 
 /* Build the encounter-join check table.
-   Exclude ambiguous encounters on both sides (s17 and s09). */
+   Exclude ambiguous encounters on both sides (s17: 6, s09: 317 per Phase 2).
+   n_pairs locked to 9001 (Phase 2 02_source_guard _qc_normalisation_2022 log). */
 proc sql;
   create table work._d19_check as
   select a.norm_psid as s17_norm length=64,
@@ -1502,7 +1558,7 @@ proc sql;
     and a.ENCRYPTED_ENCOUNTER not in
           (select ENCRYPTED_ENCOUNTER from work._s17_ambig_d19)
     and b.&_s09_enc_col not in
-          (select ENCRYPTED_ENCOUNTER from work._s17_ambig_d19);
+          (select ENCRYPTED_ENCOUNTER from work._s09_ambig_d19);
   select count(*) into :_d19_npairs trimmed from work._d19_check;
   select count(*) into :_d19_ndis   trimmed from work._d19_check
     where s17_norm ne s09_norm;
@@ -1511,15 +1567,16 @@ quit;
 %put NOTE: [03_import] D-19 check: n_pairs=&_d19_npairs ndis=&_d19_ndis;
 
 %macro _assert_d19;
-  %if &_d19_npairs = 0 %then
-    %fail_out(msg=%str(PDD-D-19 assert failed -- n_pairs=0, no linkable encounter rows));
+  /* Locked n_pairs = 9001 from Phase 2 02_source_guard _qc_normalisation_2022 */
+  %if &_d19_npairs ne 9001 %then
+    %fail_out(msg=%str(PDD-D-19 assert failed -- n_pairs=&_d19_npairs expected 9001 (Phase 2 locked value)));
   %if &_d19_ndis ne 0 %then
     %fail_out(msg=%str(PDD-D-19 assert failed -- s17/s09 norm_psid disagreements=&_d19_ndis expected 0));
-  %put NOTE: [03_import] PDD-D-19 assert passed -- n_pairs=&_d19_npairs ndis=0;
+  %put NOTE: [03_import] PDD-D-19 assert passed -- n_pairs=9001 ndis=0;
 %mend _assert_d19;
 %_assert_d19;
 
-proc datasets lib=work nolist nowarn; delete _s17_ambig_d19 _d19_check; quit;
+proc datasets lib=work nolist nowarn; delete _s17_ambig_d19 _s09_ambig_d19 _d19_check; quit;
 
 
 /* ============================================================
@@ -1593,10 +1650,16 @@ proc datasets lib=work nolist nowarn; delete _s17_ambig_d19 _d19_check; quit;
       %else %let _status = no-inventory;
     %end;
     %else %if "&_fc" = "s19" %then %do;
-      %let _d19_exp_delta = s19 kept<source blank-drop;
-      /* s19: imported <= inventory (blank-row drop) */
+      /* s19: match if no blank rows dropped; expected-diff only if rows were removed */
       %if "&_inv_rows" ne "." %then %do;
-        %if &_imp_rows <= &_inv_rows %then %let _status = expected-diff;
+        %if &_imp_rows = &_inv_rows %then %do;
+          %let _status = match;
+          %let _d19_exp_delta = 0;
+        %end;
+        %else %if &_imp_rows < &_inv_rows %then %do;
+          %let _status = expected-diff;
+          %let _d19_exp_delta = s19 kept<source blank-drop;
+        %end;
         %else %let _status = MISMATCH;
       %end;
       %else %let _status = no-inventory;
