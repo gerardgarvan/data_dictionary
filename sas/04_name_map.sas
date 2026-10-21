@@ -73,11 +73,50 @@
    Does NOT apply abbreviations or PCNR_ prefix (handled in Section 4). */
 %macro clean_name(raw=, out=);
   &out = strip(&raw);
-  &out = prxchange('s/[^A-Za-z0-9]+/_/', -1, &out);
-  &out = prxchange('s/^_+//', 1, &out);
-  &out = prxchange('s/_+$//', 1, &out);
-  if prxmatch('/^\d/', &out) then &out = cats('N_', &out);
+  &out = prxchange('s/[^A-Za-z0-9]+/_/', -1, strip(&out));
+  &out = prxchange('s/^_+//', 1, strip(&out));
+  &out = prxchange('s/_+$//', 1, strip(&out));
+  if prxmatch('/^\d/', strip(&out)) then &out = cats('N_', strip(&out));
 %mend clean_name;
+
+/* Validate abbreviation CSV: every long/short non-blank and [A-Za-z0-9_] only */
+%macro check_abbrev_csv;
+  %local _nbad_ab;
+  proc sql noprint;
+    select count(*) into :_nbad_ab trimmed
+    from work._abbrev_raw
+    where short = ''
+       or prxmatch('/[^A-Za-z0-9_]/', strip(long))  > 0
+       or prxmatch('/[^A-Za-z0-9_]/', strip(short)) > 0;
+  quit;
+  %if &_nbad_ab > 0 %then %do;
+    proc print data=work._abbrev_raw
+      (where=(short = ''
+              or prxmatch('/[^A-Za-z0-9_]/', strip(long))  > 0
+              or prxmatch('/[^A-Za-z0-9_]/', strip(short)) > 0)); run;
+    %fail_out(msg=%str(name_abbrev.csv &_nbad_ab rows: blank short or non-word chars in long/short));
+  %end;
+  %put NOTE: [04_name_map] name_abbrev.csv validated OK;
+%mend check_abbrev_csv;
+
+/* Post-clean guard: fail if any cleaned_pre_short has leading or trailing _ */
+%macro check_cleaned_anchors;
+  %local _nba;
+  proc sql noprint;
+    select count(*) into :_nba trimmed
+    from work.name_map_cleaned
+    where status = 'PCNR'
+      and (prxmatch('/^_/', strip(cleaned_pre_short)) > 0
+           or prxmatch('/_$/', strip(cleaned_pre_short)) > 0);
+  quit;
+  %if &_nba > 0 %then %do;
+    proc print data=work.name_map_cleaned
+      (where=(status = 'PCNR'
+              and (prxmatch('/^_/', strip(cleaned_pre_short)) > 0
+                   or prxmatch('/_$/', strip(cleaned_pre_short)) > 0))); run;
+    %fail_out(msg=%str(D-02 &_nba cleaned_pre_short values have leading/trailing underscore after strip));
+  %end;
+%mend check_cleaned_anchors;
 
 /* Apply D-03 middle-elide so name fits within 27 chars.
    Keeps first _elide_first chars and last _elide_last chars joined by __.
@@ -305,6 +344,7 @@
     %fail_out(msg=%str(D-02 &_n_empty_clean headers cleaned to empty string));
   %end;
   %put NOTE: [04_name_map] 0 empty-clean headers;
+  %check_cleaned_anchors;
   %put NOTE: [04_name_map] Section 4 cleaning complete;
 %mend apply_cleaning;
 
@@ -526,14 +566,17 @@
     select count(*) into :_ngrep trimmed from work._grp_rep;
   quit;
 
-  data work._grp_names (keep=group_id pcnr_name_base)
+  %local _abbrev_longer;
+  %let _abbrev_longer = 0;
+
+  data work._grp_names (keep=group_id pcnr_name_base _elided)
        work._abbrev_hits (keep=group_id long short cleaned_before cleaned_after);
     length group_id 8
            pcnr_name_base $200
-           _nm $200 _cbe $200 _pat $400 _esc_long $400
+           _nm $200 _cbe $200 _pat $400 _pre_elide $200
            long $200 short $200
            cleaned_before $200 cleaned_after $200
-           _elide_first 8 _elide_last 8 _nab 8 _nab_tot 8;
+           _elide_first 8 _elide_last 8 _nab 8 _nab_tot 8 _elided 8;
 
     /* Load total abbreviation count once */
     if _N_ = 1 then do;
@@ -545,30 +588,56 @@
 
     set work._grp_rep;
 
-    _nm = cleaned_pre_short;
+    _nm     = cleaned_pre_short;
+    _elided = 0;
     if pcnr_name_override ne '' then _nm = pcnr_name_override;
     else do;
-      /* Apply abbreviations longest-first; only when length > 27; stop early */
-      if length(_nm) > 27 then do _ai = 1 to _nab;
+      /* Apply abbreviations longest-first; only when length > 27; stop early.
+         long/short validated [A-Za-z0-9_] only -- no regex escaping needed. */
+      if length(strip(_nm)) > 27 then do _ai = 1 to _nab;
         set work.abbrev (keep=long short _longlen) point=_ai;
-        if length(_nm) <= 27 then leave;
-        _cbe     = _nm;
-        _esc_long = prxchange('s/([.+*?()\[\]{}|\\^$])/\\$1/', -1, long);
+        if length(strip(_nm)) <= 27 then leave;
+        _cbe = _nm;
         /* Token boundary: start | after _ or digit | after lowercase (camelCase) */
-        _pat = cats('s/(?:^|(?<=[_0-9a-z]))', _esc_long, '(?=[A-Z0-9_]|$)/', short, '/');
-        _nm  = prxchange(_pat, -1, _nm);
-        if _nm ne _cbe then do;
+        _pat = cats('s/(?:^|(?<=[_0-9a-z]))', strip(long), '(?=[A-Z0-9_]|$)/', strip(short), '/');
+        _nm  = prxchange(_pat, -1, strip(_nm));
+        if strip(_nm) ne strip(_cbe) then do;
+          if length(strip(_nm)) > length(strip(_cbe)) then do;
+            put 'ERROR: [04_name_map] abbreviation made name longer: '
+                long= short= _cbe= _nm=;
+            call symputx('_abbrev_longer', '1', 'L');
+          end;
           cleaned_before = _cbe;
           cleaned_after  = _nm;
           output work._abbrev_hits;
         end;
       end;
       /* Elide if still > 27 chars after abbreviation */
+      _pre_elide = _nm;
       %elide_middle(nm=_nm);
+      _elided = (strip(_nm) ne strip(_pre_elide));
     end;
-    pcnr_name_base = _nm;
+    pcnr_name_base = strip(_nm);
     output work._grp_names;
   run;
+
+  %if &_abbrev_longer = 1 %then
+    %fail_out(msg=%str(abbreviation made one or more names longer -- see ERROR above));
+
+  /* Guard: pcnr_name_base must contain only [A-Za-z0-9_] and no triple underscores */
+  %local _n_badbase;
+  proc sql noprint;
+    select count(*) into :_n_badbase trimmed
+    from work._grp_names
+    where prxmatch('/[^A-Za-z0-9_]/', strip(pcnr_name_base)) > 0
+       or prxmatch('/___/',            strip(pcnr_name_base)) > 0;
+  quit;
+  %if &_n_badbase > 0 %then %do;
+    proc print data=work._grp_names
+      (where=(prxmatch('/[^A-Za-z0-9_]/', strip(pcnr_name_base)) > 0
+              or prxmatch('/___/',         strip(pcnr_name_base)) > 0)); run;
+    %fail_out(msg=%str(&_n_badbase pcnr_name_base values have invalid chars or triple underscores));
+  %end;
 
   /* Join pcnr_name_base back to all rows */
   proc sql noprint;
@@ -733,6 +802,25 @@
     select count(*) into :_ncoll trimmed from pdd.qc_name_map_collisions;
   quit;
   %put NOTE: [04_name_map] Stage 1 complete -- &_ncoll collision rows in qc_name_map_collisions;
+
+  /* Stage 1 summary */
+  %local _s1_groups _s1_abbrev _s1_elided _s1_btwn _s1_sf;
+  proc sql noprint;
+    select count(distinct group_id) into :_s1_groups trimmed
+      from work.name_map_grouped where status = 'PCNR' and group_id > .;
+    select count(distinct group_id) into :_s1_abbrev trimmed
+      from work._abbrev_hits;
+    select count(*) into :_s1_elided trimmed
+      from work._grp_names where _elided = 1;
+    select count(*) into :_s1_btwn trimmed from work._coll_stage1;
+    select count(*) into :_s1_sf   trimmed from work._coll_samefile;
+  quit;
+  %put NOTE: [04_name_map] PHASE 4 STAGE 1 SUMMARY:;
+  %put NOTE: [04_name_map]   PCNR groups               = &_s1_groups;
+  %put NOTE: [04_name_map]   groups shortened (abbrev)  = &_s1_abbrev;
+  %put NOTE: [04_name_map]   groups elided              = &_s1_elided;
+  %put NOTE: [04_name_map]   between-group suffixes     = &_s1_btwn;
+  %put NOTE: [04_name_map]   same-file suffixes         = &_s1_sf;
 %mend stage1_suffix;
 
 /* Stage 2 hard-stop (Section 8 body).
@@ -931,7 +1019,7 @@ run;
 data work.headers;
   set pdd.import_spec (rename=(file_code=s_code sas_name=col_name));
   length original_header $256;
-  original_header = substr(strip(orig_col_name), 1, 256);
+  original_header = strip(orig_col_name);
   trunc_flag      = (length(strip(orig_col_name)) >= 256);
   keep s_code col_order col_name sas_type length orig_col_name original_header trunc_flag;
 run;
@@ -1009,6 +1097,8 @@ data work.abbrev;
 run;
 
 proc sort data=work.abbrev; by descending _longlen; run;
+
+%check_abbrev_csv;
 
 
 /* ============================================================

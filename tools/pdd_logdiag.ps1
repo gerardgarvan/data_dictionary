@@ -33,6 +33,9 @@ Hits "\[02_source_guard\] (PASS|FAIL)|Phase 2 complete|n_disagreements" 20
 Sec "PHASE 3 NOTES"
 Hits "\[03_import\]" 250
 
+Sec "PHASE 4 NOTES"
+Hits "\[04_name_map\]" 250
+
 Sec "PDD DATASETS WRITTEN"
 Hits "The data set PDD\.\S+ has" 80
 

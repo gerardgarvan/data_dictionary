@@ -13,7 +13,8 @@ C5  %if comparison RHS is a bare identifier that itself contains - or .
     (hyphen is arithmetic; trailing dot is a macro word-delimiter)
 C6  ORDER BY clause containing an aggregate function
 C7  fdelete / fexist / fopen called with a string literal as fileref
-C8  prxmatch with $ anchor on a variable not wrapped in strip()
+C8  prxmatch with ^ or $ anchor on a variable not wrapped in strip()
+W6  prxchange with ^ or $ anchor; value arg not wrapped in strip()/trim()
 C9  LIBNAME statement with engine placed after the path string (wrong order)
 C10 array _character_ / _numeric_ declared before SET/MERGE/INPUT in a DATA step
 C11 SAS macro keyword inside a quoted string on a PUT line (macro-in-put)
@@ -231,8 +232,10 @@ def check_prxmatch_dollar_no_strip(path, lines):
             if pat_end < 0:
                 continue
             pattern_text = rest[pat_start:pat_end]
-            # Only care if the pattern contains a $ anchor
-            if '$' not in pattern_text:
+            # Only care if the pattern contains a ^ or $ anchor
+            # Strip character classes to avoid flagging [^...] negation
+            _plain = re.sub(r'\[[^\]]*\]', '', pattern_text)
+            if not re.search(r'[\^$]', _plain):
                 continue
             # Find the comma separating pattern from the variable
             after_pat = rest[pat_end + 1:]
@@ -243,8 +246,48 @@ def check_prxmatch_dollar_no_strip(path, lines):
             # Hit if the second argument does NOT begin with strip(
             if not re.match(r'strip\s*\(', second_arg, CI):
                 hits.append((path, i, 'C8',
-                    'prxmatch with $ anchor: variable not wrapped in strip() -- '
-                    'trailing spaces in fixed-length char vars prevent $ from matching'))
+                    'prxmatch with ^ or $ anchor: variable not wrapped in strip() -- '
+                    'blank-padded char vars prevent anchored matches'))
+    return hits
+
+
+# ── W6: prxchange with ^ or $ anchor; value arg not in strip()/trim() ────────
+
+def check_prxchange_anchor_no_strip(path, lines):
+    """W6: prxchange with ^ or $ anchor; value (3rd) arg not wrapped in strip()/trim()."""
+    hits = []
+    for i, raw in enumerate(lines, 1):
+        for m in re.finditer(r'prxchange\s*\(', raw, CI):
+            rest = raw[m.end():]
+            qm = re.match(r'\s*([\'"])', rest)
+            if not qm:
+                continue
+            qchar = qm.group(1)
+            pat_start = qm.end()
+            pat_end = _find_closing_quote(rest, qchar, pat_start)
+            if pat_end < 0:
+                continue
+            pattern_text = rest[pat_start:pat_end]
+            # Check for ^ or $ anchor outside character class
+            _plain = re.sub(r'\[[^\]]*\]', '', pattern_text)
+            if not re.search(r'[\^$]', _plain):
+                continue
+            # Skip past the pattern arg and its closing quote
+            after_pat = rest[pat_end + 1:]
+            # Skip comma separator after pattern
+            cm = re.match(r'\s*,\s*', after_pat)
+            if not cm:
+                continue
+            # Skip count arg (everything up to the next comma)
+            count_rest = after_pat[cm.end():]
+            cm2 = re.search(r',\s*', count_rest)
+            if not cm2:
+                continue
+            value_arg = count_rest[cm2.end():]
+            if not re.match(r'(strip|trim)\s*\(', value_arg, CI):
+                hits.append((path, i, 'W6',
+                    'prxchange with ^ or $ anchor: value arg not wrapped in strip()/trim() -- '
+                    'blank-padded char vars prevent anchored regex matches'))
     return hits
 
 
@@ -803,6 +846,7 @@ CHECKS = [
     check_sysfunc_put_input,
     check_datalines_in_macro,
     check_hash_guard_no_ok,
+    check_prxchange_anchor_no_strip,
 ]
 
 
