@@ -132,18 +132,20 @@
   %end;
 %mend _init_import_cache;
 
-/* Compute SHA256 of a file via certutil; store in global macro var outmv.
-   Returns blank if certutil fails or file not found. Line 2 of certutil output is the hash. */
+/* Compute SHA256 of a file via certutil; store result in caller's macro var outmv.
+   Caller must declare outmv as %local (or %global) before calling.
+   Returns blank if certutil fails or file not found.
+   Hash identified as unique 64-hex-char line in certutil output (matches 02_source_guard pattern). */
 %macro _compute_file_sha256(path=, outmv=);
-  %global &outmv;
   %let &outmv = ;
-  filename _shpipe pipe "certutil -hashfile ""&path"" SHA256" encoding='utf-8';
+  filename _shpipe pipe "certutil -hashfile ""&path"" SHA256";
   data _null_;
-    infile _shpipe truncover lrecl=300;
-    input line $300.;
-    line = strip(line);
-    if _n_ = 2 and length(line) = 64 then
-      call symputx("&outmv", line, 'G');
+    infile _shpipe truncover lrecl=400;
+    length line $400 compressed $400;
+    input line $400.;
+    compressed = compress(line, ' ');
+    if lengthn(compressed) = 64 and notxdigit(strip(compressed)) = 0 then
+      call symputx("&outmv", lowcase(compressed));
   run;
   filename _shpipe clear;
 %mend _compute_file_sha256;
@@ -173,7 +175,6 @@
    src_sha256 (source file), code_sha256 (03+00 sas), spec_sha256 (spec csvs).
    PDD_FORCE_XLSX=1 bypasses the cache. Prints which component mismatched on a miss. */
 %macro _xlsx_cache_hit(fc=, hit_mv=);
-  %global &hit_mv;
   %let &hit_mv = 0;
   %local _force _cur_sha _cached_src _cached_code _cached_spec _ds_exists;
   %if %sysfunc(sysexist(PDD_FORCE_XLSX)) %then %let _force = %sysget(PDD_FORCE_XLSX);
@@ -794,7 +795,6 @@ options validvarname=any;
    All 4 XLSX files (s06/s08/s11/s19) are single-data-sheet files. */
 
 %macro _get_sheet_name(scode=, outmv=);
-  %global &outmv;
   %let &outmv = ;
   %local _sn _fpath _librc _n_sn;
   %let _sn = ;
@@ -1069,6 +1069,7 @@ options validvarname=any;
 
 /* ---- s08: 2018_2022_COLONOSCOPY_20240118.xlsx ---- */
 %macro _import_s08;
+  %local _hit_s08 _sh_s08;
   %_xlsx_cache_hit(fc=s08, hit_mv=_hit_s08);
   %if not &_hit_s08 %then %do;
     %put NOTE: [timing] s08 start %sysfunc(datetime(), datetime20.);
@@ -1084,6 +1085,7 @@ options validvarname=any;
 
 /* ---- s11: 2020_Precede_Database_Edu.xlsx ---- */
 %macro _import_s11;
+  %local _hit_s11 _sh_s11;
   %_xlsx_cache_hit(fc=s11, hit_mv=_hit_s11);
   %if not &_hit_s11 %then %do;
     %put NOTE: [timing] s11 start %sysfunc(datetime(), datetime20.);
@@ -1100,6 +1102,7 @@ options validvarname=any;
 /* ---- s06: 2018_2019_Precede_Database.xlsx (~200 MB, ~3987 cols) ---- */
 /* Import ALL columns; no gating. PDD-D-21 scope decision deferred to Phases 4-5. */
 %macro _import_s06;
+  %local _hit_s06 _sh_s06;
   %_xlsx_cache_hit(fc=s06, hit_mv=_hit_s06);
   %if not &_hit_s06 %then %do;
     %put NOTE: [timing] s06 start %sysfunc(datetime(), datetime20.);
@@ -1154,6 +1157,7 @@ options validvarname=any;
 %mend _log_s19_counts;
 
 %macro _import_s19;
+  %local _hit_s19 _sh_s19;
   %_xlsx_cache_hit(fc=s19, hit_mv=_hit_s19);
   %if not &_hit_s19 %then %do;
     %put NOTE: [timing] s19 start %sysfunc(datetime(), datetime20.);

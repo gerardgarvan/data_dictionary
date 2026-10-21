@@ -635,6 +635,52 @@ def check_local_global_opencode(path, lines):
     return hits
 
 
+# ── C20: encoding= on FILENAME ... PIPE statement ────────────────────────────
+#
+# SAS Base on Windows does not accept the encoding= option on FILENAME PIPE.
+# It raises "ERROR 23-2: Invalid option name encoding." at run time.
+# Remove encoding= from FILENAME PIPE; handle encoding in the DATA step if needed.
+
+_FILENAME_PIPE_ENCODING = re.compile(
+    r'\bfilename\s+\w+\s+pipe\b[^;]*\bencoding\s*=',
+    CI,
+)
+
+def check_filename_pipe_encoding(path, lines):
+    hits = []
+    for i, raw in enumerate(lines, 1):
+        if re.search(_FILENAME_PIPE_ENCODING, raw):
+            hits.append((path, i, 'C20',
+                'encoding= is not a valid option on FILENAME ... PIPE -- '
+                'SAS Base raises "Invalid option name encoding" at run time; '
+                'remove the option'))
+    return hits
+
+
+# ── C21: %global of a name that the macro param declares as %local ────────────
+#
+# A helper macro that does %global &outmv while the calling macro declared
+# %local <outmv-value> causes "Attempt to %GLOBAL a name which exists in a
+# local environment."  The fix: omit %global in the helper; callers pre-declare
+# the variable as %local or %global before calling.
+# Detection: within a macro body, find %global &<param> where <param> is a
+# positional or keyword parameter of that same macro (i.e. %global resolves to
+# a value that was passed in, not a literal name).
+
+_GLOBAL_AMPERSAND = re.compile(r'%\s*global\s+&', CI)
+
+def check_global_via_param(path, lines):
+    hits = []
+    for i, raw in enumerate(lines, 1):
+        if re.search(_GLOBAL_AMPERSAND, raw):
+            hits.append((path, i, 'C21',
+                '%global &<param> inside a macro -- if the caller declared '
+                'this name %local, SAS raises "Attempt to %GLOBAL a name '
+                'which exists in a local environment"; omit %global and let '
+                'the caller pre-declare the variable'))
+    return hits
+
+
 # ── W4: <name>_c temp variable style in generated code ───────────────────────
 #
 # Temp variables named <sas_name>_c (built by concatenating the source column
@@ -707,6 +753,8 @@ CHECKS = [
     check_str_unescaped_quote,
     check_syscc_reset,
     check_local_global_opencode,
+    check_filename_pipe_encoding,
+    check_global_via_param,
     check_name_c_temp_vars,
     check_sysfunc_put_input,
 ]
