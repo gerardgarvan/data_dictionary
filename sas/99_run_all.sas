@@ -45,12 +45,10 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
    PHASE SELECTOR -- read PDD_PHASES from -set (run_pipeline.cmd) or default
    ========================================================================= */
 
-/* Returns 1 if integer n is in comma-delimited list, 0 otherwise.
-   Pads with commas to avoid substring false-match (e.g. "2" in "20,3"). */
-%macro _phase_in(n, list);
-  %local _padded;
-  %let _padded = ,%sysfunc(compress(&list, %str( ))),;
-  %if %index(&_padded, ,&n,) > 0 %then 1;
+/* _phase_in(n) -- 1 if n is in space-delimited &pdd_phases_run, else 0.
+   Uses indexw to avoid substring false-match (e.g. "2" in "20"). */
+%macro _phase_in(n);
+  %if %sysfunc(indexw(&pdd_phases_run, &n)) > 0 %then 1;
   %else 0;
 %mend _phase_in;
 
@@ -75,12 +73,14 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
   %put NOTE: [99_run_all] hash guard passed -- all Phase 2 prerequisite datasets present;
 %mend run_hash_guard;
 
-/* Read PDD_PHASES from sas -set option; default 2,3 if not supplied. */
+/* Read PDD_PHASES from sas -set option; default "2 3" if not supplied.
+   Normalise commas to spaces so the value is safe to pass as a macro argument. */
 %macro _init_phases;
   %global pdd_phases_run;
   %local _raw;
-  %let _raw = %sysget(PDD_PHASES);
-  %if %length(%superq(_raw)) = 0 %then %let pdd_phases_run = 2,3;
+  %let _raw = %sysfunc(translate(%sysget(PDD_PHASES), %str( ), %str(,)));
+  %let _raw = %sysfunc(compbl(%superq(_raw)));
+  %if %length(%superq(_raw)) = 0 %then %let pdd_phases_run = 2 3;
   %else %let pdd_phases_run = &_raw;
   %put NOTE: [99_run_all] PDD_PHASES resolved to: &pdd_phases_run;
 %mend _init_phases;
@@ -93,7 +93,7 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
      PHASE 2 -- Source Guard and Header Inventory
      ========================================================================= */
   %put NOTE: [timing] phase 2 start %sysfunc(datetime(), datetime20.);
-  %if %_phase_in(2, &pdd_phases_run) %then %do;
+  %if %_phase_in(2) %then %do;
     %put NOTE: ---- Phase 2: Source guard and header inventory -------------;
     %include "&sas_path.\02_source_guard.sas";
     %put NOTE: ---- Phase 2 complete --------------------------------------;
@@ -108,7 +108,7 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
   /* =========================================================================
      PHASE 3 -- Direct Import of 20 Raw Sources
      ========================================================================= */
-  %if %_phase_in(3, &pdd_phases_run) %then %do;
+  %if %_phase_in(3) %then %do;
     %put NOTE: [timing] phase 3 start %sysfunc(datetime(), datetime20.);
     %put NOTE: ---- Phase 3: Direct import of 20 raw sources ------------;
     %include "&sas_path.\03_import.sas";
@@ -164,10 +164,18 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
 
 
 /* =========================================================================
-   PIPELINE COMPLETE
+   PIPELINE COMPLETE / FAILED
    ========================================================================= */
-%put NOTE: ============================================================;
-%put NOTE: 99_run_all.sas -- PIPELINE COMPLETE (phases run: &pdd_phases_run);
-%put NOTE: Logs are in: &logs_path;
-%put NOTE: Output is in: &out_root;
-%put NOTE: ============================================================;
+%macro _pipeline_status;
+  %put NOTE: ============================================================;
+  %if &syscc <= 4 %then %do;
+    %put NOTE: 99_run_all.sas -- PIPELINE COMPLETE (phases run: &pdd_phases_run);
+  %end;
+  %else %do;
+    %put NOTE: 99_run_all.sas -- PIPELINE FAILED (syscc=&syscc phases run: &pdd_phases_run);
+  %end;
+  %put NOTE: Logs are in: &logs_path;
+  %put NOTE: Output is in: &out_root;
+  %put NOTE: ============================================================;
+%mend _pipeline_status;
+%_pipeline_status;
