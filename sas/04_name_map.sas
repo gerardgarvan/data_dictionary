@@ -45,6 +45,16 @@
   %abort cancel;
 %mend fail_out;
 
+/* Fail-fast at start of each section: catches obs=0/syserr from the prior section */
+%macro _p4_ok(section=);
+  %if %sysfunc(getoption(obs)) = 0 %then %do;
+    %fail_out(msg=%str(SAS in obs=0/syntax-check mode entering Section &section -- prior section had an error));
+  %end;
+  %if &syserr > 4 %then %do;
+    %fail_out(msg=%str(syserr=&syserr entering Section &section -- prior section had an error));
+  %end;
+%mend _p4_ok;
+
 /* Check pdd library after fail_out is compiled */
 %check_pdd_lib;
 
@@ -1359,6 +1369,8 @@ quit;
    SECTION 2 -- Load inputs
    ============================================================ */
 
+%_p4_ok(section=2);
+
 /* Log column names of key inputs for diagnostics */
 proc contents data=pdd.import_spec noprint
   out=work._is_cols (keep=name varnum); run;
@@ -1463,6 +1475,8 @@ proc sort data=work.abbrev; by descending _longlen; run;
    SECTION 3 -- D-08 duplicate Study ID (s15, s17) THEN status
    ============================================================ */
 
+%_p4_ok(section=3);
+
 /* 3a. Identify PSID-like headers in s15/s17 via original_header */
 proc sql noprint;
   create table work._psid_headers as
@@ -1514,6 +1528,7 @@ quit;
    SECTION 4 -- D-02 Name cleaning (PCNR rows only)
    ============================================================ */
 
+%_p4_ok(section=4);
 %apply_cleaning;
 
 
@@ -1521,6 +1536,7 @@ quit;
    SECTION 5 -- Decision RENAME overrides
    ============================================================ */
 
+%_p4_ok(section=5);
 %apply_decisions_rename;
 
 
@@ -1528,6 +1544,7 @@ quit;
    SECTION 6 -- Variable groups (D-01a) and D-03 shortening
    ============================================================ */
 
+%_p4_ok(section=6);
 %form_groups_and_shorten;
 
 
@@ -1535,6 +1552,7 @@ quit;
    SECTION 7 -- Stage 1 collision suffix between groups (D-05)
    ============================================================ */
 
+%_p4_ok(section=7);
 %stage1_suffix;
 
 
@@ -1542,6 +1560,7 @@ quit;
    SECTION 8 -- Stage 2 hard-stop validation (D-05)
    ============================================================ */
 
+%_p4_ok(section=8);
 %stage2_validate;
 
 
@@ -1549,6 +1568,7 @@ quit;
    SECTION 9 -- Near-match detection (D-06)
    ============================================================ */
 
+%_p4_ok(section=9);
 %macro section9_nearmatches;
   /* ── Step 1: Group-level representative (lowest s_code, then col_order) ── */
   proc sql noprint;
@@ -1579,7 +1599,7 @@ quit;
   /* ── Step 2: File list (n_files, pipe-separated scodes) per group ──────── */
   proc sort data=work.name_map_core (
       where=(status='PCNR' and cleaned_pre_short ne '')
-      keep=group_id s_code)
+      keep=group_id s_code status cleaned_pre_short)
     out=work._nm_grp_detail nodupkey;
     by group_id s_code;
   run;
@@ -1782,6 +1802,7 @@ quit;
    SECTION 10 -- D-08 confirmed
    ============================================================ */
 
+%_p4_ok(section=10);
 %put NOTE: Section 10 D-08 confirmed in Plan 02;
 %put NOTE: [04_name_map] DUPLICATE_DROPPED rows from s15/s17 verified in Section 3;
 
@@ -1790,6 +1811,7 @@ quit;
    SECTION 11 -- Type tracking (D-07)
    ============================================================ */
 
+%_p4_ok(section=11);
 %macro section11_types;
   proc sql noprint;
     create table work._nm_typed as
@@ -1857,6 +1879,7 @@ quit;
    SECTION 12 -- Build final datasets
    ============================================================ */
 
+%_p4_ok(section=12);
 %macro section12_final;
   /* pdd.name_map: 4795 rows.
      Columns: s_code, col_order, sas_name (column in pdd.src_<s_code>),
@@ -1962,6 +1985,7 @@ quit;
    SECTION 13 -- D-10 integrity checks
    ============================================================ */
 
+%_p4_ok(section=13);
 %macro section13_integrity;
   /* (a) All 4795 rows have a status */
   %local _n_nostatus;
@@ -2063,6 +2087,7 @@ quit;
    SECTION 14 -- Exchange CSV exports (D-09)
    ============================================================ */
 
+%_p4_ok(section=14);
 %macro section14_exports;
   %local _nrow;
 
