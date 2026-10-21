@@ -118,3 +118,39 @@ def test_write_workbook_csv_roundtrip(tmp_path: Path) -> None:
     write_workbook(rows, out)
     assert out.exists()
     assert out.stat().st_size > 0
+
+
+def test_numeric_cells_written_as_numbers(tmp_path: Path) -> None:
+    """% Non-null cells must be float; SUMMARY class counts must be int."""
+    out = tmp_path / "numeric.xlsx"
+    write_workbook(_SYNTHETIC, out)
+
+    from openpyxl import load_workbook as lw
+    wb = lw(out, read_only=True)
+
+    # SUMMARY: rows 2-5 are class data rows; col 2 is count
+    ws_sum = wb["SUMMARY"]
+    for row in ws_sum.iter_rows(min_row=2, max_row=5, min_col=2, max_col=2):
+        for cell in row:
+            assert isinstance(cell.value, int), f"SUMMARY count not int: {cell.value!r}"
+
+    # CLOCK/DIGITAL_OTHER/PCNR: % Non-null is col 5 (1-based); must be numeric, not str
+    for sheet_name in ("CLOCK", "DIGITAL_OTHER", "PCNR"):
+        ws = wb[sheet_name]
+        for row in ws.iter_rows(min_row=2, min_col=5, max_col=5):
+            for cell in row:
+                if cell.value is not None:
+                    assert isinstance(cell.value, (int, float)), (
+                        f"{sheet_name} pct_nonnull not numeric: {cell.value!r}"
+                    )
+
+    # ALL_COLUMNS: % Non-null is col 6
+    ws_all = wb["ALL_COLUMNS"]
+    for row in ws_all.iter_rows(min_row=2, min_col=6, max_col=6):
+        for cell in row:
+            if cell.value is not None:
+                assert isinstance(cell.value, (int, float)), (
+                    f"ALL_COLUMNS pct_nonnull not numeric: {cell.value!r}"
+                )
+
+    wb.close()

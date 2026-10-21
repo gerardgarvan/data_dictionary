@@ -15,7 +15,14 @@ from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
 
-from pdd.xlsx_style import ACCENT_FILL, ACCENT_FONT, apply_header_row, autofit_columns, freeze_and_filter
+from pdd.xlsx_style import (
+    ACCENT_FILL,
+    ACCENT_FONT,
+    apply_header_row,
+    autofit_columns,
+    freeze_and_filter,
+    write_table,
+)
 
 EXPECTED_ROWS = 3987
 EXPECTED_COUNTS: dict[str, int] = {
@@ -26,6 +33,9 @@ EXPECTED_COUNTS: dict[str, int] = {
 }
 
 SHEET_ORDER = ["KEY", "SUMMARY", "CLOCK", "DIGITAL_OTHER", "PCNR", "ALL_COLUMNS"]
+
+_COUNT_FMT = "#,##0"
+_PCT_FMT = "0.0"
 
 
 def read_csv(path: Path) -> list[dict[str, str]]:
@@ -68,26 +78,31 @@ def _key_rows() -> list[list[str]]:
 
 def _summary_tables(
     rows: list[dict[str, str]],
-) -> tuple[list[list[str]], list[list[str]]]:
+) -> tuple[list[list], list[list]]:
     class_counts = Counter(r["class"] for r in rows)
-    class_rows = [[cls, str(class_counts.get(cls, 0))] for cls in ("CLOCK", "DIGITAL_OTHER", "PCNR", "UNSURE")]
+    # counts are int, not str
+    class_rows: list[list] = [[cls, class_counts.get(cls, 0)] for cls in ("CLOCK", "DIGITAL_OTHER", "PCNR", "UNSURE")]
 
     rule_class: dict[tuple[str, str], int] = {}
     for r in rows:
         key = (r["rule"], r["class"])
         rule_class[key] = rule_class.get(key, 0) + 1
-    rule_rows = [[rule, cls, str(n)] for (rule, cls), n in sorted(rule_class.items())]
+    rule_rows: list[list] = [[rule, cls, n] for (rule, cls), n in sorted(rule_class.items())]
 
     return class_rows, rule_rows
 
 
-def _write_rows(ws, headers: list[str], data: list[list[str]]) -> None:
-    ws.append(headers)
-    apply_header_row(ws)
-    for row in data:
-        ws.append(row)
-    freeze_and_filter(ws)
-    autofit_columns(ws)
+def _subset_data(subset: list[dict[str, str]]) -> list[list]:
+    return [
+        [
+            r["sas_name"],
+            r["orig_col_name"],
+            r["token"],
+            r["rule"],
+            float(r["pct_nonnull"]) if r["pct_nonnull"] else None,
+        ]
+        for r in subset
+    ]
 
 
 def _accent_column(ws, col_idx: int) -> None:
@@ -96,6 +111,45 @@ def _accent_column(ws, col_idx: int) -> None:
         for cell in row:
             cell.fill = ACCENT_FILL
             cell.font = ACCENT_FONT
+
+
+def _write_summary(ws, class_rows: list[list], rule_rows: list[list]) -> None:
+    """Two-table SUMMARY sheet: class counts (with Total row) then rule breakdown."""
+    # --- Class count table ---
+    ws.append(["Class", "Column count"])
+    apply_header_row(ws)
+    for row in class_rows:
+        ws.append(row)
+    # Total row styled with UF orange
+    total = sum(r[1] for r in class_rows)
+    total_row_idx = ws.max_row + 1
+    ws.append(["Total", total])
+    for cell in ws[total_row_idx]:
+        cell.fill = ACCENT_FILL
+        cell.font = ACCENT_FONT
+    # Apply count format to column 2 (rows 2 onward)
+    for row_cells in ws.iter_rows(min_row=2, min_col=2, max_col=2):
+        for cell in row_cells:
+            if cell.value is not None:
+                cell.number_format = _COUNT_FMT
+    # Orange on Class column data cells (col 1, rows 2 to before Total)
+    for row_cells in ws.iter_rows(min_row=2, min_col=1, max_col=1, max_row=total_row_idx - 1):
+        for cell in row_cells:
+            cell.fill = ACCENT_FILL
+            cell.font = ACCENT_FONT
+    # --- Rule breakdown table ---
+    ws.append([])
+    ws.append(["Rule", "Class", "Column count"])
+    for row in rule_rows:
+        ws.append(row)
+    # Apply count format to column 3 in rule section
+    rule_header_row = total_row_idx + 2
+    for row_cells in ws.iter_rows(min_row=rule_header_row + 1, min_col=3, max_col=3):
+        for cell in row_cells:
+            if cell.value is not None:
+                cell.number_format = _COUNT_FMT
+    freeze_and_filter(ws)
+    autofit_columns(ws)
 
 
 def write_workbook(rows: list[dict[str, str]], out_path: Path) -> None:
@@ -110,38 +164,39 @@ def write_workbook(rows: list[dict[str, str]], out_path: Path) -> None:
 
     # KEY
     ws_key = wb.create_sheet("KEY")
-    _write_rows(ws_key, ["Section", "Item", "Description"], _key_rows())
+    write_table(ws_key, ["Section", "Item", "Description"], _key_rows())
 
-    # SUMMARY: class counts, then rule x class below
+    # SUMMARY: two tables in one sheet (special handling)
     ws_sum = wb.create_sheet("SUMMARY")
-    _write_rows(ws_sum, ["Class", "Column count"], class_rows)
-    _accent_column(ws_sum, 1)
-    ws_sum.append([])
-    ws_sum.append(["Rule", "Class", "Column count"])
-    for row in rule_rows:
-        ws_sum.append(row)
-
-    def _subset_data(subset: list[dict[str, str]]) -> list[list[str]]:
-        return [[r["sas_name"], r["orig_col_name"], r["token"], r["rule"], r["pct_nonnull"]] for r in subset]
+    _write_summary(ws_sum, class_rows, rule_rows)
 
     sub_headers = ["SAS Name", "Original Column", "Token", "Rule", "% Non-null"]
+    _pct_col = frozenset({4})
+    _pct_fmt = {4: _PCT_FMT}
 
     ws_clock = wb.create_sheet("CLOCK")
-    _write_rows(ws_clock, sub_headers, _subset_data(clock))
+    write_table(ws_clock, sub_headers, _subset_data(clock), float_cols=_pct_col, formats=_pct_fmt)
 
     ws_do = wb.create_sheet("DIGITAL_OTHER")
-    _write_rows(ws_do, sub_headers, _subset_data(do))
+    write_table(ws_do, sub_headers, _subset_data(do), float_cols=_pct_col, formats=_pct_fmt)
 
     ws_pcnr = wb.create_sheet("PCNR")
-    _write_rows(ws_pcnr, sub_headers, _subset_data(pcnr))
+    write_table(ws_pcnr, sub_headers, _subset_data(pcnr), float_cols=_pct_col, formats=_pct_fmt)
 
     ws_all = wb.create_sheet("ALL_COLUMNS")
     all_data = [
-        [r["sas_name"], r["orig_col_name"], r["token"], r["class"], r["rule"], r["pct_nonnull"]]
+        [r["sas_name"], r["orig_col_name"], r["token"], r["class"], r["rule"],
+         float(r["pct_nonnull"]) if r["pct_nonnull"] else None]
         for r in rows
     ]
-    _write_rows(ws_all, ["SAS Name", "Original Column", "Token", "Class", "Rule", "% Non-null"], all_data)
-    _accent_column(ws_all, 4)
+    write_table(
+        ws_all,
+        ["SAS Name", "Original Column", "Token", "Class", "Rule", "% Non-null"],
+        all_data,
+        float_cols=frozenset({5}),
+        formats={5: _PCT_FMT},
+    )
+    _accent_column(ws_all, 4)  # Class column orange
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(out_path)
