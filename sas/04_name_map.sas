@@ -771,6 +771,51 @@
       %fail_out(msg=%str(B3: &_n_same_miss SAME decision side(s) do not match any name_map row by (s_code,col_order)));
     %end;
 
+    /* B3: when col_order provided and header non-blank, verify header_x matches original_header */
+    proc sql noprint;
+      create table work._same_hdr_bad_a as
+      select d.s_code_a as s_code length=4,
+             d.header_a as header_given length=256,
+             d.col_order_a as col_order,
+             a.original_header as header_actual length=256
+      from work._same_dec as d
+      inner join work._group_assign as a
+        on d.s_code_a = a.s_code and d.col_order_a = a.col_order
+      where d.col_order_a is not missing
+        and strip(d.header_a) ne ''
+        and lowcase(strip(d.header_a)) ne lowcase(strip(a.original_header));
+      create table work._same_hdr_bad_b as
+      select d.s_code_b as s_code length=4,
+             d.header_b as header_given length=256,
+             d.col_order_b as col_order,
+             b.original_header as header_actual length=256
+      from work._same_dec as d
+      inner join work._group_assign as b
+        on d.s_code_b = b.s_code and d.col_order_b = b.col_order
+      where d.col_order_b is not missing
+        and strip(d.header_b) ne ''
+        and lowcase(strip(d.header_b)) ne lowcase(strip(b.original_header));
+    quit;
+    %local _n_same_hdr_bad;
+    proc sql noprint;
+      select count(*) + (select count(*) from work._same_hdr_bad_b)
+      into :_n_same_hdr_bad trimmed
+      from work._same_hdr_bad_a;
+    quit;
+    %if &_n_same_hdr_bad > 0 %then %do;
+      data _null_;
+        set work._same_hdr_bad_a;
+        put 'ERROR: [04_name_map] SAME_HDR_MISMATCH_A: '
+            s_code= col_order= header_given= header_actual=;
+      run;
+      data _null_;
+        set work._same_hdr_bad_b;
+        put 'ERROR: [04_name_map] SAME_HDR_MISMATCH_B: '
+            s_code= col_order= header_given= header_actual=;
+      run;
+      %fail_out(msg=%str(B3: &_n_same_hdr_bad SAME decision header_x does not match original_header for (s_code,col_order)));
+    %end;
+
     /* Validate: SAME must not place two same-s_code rows in one group */
     proc sql noprint;
       create table work._same_sc_bad as
@@ -920,6 +965,52 @@
       run;
       %fail_out(msg=%str(B3: &_n_diff_miss DIFFERENT decision side(s) do not match any name_map row by (s_code,col_order)));
     %end;
+
+    /* B3: when col_order provided and header non-blank, verify header_x matches original_header */
+    proc sql noprint;
+      create table work._diff_hdr_bad_a as
+      select d.s_code_a as s_code length=4,
+             d.header_a as header_given length=256,
+             d.col_order_a as col_order,
+             a.original_header as header_actual length=256
+      from work._diff_dec as d
+      inner join work._group_final as a
+        on d.s_code_a = a.s_code and d.col_order_a = a.col_order
+      where d.col_order_a is not missing
+        and strip(d.header_a) ne ''
+        and lowcase(strip(d.header_a)) ne lowcase(strip(a.original_header));
+      create table work._diff_hdr_bad_b as
+      select d.s_code_b as s_code length=4,
+             d.header_b as header_given length=256,
+             d.col_order_b as col_order,
+             b.original_header as header_actual length=256
+      from work._diff_dec as d
+      inner join work._group_final as b
+        on d.s_code_b = b.s_code and d.col_order_b = b.col_order
+      where d.col_order_b is not missing
+        and strip(d.header_b) ne ''
+        and lowcase(strip(d.header_b)) ne lowcase(strip(b.original_header));
+    quit;
+    %local _n_diff_hdr_bad;
+    proc sql noprint;
+      select count(*) + (select count(*) from work._diff_hdr_bad_b)
+      into :_n_diff_hdr_bad trimmed
+      from work._diff_hdr_bad_a;
+    quit;
+    %if &_n_diff_hdr_bad > 0 %then %do;
+      data _null_;
+        set work._diff_hdr_bad_a;
+        put 'ERROR: [04_name_map] DIFF_HDR_MISMATCH_A: '
+            s_code= col_order= header_given= header_actual=;
+      run;
+      data _null_;
+        set work._diff_hdr_bad_b;
+        put 'ERROR: [04_name_map] DIFF_HDR_MISMATCH_B: '
+            s_code= col_order= header_given= header_actual=;
+      run;
+      %fail_out(msg=%str(B3: &_n_diff_hdr_bad DIFFERENT decision header_x does not match original_header for (s_code,col_order)));
+    %end;
+
     /* Find b-side rows whose group_id now equals their a-side partner's group_id */
     proc sql noprint;
       create table work._diff_splits as
