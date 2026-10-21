@@ -28,6 +28,7 @@ from pdd.name_map_workbook import (
     DECISIONS_TEMPLATE_COLS,
     EXPECTED_ROWS,
     assert_input,
+    build_group_meta,
     make_decisions_template,
     read_csv,
     verify_workbook,
@@ -103,6 +104,25 @@ def main() -> int:
         headers, rows = csv_data[sheet_name]
         data = [list(r.values()) for r in rows]
         sheets[sheet_name] = (headers, data)
+
+    # Inject original_header and s_codes into VARIABLES and NAME_MAP_COLLISIONS
+    group_meta = build_group_meta(name_map_rows)
+    for sheet_name in ("VARIABLES", "NAME_MAP_COLLISIONS"):
+        if sheet_name not in sheets:
+            continue
+        hdrs, rows = sheets[sheet_name]
+        if "group_id" not in hdrs:
+            continue
+        gid_idx = hdrs.index("group_id")
+        new_hdrs = hdrs + ["original_header", "s_codes"]
+        new_rows = [
+            row + [
+                group_meta.get(str(row[gid_idx]), {}).get("original_header", ""),
+                group_meta.get(str(row[gid_idx]), {}).get("s_codes", ""),
+            ]
+            for row in rows
+        ]
+        sheets[sheet_name] = (new_hdrs, new_rows)
 
     xlsx_path = qc / "name_map_review.xlsx"
     write_workbook(sheets, xlsx_path)
