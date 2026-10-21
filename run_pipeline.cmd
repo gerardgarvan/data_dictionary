@@ -99,15 +99,19 @@ if not exist "%SAS_EXE%" (
   goto :fail
 )
 
-REM ---- Phase selector (space-separated; default: 2 3) ----
+REM ---- Phase selector (space-separated; default: 2 3 4) ----
 set PDD_PHASES=%*
-if "%PDD_PHASES%"=="" set PDD_PHASES=2 3
+if "%PDD_PHASES%"=="" set PDD_PHASES=2 3 4
 echo Running phases: %PDD_PHASES%
 echo Running phases: %PDD_PHASES% >> "%MASTER_LOG%"
 
 REM ---- Phase 1 skeleton: pipeline runner only ----
 REM ---- Later phases will add 02_source_guard.sas, 03_import.sas, etc. ----
 call :run_program "99 run_all" "99_run_all.sas"
+if !ERRORLEVEL! NEQ 0 goto :fail
+
+REM ---- Phase 4 Python: write name map review workbook ----
+call :run_python "Phase 4 Python write_name_map_review" "write_name_map_review.py"
 if !ERRORLEVEL! NEQ 0 goto :fail
 
 REM ---- Scan master log for ERROR lines ----

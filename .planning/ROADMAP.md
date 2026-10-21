@@ -51,6 +51,13 @@ Plans:
 - CLOCK columns written to a separate CLK_ candidate list for Phase 9
 - **Gate:** Gerard must review `qc\s06_clock_classification.xlsx` UNSURE sheet and resolve all UNSURE tokens before Phase 4 starts
 - **Done when:** NAME_MAP has no duplicates or truncation collisions, and Gerard has reviewed it
+- **Plans:** 4 plans
+
+Plans:
+- [ ] 04-01-PLAN.md — Wave 0 scaffold: seed CSVs (name_abbrev, name_map_decisions) + name_map_workbook.py + pytest (wave 1)
+- [ ] 04-02-PLAN.md — 04_name_map.sas Sections 0-8: load, status (D-04), clean/shorten (D-02/D-03), groups, two-stage collisions (D-05) (wave 2)
+- [ ] 04-03-PLAN.md — 04_name_map.sas Sections 9-15: near-match (D-06), dup Study ID (D-08), type tracking (D-07), name_map_vars, exports; wire 99_run_all (wave 3)
+- [ ] 04-04-PLAN.md — write_name_map_review.py + workbook verify + Gerard/Price review gate (wave 4)
 
 ### Phase 5: Build PCNR_ on the spine
 - `05_build_pcnr.sas`: start from s09 (spine confirmed by Phase 2), left-join 1:1 PRECEDE_STUDY_ID files

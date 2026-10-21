@@ -227,7 +227,7 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
   %let _raw = %sysfunc(translate(%sysget(PDD_PHASES), %str( ), %str(,)));
   %let _raw = %sysfunc(compbl(%superq(_raw)));
   %if %length(%superq(_raw)) = 0 %then %do;
-    %let pdd_phases_run = 2 3;
+    %let pdd_phases_run = 2 3 4;
     %let pdd_full_run = 1;
   %end;
   %else %do;
@@ -296,19 +296,24 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
   %else
     %put NOTE: [99_run_all] Phase 3 skipped (not in PDD_PHASES=&pdd_phases_run);
 
+
+  /* =========================================================================
+     PHASE 4 -- Name Map (original header to PCNR_)
+     ========================================================================= */
+  %_check_pipeline_ok(phase=4);
+  %if %_phase_in(4) %then %do;
+    %put NOTE: [timing] phase 4 start %sysfunc(datetime(), datetime20.);
+    %put NOTE: ---- Phase 4: Name map (original to PCNR_) -----------------;
+    %include "&sas_path.\04_name_map.sas";
+    %put NOTE: ---- Phase 4 complete --------------------------------------;
+    %let pdd_phases_done = &pdd_phases_done 4;
+    %put NOTE: [timing] phase 4 end %sysfunc(datetime(), datetime20.);
+  %end;
+  %else
+    %put NOTE: [99_run_all] Phase 4 skipped (not in PDD_PHASES=&pdd_phases_run);
+
 %mend _run_phases;
 %_run_phases;
-
-
-
-/* =========================================================================
-   PHASE 4 -- Name Map (original header to PCNR_)
-   ========================================================================= */
-/*
-%put NOTE: ---- Phase 4: Name map (original to PCNR_) -----------------;
-%include "&sas_path.\04_name_map.sas";
-%put NOTE: ---- Phase 4 complete --------------------------------------;
-*/
 
 
 /* =========================================================================

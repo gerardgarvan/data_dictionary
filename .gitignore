@@ -10,6 +10,9 @@
 !docs/source_guard_baseline.csv
 # Exception: import spec is generated metadata, no PHI -- committed per plan 03-01
 !docs/import_spec_generated.csv
+# Exception: name map seed files, no PHI -- committed per plan 04-01
+!docs/name_abbrev.csv
+!docs/name_map_decisions.csv
 
 # SAS logs and output
 *.log
