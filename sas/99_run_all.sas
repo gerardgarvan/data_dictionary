@@ -76,18 +76,46 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
 /* Read PDD_PHASES from sas -set option; default "2 3" if not supplied.
    Normalise commas to spaces so the value is safe to pass as a macro argument. */
 %macro _init_phases;
-  %global pdd_phases_run;
+  %global pdd_phases_run pdd_full_run;
   %local _raw;
+  %put NOTE: [99_run_all] PDD_PHASES raw=%sysget(PDD_PHASES);
   %let _raw = %sysfunc(translate(%sysget(PDD_PHASES), %str( ), %str(,)));
   %let _raw = %sysfunc(compbl(%superq(_raw)));
-  %if %length(%superq(_raw)) = 0 %then %let pdd_phases_run = 2 3;
-  %else %let pdd_phases_run = &_raw;
-  %put NOTE: [99_run_all] PDD_PHASES resolved to: &pdd_phases_run;
+  %if %length(%superq(_raw)) = 0 %then %do;
+    %let pdd_phases_run = 2 3;
+    %let pdd_full_run = 1;
+  %end;
+  %else %do;
+    %let pdd_phases_run = &_raw;
+    %let pdd_full_run = 0;
+  %end;
+  %put NOTE: [99_run_all] PDD_PHASES parsed=&pdd_phases_run full_run=&pdd_full_run;
 %mend _init_phases;
 %_init_phases;
 
+%macro _validate_phases;
+  %local _valid _i _tok;
+  %let _valid = 2 3 4 5 6 7;
+  %if %length(%superq(pdd_phases_run)) = 0 %then %do;
+    %put ERROR: [99_run_all] PDD_PHASES is empty -- cannot run pipeline;
+    %abort cancel;
+  %end;
+  %let _i = 1;
+  %do %while(%scan(&pdd_phases_run, &_i, %str( )) ne %str());
+    %let _tok = %scan(&pdd_phases_run, &_i, %str( ));
+    %if %sysfunc(indexw(&_valid, &_tok)) = 0 %then %do;
+      %put ERROR: [99_run_all] invalid phase token "&_tok" -- allowed: &_valid;
+      %abort cancel;
+    %end;
+    %let _i = %eval(&_i + 1);
+  %end;
+%mend _validate_phases;
+%_validate_phases;
+
 /* Run phases in order; timing surrounds each. */
 %macro _run_phases;
+  %global pdd_phases_done;
+  %let pdd_phases_done = ;
 
   /* =========================================================================
      PHASE 2 -- Source Guard and Header Inventory
@@ -97,6 +125,7 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
     %put NOTE: ---- Phase 2: Source guard and header inventory -------------;
     %include "&sas_path.\02_source_guard.sas";
     %put NOTE: ---- Phase 2 complete --------------------------------------;
+    %let pdd_phases_done = &pdd_phases_done 2;
   %end;
   %else %do;
     %put NOTE: [99_run_all] Phase 2 skipped -- running hash guard;
@@ -113,6 +142,7 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
     %put NOTE: ---- Phase 3: Direct import of 20 raw sources ------------;
     %include "&sas_path.\03_import.sas";
     %put NOTE: ---- Phase 3 complete --------------------------------------;
+    %let pdd_phases_done = &pdd_phases_done 3;
     %put NOTE: [timing] phase 3 end %sysfunc(datetime(), datetime20.);
   %end;
   %else
@@ -167,12 +197,29 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
    PIPELINE COMPLETE / FAILED
    ========================================================================= */
 %macro _pipeline_status;
+  %local _i _tok _missing _done_norm;
+  %let _missing = 0;
   %put NOTE: ============================================================;
-  %if &syscc <= 4 %then %do;
-    %put NOTE: 99_run_all.sas -- PIPELINE COMPLETE (phases run: &pdd_phases_run);
+  /* Full-run integrity: every phase in pdd_phases_run must have ran. */
+  %if &pdd_full_run = 1 %then %do;
+    %let _done_norm = %sysfunc(compbl(&pdd_phases_done));
+    %let _i = 1;
+    %do %while(%scan(&pdd_phases_run, &_i, %str( )) ne %str());
+      %let _tok = %scan(&pdd_phases_run, &_i, %str( ));
+      %if %sysfunc(indexw(&_done_norm, &_tok)) = 0 %then %do;
+        %put ERROR: [99_run_all] full-run integrity: phase &_tok did not run (done:&pdd_phases_done);
+        %let _missing = %eval(&_missing + 1);
+      %end;
+      %let _i = %eval(&_i + 1);
+    %end;
+  %end;
+  %if &syscc <= 4 and &_missing = 0 %then %do;
+    %put NOTE: 99_run_all.sas -- PIPELINE COMPLETE (phases run:&pdd_phases_done);
   %end;
   %else %do;
-    %put NOTE: 99_run_all.sas -- PIPELINE FAILED (syscc=&syscc phases run: &pdd_phases_run);
+    %if &_missing > 0 %then
+      %put ERROR: [99_run_all] full-run integrity FAILED -- &_missing phase(s) did not run;
+    %put NOTE: 99_run_all.sas -- PIPELINE FAILED (syscc=&syscc phases run:&pdd_phases_done);
   %end;
   %put NOTE: Logs are in: &logs_path;
   %put NOTE: Output is in: &out_root;

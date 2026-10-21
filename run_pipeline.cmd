@@ -10,9 +10,9 @@ REM    0   = pipeline PASSED (zero ERRORs, zero WARNINGs in master log)
 REM    1   = pipeline FAILED (ERROR or WARNING lines found, or :fail)
 REM    2+  = STOP (sas.exe abort detected; exit code passed through)
 REM
-REM  Usage: run_pipeline.cmd           (full run, phases 2,3)
+REM  Usage: run_pipeline.cmd           (full run, phases 2 3)
 REM         run_pipeline.cmd 3         (dev: phase 3 only, requires prior full run)
-REM         run_pipeline.cmd "2,3"     (explicit: quote when passing multiple phases)
+REM         run_pipeline.cmd 2 3       (explicit: space-separated, no quotes needed)
 REM  Log:   %LOGS_PATH%\99_run_all.log  (master log with per-program summary)
 REM
 REM  Machine override: create config.local.cmd at repo root to set SAS_EXE.
@@ -47,7 +47,7 @@ goto :main
       -config "%SAS_CFG%" ^
       -encoding utf8 ^
       -set RUN_ALL 1 ^
-      -set PDD_PHASES !PDD_PHASES!
+      -set PDD_PHASES "!PDD_PHASES!"
 
   set _EC=!ERRORLEVEL!
 
@@ -78,11 +78,11 @@ if not exist "%SAS_EXE%" (
   goto :fail
 )
 
-REM ---- Phase selector (optional arg %1; default 2,3) ----
-set PDD_PHASES=%~1
-if "%PDD_PHASES%"=="" set PDD_PHASES=2,3
-echo PDD_PHASES=%PDD_PHASES%
-echo PDD_PHASES=%PDD_PHASES% >> "%MASTER_LOG%"
+REM ---- Phase selector (space-separated; default: 2 3) ----
+set PDD_PHASES=%*
+if "%PDD_PHASES%"=="" set PDD_PHASES=2 3
+echo Running phases: %PDD_PHASES%
+echo Running phases: %PDD_PHASES% >> "%MASTER_LOG%"
 
 REM ---- Phase 1 skeleton: pipeline runner only ----
 REM ---- Later phases will add 02_source_guard.sas, 03_import.sas, etc. ----
