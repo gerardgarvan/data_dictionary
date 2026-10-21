@@ -103,24 +103,79 @@
     %put WARNING: [03_import] &label was NOT written;
 %mend _note_written_xlsx;
 
-/* Create pdd.import_cache if it does not already exist. */
+/* Create pdd.import_cache if it does not already exist.
+   Schema v2: src_sha256 (source file), code_sha256 (03+00 sas), spec_sha256 (spec csvs), cache_dt.
+   Old single-sha256 schema is dropped and recreated on first run. */
 %macro _init_import_cache;
+  %local _has_src_col;
+  %let _has_src_col = 0;
+  %if %sysfunc(exist(pdd.import_cache)) %then %do;
+    proc sql noprint;
+      select count(*) into :_has_src_col trimmed
+      from dictionary.columns
+      where upcase(libname) = 'PDD' and upcase(memname) = 'IMPORT_CACHE'
+        and upcase(name) = 'SRC_SHA256';
+    quit;
+    %if &_has_src_col = 0 %then %do;
+      %put NOTE: [03_import] pdd.import_cache has old single-sha schema -- dropping for v2 schema;
+      proc datasets lib=pdd nolist; delete import_cache; quit;
+    %end;
+    %else
+      %put NOTE: [03_import] pdd.import_cache exists (v2 schema);
+  %end;
   %if not %sysfunc(exist(pdd.import_cache)) %then %do;
     data pdd.import_cache;
-      length s_code $4 sha256 $64 cache_dt $20;
+      length s_code $4 src_sha256 $64 code_sha256 $128 spec_sha256 $128 cache_dt $20;
       stop;
     run;
-    %put NOTE: [03_import] pdd.import_cache created (empty);
+    %put NOTE: [03_import] pdd.import_cache created (empty, v2 schema);
   %end;
-  %else %put NOTE: [03_import] pdd.import_cache exists;
 %mend _init_import_cache;
 
-/* Set hit_mv=1 if pdd.src_<fc> exists and its cached sha256 matches
-   pdd.source_inventory.sha256.  PDD_FORCE_XLSX=1 bypasses the cache. */
+/* Compute SHA256 of a file via certutil; store in global macro var outmv.
+   Returns blank if certutil fails or file not found. Line 2 of certutil output is the hash. */
+%macro _compute_file_sha256(path=, outmv=);
+  %global &outmv;
+  %let &outmv = ;
+  filename _shpipe pipe "certutil -hashfile ""&path"" SHA256" encoding='utf-8';
+  data _null_;
+    infile _shpipe truncover lrecl=300;
+    input line $300.;
+    line = strip(line);
+    if _n_ = 2 and length(line) = 64 then
+      call symputx("&outmv", line, 'G');
+  run;
+  filename _shpipe clear;
+%mend _compute_file_sha256;
+
+/* Compute global _pdd_code_sha (hash of 03_import.sas||00_config.sas) and
+   _pdd_spec_sha (hash of import_spec_generated.csv||import_spec_overrides.csv).
+   Called once per run, before any _xlsx_cache_hit / _xlsx_cache_update calls. */
+%macro _compute_cache_hashes;
+  %global _pdd_code_sha _pdd_spec_sha;
+  %local _sha03 _sha00 _sha_gen _sha_ovr;
+  %_compute_file_sha256(path=C:\data_dictionary\sas\03_import.sas,  outmv=_sha03);
+  %_compute_file_sha256(path=C:\data_dictionary\sas\00_config.sas,  outmv=_sha00);
+  %let _pdd_code_sha = &_sha03.&_sha00;
+  %if %length(%superq(_pdd_code_sha)) = 0 %then
+    %fail_out(msg=%str(_compute_cache_hashes -- code_sha256 blank -- certutil failed for 03/00 sas files));
+  %_compute_file_sha256(path=C:\data_dictionary\docs\import_spec_generated.csv, outmv=_sha_gen);
+  %if %length(%superq(_sha_gen)) = 0 %then
+    %fail_out(msg=%str(_compute_cache_hashes -- spec_sha blank -- certutil failed for import_spec_generated.csv));
+  %let _sha_ovr = ;
+  %if %sysfunc(fileexist(C:\data_dictionary\docs\import_spec_overrides.csv)) %then
+    %_compute_file_sha256(path=C:\data_dictionary\docs\import_spec_overrides.csv, outmv=_sha_ovr);
+  %let _pdd_spec_sha = &_sha_gen.&_sha_ovr;
+  %put NOTE: [03_import] cache hashes computed: code=&_pdd_code_sha spec=&_pdd_spec_sha;
+%mend _compute_cache_hashes;
+
+/* Set hit_mv=1 if pdd.src_<fc> exists and all 3 cache key components match:
+   src_sha256 (source file), code_sha256 (03+00 sas), spec_sha256 (spec csvs).
+   PDD_FORCE_XLSX=1 bypasses the cache. Prints which component mismatched on a miss. */
 %macro _xlsx_cache_hit(fc=, hit_mv=);
   %global &hit_mv;
   %let &hit_mv = 0;
-  %local _force _cur_sha _cached_sha _ds_exists;
+  %local _force _cur_sha _cached_src _cached_code _cached_spec _ds_exists;
   %if %sysfunc(sysexist(PDD_FORCE_XLSX)) %then %let _force = %sysget(PDD_FORCE_XLSX);
   %else %let _force = 0;
   %let _ds_exists = %sysfunc(exist(pdd.src_&fc));
@@ -138,25 +193,33 @@
     %if %length(%superq(_cur_sha)) = 0 %then
       %put NOTE: [03_import] cache miss: sha256 not in source_inventory for &fc;
     %else %do;
-      %let _cached_sha = ;
+      %let _cached_src  = ;
+      %let _cached_code = ;
+      %let _cached_spec = ;
       proc sql noprint;
-        select strip(sha256) into :_cached_sha trimmed
+        select strip(src_sha256), strip(code_sha256), strip(spec_sha256)
+          into :_cached_src trimmed, :_cached_code trimmed, :_cached_spec trimmed
         from pdd.import_cache where s_code = "&fc"
         having count(*) > 0;
       quit;
-      %if %length(%superq(_cached_sha)) = 0 %then
+      %if %length(%superq(_cached_src)) = 0 %then
         %put NOTE: [03_import] cache miss: no import_cache record for &fc;
-      %else %if "%superq(_cur_sha)" = "%superq(_cached_sha)" %then %do;
-        %put NOTE: [03_import] &fc unchanged (sha match) -- reusing pdd.src_&fc;
+      %else %if "%superq(_cur_sha)" ne "%superq(_cached_src)" %then
+        %put NOTE: [03_import] cache miss: src_sha256 mismatch for &fc (source file changed);
+      %else %if "%superq(_pdd_code_sha)" ne "%superq(_cached_code)" %then
+        %put NOTE: [03_import] cache miss: code_sha256 mismatch for &fc (03/00 sas changed);
+      %else %if "%superq(_pdd_spec_sha)" ne "%superq(_cached_spec)" %then
+        %put NOTE: [03_import] cache miss: spec_sha256 mismatch for &fc (spec csv changed);
+      %else %do;
+        %put NOTE: [03_import] &fc all 3 cache keys match -- reusing pdd.src_&fc;
         %let &hit_mv = 1;
       %end;
-      %else
-        %put NOTE: [03_import] cache miss: sha mismatch for &fc;
     %end;
   %end;
 %mend _xlsx_cache_hit;
 
-/* Record a successful import in pdd.import_cache (delete existing row then insert). */
+/* Record a successful import in pdd.import_cache (delete existing row then insert).
+   Stores src_sha256, code_sha256 (03+00 sas), spec_sha256 (spec csvs), cache_dt. */
 %macro _xlsx_cache_update(fc=);
   %local _upd_sha _upd_ts;
   %let _upd_sha = ;
@@ -165,14 +228,17 @@
     from pdd.source_inventory where s_code = "&fc"
     having count(*) > 0;
   quit;
+  %if %length(%superq(_upd_sha)) = 0 %then
+    %fail_out(msg=%str(_xlsx_cache_update -- src_sha256 blank for &fc -- source_inventory may not have this s_code));
   %let _upd_ts = %sysfunc(putn(%sysfunc(datetime()), datetime20.));
   %if %length(%superq(_upd_ts)) = 0 %then
     %fail_out(msg=%str(_xlsx_cache_update -- timestamp resolved to blank for &fc));
   proc sql;
     delete from pdd.import_cache where s_code = "&fc";
-    insert into pdd.import_cache values ("&fc", "%superq(_upd_sha)", "&_upd_ts");
+    insert into pdd.import_cache
+      values ("&fc", "%superq(_upd_sha)", "&_pdd_code_sha", "&_pdd_spec_sha", "&_upd_ts");
   quit;
-  %put NOTE: [03_import] import_cache updated for &fc (sha=%superq(_upd_sha));
+  %put NOTE: [03_import] import_cache updated for &fc (src_sha=%superq(_upd_sha));
 %mend _xlsx_cache_update;
 
 /* Begin log redirect immediately after macro definitions */
@@ -714,6 +780,9 @@ proc datasets lib=work nolist nowarn; delete _s17_enc _s17n _s17_ambig; quit;
 /* Initialise pdd.import_cache (created if absent). */
 %_init_import_cache;
 
+/* Compute code and spec hashes once; used by all _xlsx_cache_hit/_update calls. */
+%_compute_cache_hashes;
+
 /* Save and set validvarname=any so XLSX name literals work for columns
    with spaces / special chars; restore at end of section. */
 %let _vvn_save = %sysfunc(getoption(validvarname));
@@ -1119,7 +1188,7 @@ options validvarname=any;
       /* Exclude PRECEDE_STUDY_ID from _any test: a row with only an ID must be dropped */
       do _k = 1 to dim(_c);
         if upcase(vname(_c{_k})) ne 'PRECEDE_STUDY_ID'
-           and strip(_c{_k}) not in ('', 'NULL') then _any = 1;
+           and upcase(strip(_c{_k})) not in ('', 'NULL') then _any = 1;
       end;
       do _k = 1 to dim(_n);
         if upcase(vname(_n{_k})) ne 'PRECEDE_STUDY_ID'
@@ -1579,6 +1648,44 @@ proc datasets lib=work nolist nowarn; delete _s06_key_legend; quit;
 %mend _norm_psid_loop;
 %_norm_psid_loop;
 
+/* Assert: every keyed pdd.src_s* (has PRECEDE_STUDY_ID row in key_analysis) has exactly
+   one norm_psid column.  Catches double-application on cache reuse or missed application. */
+%macro _assert_norm_psid_cols;
+  %local _nk _ifc _fc _nc_np _n_fail;
+  %let _nk = -1;
+  %let _n_fail = 0;
+  proc sql noprint;
+    select count(distinct s_code) into :_nk trimmed
+    from pdd.key_analysis
+    where upcase(strip(key_column_type)) = 'PRECEDE_STUDY_ID';
+    select distinct s_code into :_kfc1-:_kfc100
+    from pdd.key_analysis
+    where upcase(strip(key_column_type)) = 'PRECEDE_STUDY_ID'
+    order by s_code;
+  quit;
+  %if &_nk = -1 %then %fail_out(msg=%str(_assert_norm_psid_cols -- keyed count not populated));
+  %do _ifc = 1 %to &_nk;
+    %let _fc = &&_kfc&_ifc;
+    %let _nc_np = 0;
+    proc sql noprint;
+      select count(*) into :_nc_np trimmed
+      from dictionary.columns
+      where upcase(libname) = 'PDD'
+        and upcase(memname) = upcase("SRC_&_fc")
+        and upcase(name) = 'NORM_PSID';
+    quit;
+    %if &_nc_np ne 1 %then %do;
+      %put ERROR: [03_import] pdd.src_&_fc has &_nc_np norm_psid column(s) expected exactly 1;
+      %let _n_fail = %eval(&_n_fail + 1);
+    %end;
+    %else %put NOTE: [03_import] pdd.src_&_fc norm_psid confirmed (1 column);
+  %end;
+  %if &_n_fail > 0 %then
+    %fail_out(msg=%str(&_n_fail keyed pdd.src_s* dataset(s) do not have exactly 1 norm_psid column));
+  %put NOTE: [03_import] norm_psid column assert passed -- all &_nk keyed datasets have exactly 1 norm_psid;
+%mend _assert_norm_psid_cols;
+%_assert_norm_psid_cols;
+
 /* Sanity assert: >99% of non-blank norm_psid in s09 and s17 must match Precede##### */
 %macro _assert_psid_fmt(fc=);
   %local _n_total _n_match _pct_int;
@@ -1702,9 +1809,12 @@ proc sql;
   select count(*) into :_d19_npairs trimmed from work._d19_check;
   select count(*) into :_d19_ndis   trimmed from work._d19_check
     where s17_norm ne s09_norm;
+  select count(*) into :_d19_nblank trimmed from work._d19_check
+    where missing(s17_norm) or strip(s17_norm) = ''
+       or missing(s09_norm) or strip(s09_norm) = '';
 quit;
 
-%put NOTE: [03_import] D-19 check: n_pairs=&_d19_npairs ndis=&_d19_ndis;
+%put NOTE: [03_import] D-19 check: n_pairs=&_d19_npairs ndis=&_d19_ndis nblank=&_d19_nblank;
 
 %macro _assert_d19;
   /* Locked n_pairs = 9001 from Phase 2 02_source_guard _qc_normalisation_2022 */
@@ -1712,7 +1822,9 @@ quit;
     %fail_out(msg=%str(PDD-D-19 assert failed -- n_pairs=&_d19_npairs expected 9001 (Phase 2 locked value)));
   %if &_d19_ndis ne 0 %then
     %fail_out(msg=%str(PDD-D-19 assert failed -- s17/s09 norm_psid disagreements=&_d19_ndis expected 0));
-  %put NOTE: [03_import] PDD-D-19 assert passed -- n_pairs=9001 ndis=0;
+  %if &_d19_nblank > 0 %then
+    %fail_out(msg=%str(PDD-D-19 assert failed -- &_d19_nblank pair(s) have blank s17_norm or s09_norm));
+  %put NOTE: [03_import] PDD-D-19 assert passed -- n_pairs=9001 ndis=0 nblank=0;
 %mend _assert_d19;
 %_assert_d19;
 
@@ -1777,7 +1889,7 @@ proc datasets lib=work nolist nowarn; delete _s17_ambig_d19 _s09_ambig_d19 _d19_
     %if "&_imp_rows" = "" or "&_imp_rows" = "." %then
       %fail_out(msg=%str(qc_rowcounts &_fc -- imported row count is blank or missing));
     %if "&_inv_rows" = "" or "&_inv_rows" = "." %then
-      %put NOTE: [03_import] qc_rowcounts &_fc -- no inventory row found (skipping match check);
+      %fail_out(msg=%str(qc_rowcounts &_fc -- no source_inventory row found -- all 20 s_codes must have an inventory entry));
 
     /* Determine expected_delta and status */
     %if "&_fc" = "s18" %then %do;
