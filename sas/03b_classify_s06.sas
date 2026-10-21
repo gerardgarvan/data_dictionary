@@ -2,7 +2,7 @@
   Program : 03b_classify_s06.sas
   Project : PeCAN Data Dictionary (PDD)
   Purpose : D-21 (2026-10-20 LOCKED) -- classify every source column in
-            pdd.src_s06 (3,987 columns from pdd.header_inventory s_code='s06')
+            pdd.src_s06 (3,987 columns from pdd.import_spec file_code='s06')
             into one of four classes and write the classification artifacts
             that Phase 4 (name map) and Phase 5 (PCNR_ build) will consume.
 
@@ -14,7 +14,7 @@
             NOT added to 99_run_all.sas.  Run standalone before Phase 4.
 
   Classification rules (D-21, reviewed Gerard 2026-10-20):
-    0. Only classify 3,987 source columns in pdd.header_inventory (s_code='s06').
+    0. Only classify 3,987 source columns in pdd.import_spec (file_code='s06').
        norm_psid and other derived columns are excluded.
     1. ^LINUS (case-insensitive) -> CLOCK.
        Linus Health DCTclock summary columns (DCTScore, DCTClassification,
@@ -43,7 +43,7 @@
   Expected counts (Gerard 2026-10-20):
     CLOCK = 2747,  DIGITAL_OTHER = 809,  PCNR = 431,  UNSURE = 0
 
-  Reads   : pdd.src_s06, pdd.header_inventory (Phase 2/3 outputs)
+  Reads   : pdd.src_s06, pdd.import_spec (Phase 2/3 outputs)
             dictionary.columns (SAS metadata)
 
   Writes  : C:\data_dictionary\docs\s06_column_class.csv  (committed)
@@ -101,57 +101,118 @@
 
 
 /* ============================================================
-   SECTION 2 -- Preconditions: pdd.src_s06 and pdd.header_inventory
+   SECTION 2 -- Preconditions
+   pdd.src_s06 must exist and have rows; pdd.import_spec must exist.
    ============================================================ */
 
 %macro _check_preconditions;
-  %local _n_s06 _n_hi;
+  %local _n_s06 _n_is _nrows_s06;
   proc sql noprint;
     select count(*) into :_n_s06 trimmed
-    from dictionary.members
-    where upcase(libname) = 'PDD'
-      and upcase(memname) = 'SRC_S06'
-      and upcase(memtype) = 'DATA';
-    select count(*) into :_n_hi trimmed
-    from dictionary.members
-    where upcase(libname) = 'PDD'
-      and upcase(memname) = 'HEADER_INVENTORY'
-      and upcase(memtype) = 'DATA';
+      from dictionary.members
+      where upcase(libname) = 'PDD'
+        and upcase(memname) = 'SRC_S06'
+        and upcase(memtype) = 'DATA';
+    select count(*) into :_n_is trimmed
+      from dictionary.members
+      where upcase(libname) = 'PDD'
+        and upcase(memname) = 'IMPORT_SPEC'
+        and upcase(memtype) = 'DATA';
   quit;
   %if &_n_s06 = 0 %then
     %fail_out(msg=%str(pdd.src_s06 not found -- run Phase 3 first));
-  %if &_n_hi = 0 %then
-    %fail_out(msg=%str(pdd.header_inventory not found -- run Phase 2 first));
-  %put NOTE: [03b_classify_s06] pdd.src_s06 and pdd.header_inventory confirmed;
+  %if &_n_is = 0 %then
+    %fail_out(msg=%str(pdd.import_spec not found -- run 03a_build_spec.sas first));
+
+  proc sql noprint;
+    select count(*) into :_nrows_s06 trimmed from pdd.src_s06;
+  quit;
+  %if &_nrows_s06 = 0 %then
+    %fail_out(msg=%str(pdd.src_s06 has 0 rows -- Phase 3 may have failed));
+
+  %put NOTE: [03b_classify_s06] pdd.src_s06 (&_nrows_s06 rows) and pdd.import_spec confirmed;
 %mend _check_preconditions;
 %_check_preconditions;
 
 
 /* ============================================================
-   SECTION 3 -- Read column metadata; intersect with header_inventory
-   Only the 3,987 source columns (s_code='s06') are classified.
-   norm_psid and other Phase-3-derived columns are excluded.
+   SECTION 3 -- Build work.s06_cols from pdd.import_spec
+   Source: pdd.import_spec where file_code='s06' (sas_name, orig_col_name,
+   col_order) joined to dictionary.columns for type/varnum.
+   Assertions: count=3987, no duplicate sas_name, all present in src_s06.
    ============================================================ */
 
-proc sql noprint;
-  create table work.s06_cols as
-  select d.name  as sas_name       length=64,
-         d.label as orig_col_name  length=256,
-         d.type,
-         d.varnum
-  from dictionary.columns as d
-  inner join pdd.header_inventory as h
-    on upcase(d.name) = upcase(h.col_name)
-   and upcase(h.s_code) = 'S06'
-  where upcase(d.libname) = 'PDD'
-    and upcase(d.memname) = 'SRC_S06'
-  order by d.varnum;
-quit;
+%macro _build_s06_cols;
+  %local _n_spec _n_dups _n_miss_dc;
+
+  /* Step A: count spec rows for s06 */
+  proc sql noprint;
+    select count(*) into :_n_spec trimmed
+      from pdd.import_spec
+      where upcase(file_code) = 'S06';
+  quit;
+  %if &_n_spec ne 3987 %then
+    %fail_out(msg=%str(pdd.import_spec s06 rows=&_n_spec expected 3987));
+
+  /* Step B: check for duplicate sas_names in spec */
+  proc sql noprint;
+    select count(*) into :_n_dups trimmed
+      from (select upcase(sas_name) as uname
+              from pdd.import_spec
+              where upcase(file_code) = 'S06'
+              group by uname
+              having count(*) > 1);
+  quit;
+  %if &_n_dups ne 0 %then
+    %fail_out(msg=%str(pdd.import_spec s06 has &_n_dups sas_names appearing more than once));
+
+  /* Step C: check that every spec sas_name exists in dictionary.columns for src_s06 */
+  proc sql noprint;
+    create table work._s06_miss_dc as
+      select i.sas_name
+        from pdd.import_spec as i
+        left join dictionary.columns as d
+          on upcase(i.sas_name) = upcase(d.name)
+         and upcase(d.libname) = 'PDD'
+         and upcase(d.memname) = 'SRC_S06'
+        where upcase(i.file_code) = 'S06'
+          and d.name is null;
+    select count(*) into :_n_miss_dc trimmed from work._s06_miss_dc;
+  quit;
+  %if &_n_miss_dc ne 0 %then %do;
+    data _null_;
+      set work._s06_miss_dc;
+      put 'ERROR: [03b_classify_s06] sas_name in import_spec but not in src_s06: ' sas_name;
+    run;
+    %fail_out(msg=%str(&_n_miss_dc import_spec sas_names missing from dictionary.columns for pdd.src_s06));
+  %end;
+
+  /* Step D: build the column list, ordered by import_spec col_order */
+  proc sql noprint;
+    create table work.s06_cols as
+      select i.sas_name     length=64,
+             i.orig_col_name length=256,
+             i.col_order,
+             d.type,
+             d.varnum
+        from pdd.import_spec as i
+        inner join dictionary.columns as d
+          on upcase(i.sas_name) = upcase(d.name)
+         and upcase(d.libname) = 'PDD'
+         and upcase(d.memname) = 'SRC_S06'
+        where upcase(i.file_code) = 'S06'
+        order by i.col_order;
+  quit;
+
+  proc datasets lib=work nolist; delete _s06_miss_dc; quit;
+
+  %put NOTE: [03b_classify_s06] work.s06_cols built -- &_n_spec source columns (s06);
+%mend _build_s06_cols;
+%_build_s06_cols;
 
 proc sql noprint;
   select count(*) into :_ncols trimmed from work.s06_cols;
 quit;
-%put NOTE: [03b_classify_s06] source column count = &_ncols (expected 3987);
 
 
 /* ============================================================
@@ -274,24 +335,35 @@ run;
    (a) total rows = &_ncols (expected 3987)
    (b) every row has a non-missing class
    (c) CLOCK=2747, DIGITAL_OTHER=809, PCNR=431, UNSURE=0
-       If any count differs, list differing rows to log before failing.
+       On any failure: print rule_class_summary to log, then %fail_out.
    ============================================================ */
+
+/* Build rule x class counts first (needed for failure log dump) */
+proc sql noprint;
+  create table work.rule_class_summary as
+  select rule,
+         class,
+         count(*) as n_cols label='Column count'
+  from work.s06_class
+  group by rule, class
+  order by rule, class;
+quit;
 
 %macro _assert_class;
   %local _ntotal _nmiss_class
          _n_clock _n_do _n_pcnr _n_unsure _fail;
 
   proc sql noprint;
-    select count(*)           into :_ntotal      trimmed from work.s06_class;
-    select count(*)           into :_nmiss_class trimmed
+    select count(*)  into :_ntotal      trimmed from work.s06_class;
+    select count(*)  into :_nmiss_class trimmed
       from work.s06_class where missing(class) or strip(class) = '';
-    select count(*)           into :_n_clock      trimmed
+    select count(*)  into :_n_clock     trimmed
       from work.s06_class where class = 'CLOCK';
-    select count(*)           into :_n_do         trimmed
+    select count(*)  into :_n_do        trimmed
       from work.s06_class where class = 'DIGITAL_OTHER';
-    select count(*)           into :_n_pcnr        trimmed
+    select count(*)  into :_n_pcnr      trimmed
       from work.s06_class where class = 'PCNR';
-    select count(*)           into :_n_unsure      trimmed
+    select count(*)  into :_n_unsure    trimmed
       from work.s06_class where class = 'UNSURE';
   quit;
 
@@ -328,11 +400,18 @@ run;
   %end;
 
   %if &_fail %then %do;
-    /* List all columns with unexpected classification */
+    /* Dump rule x class counts to log before failing */
+    data _null_;
+      set work.rule_class_summary;
+      put 'NOTE: [03b_classify_s06] RULE_CLASS_DUMP rule=' rule
+          '  class=' class '  n=' n_cols;
+    run;
+    /* List UNSURE and unknown-class columns */
     data _null_;
       set work.s06_class;
       if class = 'UNSURE' or class not in ('CLOCK' 'DIGITAL_OTHER' 'PCNR' 'UNSURE')
-      then put 'NOTE: [03b] DIFF col=' sas_name ' class=' class ' rule=' rule;
+      then put 'NOTE: [03b_classify_s06] DIFF col=' sas_name
+               '  class=' class '  rule=' rule;
     run;
     %fail_out(msg=%str(ASSERT FAILED -- counts: CLOCK=&_n_clock DO=&_n_do PCNR=&_n_pcnr UNSURE=&_n_unsure));
   %end;
@@ -343,9 +422,9 @@ run;
 
 
 /* ============================================================
-   SECTION 6 -- Summary tables for SUMMARY sheet
+   SECTION 6 -- Summary tables
    (a) class counts
-   (b) rule x class counts
+   (b) rule x class counts (built in Section 5 before assert)
    ============================================================ */
 
 proc sql noprint;
@@ -355,19 +434,11 @@ proc sql noprint;
   from work.s06_class
   group by class
   order by class;
-
-  create table work.rule_class_summary as
-  select rule,
-         class,
-         count(*) as n_cols label='Column count'
-  from work.s06_class
-  group by rule, class
-  order by rule, class;
 quit;
 
 data _null_;
   set work.class_summary;
-  put NOTE: "[03b_classify_s06] class=" class +(-1) "  n=" n_cols;
+  put 'NOTE: [03b_classify_s06] class=' class +(-1) '  n=' n_cols;
 run;
 
 
@@ -456,8 +527,28 @@ proc sql noprint;
   from work.s06_class as c
   left join work.colmiss as m
     on upcase(c.sas_name) = upcase(m.sas_name)
-  order by c.varnum;
+  order by c.col_order;
 quit;
+
+/* Coverage assertions -- checked after the join */
+%macro _assert_coverage;
+  %local _ncm _n_total_cols _n_bad_pct;
+  proc sql noprint;
+    select count(*) into :_ncm          trimmed from work.colmiss;
+    select count(*) into :_n_total_cols trimmed
+      from dictionary.columns
+      where upcase(libname) = 'PDD' and upcase(memname) = 'SRC_S06';
+    select count(*) into :_n_bad_pct    trimmed
+      from work.s06_class_nn
+      where missing(pct_nonnull) or pct_nonnull < 0 or pct_nonnull > 100;
+  quit;
+  %if &_ncm ne &_n_total_cols %then
+    %fail_out(msg=%str(ASSERT FAILED -- colmiss rows=&_ncm expected &_n_total_cols (one per src_s06 column)));
+  %if &_n_bad_pct ne 0 %then
+    %fail_out(msg=%str(ASSERT FAILED -- &_n_bad_pct of 3987 classified rows have pct_nonnull missing or out of [0 100]));
+  %put NOTE: [03b_classify_s06] coverage assert passed -- colmiss=&_ncm bad_pct=0;
+%mend _assert_coverage;
+%_assert_coverage;
 
 /* Class-level subsets for individual xlsx sheets */
 data work.s06_clock        (keep=sas_name orig_col_name token rule pct_nonnull)
@@ -471,71 +562,120 @@ run;
 
 
 /* ============================================================
-   SECTION 9 -- ODS style (UF colors: #0021A5 header / white text)
+   SECTION 9 -- Build KEY legend dataset
+   KEY sheet shows column definitions and class definitions only.
+   The full 3,987-row list goes to the ALL_COLUMNS sheet.
    ============================================================ */
 
-proc template;
-  define style pdd_uf / parent=styles.minimal;
-    style fonts from fonts /
-      'defaultFont' = ('Calibri', 10pt);
-    style header from header /
-      background  = '#0021A5'
-      color       = '#FFFFFF'
-      font_weight = bold
-      font_size   = 10pt;
-    style column from column /
-      background = '#FFFFFF';
-    style data from data /
-      font_size = 10pt;
-  end;
+data work.s06_legend;
+  length section $20 item $40 description $400;
+
+  /* ---- Output column descriptions ---- */
+  section = 'Output column';
+  item = 'sas_name';
+  description = 'SAS variable name in pdd.src_s06 (max 32 chars; V7 name rules; from pdd.import_spec)';
+  output;
+  item = 'orig_col_name';
+  description = 'Original column header from the source file as imported';
+  output;
+  item = 'token';
+  description = 'Text extracted after COM or COPY prefix; LINUS for LINUS-prefix columns; blank for PCNR/COMP';
+  output;
+  item = 'class';
+  description = 'Classification assigned by D-21 rules: CLOCK | DIGITAL_OTHER | PCNR | UNSURE';
+  output;
+  item = 'rule';
+  description = 'Text description of the matching classification rule';
+  output;
+  item = 'pct_nonnull';
+  description = 'Percentage of rows in pdd.src_s06 with a non-missing value (0-100)';
+  output;
+
+  /* ---- Class value descriptions ---- */
+  section = 'Class value';
+  item = 'CLOCK';
+  description = 'Clock-drawing features: COM/COPY + clock token OR LINUS DCTclock prefix. Excluded from PCNR_. n=2,747 (D-21 reviewed 2026-10-20).';
+  output;
+  item = 'DIGITAL_OTHER';
+  description = 'Other digital cognitive battery tests: COM/COPY + non-clock digital token. Stay in PCNR_. n=809.';
+  output;
+  item = 'PCNR';
+  description = 'All other source columns: no COM/COPY/LINUS/COMP prefix, or COM_/COPY_ (underscore), or COMP## complication codes. Always PCNR_. n=431. Includes clock admin flags and Mini-Cog clock scores.';
+  output;
+  item = 'UNSURE';
+  description = 'COM/COPY prefix with unrecognized token. Must be 0 after D-21 review; Phase 4 is blocked if UNSURE > 0.';
+  output;
 run;
 
 
 /* ============================================================
    SECTION 10 -- Write qc\s06_clock_classification.xlsx
-   Sheet order: KEY | SUMMARY | CLOCK | DIGITAL_OTHER | PCNR
+   Sheet order: KEY | SUMMARY | ALL_COLUMNS | CLOCK | DIGITAL_OTHER | PCNR
+   Header color #0021A5 (UF blue) / white text applied via PROC REPORT style.
+   Class column accented #FA4616 (UF orange) where shown.
    No UNSURE sheet when UNSURE=0 (asserted above).
    ============================================================ */
 
+/* Macro to emit PROC REPORT style options without repeating the string */
+%macro _rpt_hdr;
+  style(header)=[background='#0021A5' color=white font_weight=bold font_size=10pt]
+%mend _rpt_hdr;
+
 ods excel file="&qc_path.\s06_clock_classification.xlsx"
-  style=pdd_uf
+  style=styles.minimal
   options(sheet_name='KEY'
           sheet_interval='none'
           frozen_headers='yes'
           autofilter='all');
 
-  title "s06 Column Classification -- D-21 (2026-10-20, LOCKED)";
-  title2 "CLOCK=2747 excluded from PCNR_.  DIGITAL_OTHER=809 PCNR=431.  UNSURE=0.";
+  title "s06 Column Classification Legend -- D-21 (2026-10-20, LOCKED)";
+  title2 "See ALL_COLUMNS sheet for the full 3,987-row list.";
 
-  proc report data=work.s06_class_nn nowd;
-    columns sas_name orig_col_name token class rule pct_nonnull;
-    define sas_name      / display 'SAS Name';
-    define orig_col_name / display 'Original Column';
-    define token         / display 'Token';
-    define class         / display 'Class';
-    define rule          / display 'Rule';
-    define pct_nonnull   / display '% Non-null' format=6.1;
+  proc report data=work.s06_legend nowd %_rpt_hdr;
+    columns section item description;
+    define section     / display 'Section';
+    define item        / display 'Item';
+    define description / display 'Description';
   run;
 
 ods excel options(sheet_name='SUMMARY' sheet_interval='now');
+ods excel options(sheet_interval='none');
 
   title  "Class Counts (D-21 reviewed 2026-10-20)";
   title2 "CLOCK excluded from PCNR_; DIGITAL_OTHER stays PCNR_";
 
-  proc report data=work.class_summary nowd;
+  proc report data=work.class_summary nowd %_rpt_hdr;
     columns class n_cols;
-    define class   / display 'Class';
-    define n_cols  / display 'Column count';
+    define class  / display 'Class'
+                    style(column)=[background='#FA4616' color=white];
+    define n_cols / display 'Column count';
   run;
 
   title  "Rule x Class Counts";
   title2 "(all 3,987 source columns)";
 
-  proc report data=work.rule_class_summary nowd;
+  proc report data=work.rule_class_summary nowd %_rpt_hdr;
     columns rule class n_cols;
     define rule   / display 'Rule';
-    define class  / display 'Class';
+    define class  / display 'Class'
+                    style(column)=[background='#FA4616' color=white];
     define n_cols / display 'Column count';
+  run;
+
+ods excel options(sheet_name='ALL_COLUMNS' sheet_interval='now');
+
+  title  "All 3,987 s06 Source Columns -- D-21 Classification";
+  title2 "CLOCK=2747 excluded from PCNR_.  DIGITAL_OTHER=809.  PCNR=431.  UNSURE=0.";
+
+  proc report data=work.s06_class_nn nowd %_rpt_hdr;
+    columns sas_name orig_col_name token class rule pct_nonnull;
+    define sas_name      / display 'SAS Name';
+    define orig_col_name / display 'Original Column';
+    define token         / display 'Token';
+    define class         / display 'Class'
+                           style(column)=[background='#FA4616' color=white];
+    define rule          / display 'Rule';
+    define pct_nonnull   / display '% Non-null' format=6.1;
   run;
 
 ods excel options(sheet_name='CLOCK' sheet_interval='now');
@@ -543,7 +683,7 @@ ods excel options(sheet_name='CLOCK' sheet_interval='now');
   title  "CLOCK Columns (n=2,747) -- Excluded from PCNR_";
   title2 "COM/COPY clock tokens + LINUS DCTclock summary";
 
-  proc report data=work.s06_clock nowd;
+  proc report data=work.s06_clock nowd %_rpt_hdr;
     columns sas_name orig_col_name token rule pct_nonnull;
     define sas_name      / display 'SAS Name';
     define orig_col_name / display 'Original Column';
@@ -557,7 +697,7 @@ ods excel options(sheet_name='DIGITAL_OTHER' sheet_interval='now');
   title  "DIGITAL_OTHER Columns (n=809) -- Stay in PCNR_";
   title2 "COM/COPY non-clock digital battery tokens";
 
-  proc report data=work.s06_digital_other nowd;
+  proc report data=work.s06_digital_other nowd %_rpt_hdr;
     columns sas_name orig_col_name token rule pct_nonnull;
     define sas_name      / display 'SAS Name';
     define orig_col_name / display 'Original Column';
@@ -571,7 +711,7 @@ ods excel options(sheet_name='PCNR' sheet_interval='now');
   title  "PCNR Columns (n=431) -- Always PCNR_";
   title2 "No COM/COPY/LINUS/COMP prefix + clock admin/Mini-Cog flags";
 
-  proc report data=work.s06_pcnr nowd;
+  proc report data=work.s06_pcnr nowd %_rpt_hdr;
     columns sas_name orig_col_name token rule pct_nonnull;
     define sas_name      / display 'SAS Name';
     define orig_col_name / display 'Original Column';
@@ -583,36 +723,48 @@ ods excel options(sheet_name='PCNR' sheet_interval='now');
 title;
 ods excel close;
 
-/* Conditional NOTE: only when syscc clean and all sheet datasets have rows */
-%macro _note_xlsx_written;
-  %local _nx_clock _nx_do _nx_pcnr _nx_key _nx_sum;
+/* Assert xlsx and CSV written; %fail_out (not WARNING) on any failure */
+%macro _assert_artifacts;
+  %local _nx_all _nx_sum _nx_clock _nx_do _nx_pcnr _csv_ok _xlsx_ok;
+  %let _nx_all   = -1;
+  %let _nx_sum   = -1;
+  %let _nx_clock = -1;
+  %let _nx_do    = -1;
+  %let _nx_pcnr  = -1;
+  %let _csv_ok   = 0;
+  %let _xlsx_ok  = 0;
+
   proc sql noprint;
-    select nobs into :_nx_key  trimmed
+    select nobs into :_nx_all   trimmed
       from dictionary.tables
       where upcase(libname)='WORK' and upcase(memname)='S06_CLASS_NN';
-    select nobs into :_nx_sum  trimmed
+    select nobs into :_nx_sum   trimmed
       from dictionary.tables
       where upcase(libname)='WORK' and upcase(memname)='CLASS_SUMMARY';
     select nobs into :_nx_clock trimmed
       from dictionary.tables
       where upcase(libname)='WORK' and upcase(memname)='S06_CLOCK';
-    select nobs into :_nx_do   trimmed
+    select nobs into :_nx_do    trimmed
       from dictionary.tables
       where upcase(libname)='WORK' and upcase(memname)='S06_DIGITAL_OTHER';
-    select nobs into :_nx_pcnr trimmed
+    select nobs into :_nx_pcnr  trimmed
       from dictionary.tables
       where upcase(libname)='WORK' and upcase(memname)='S06_PCNR';
   quit;
-  %if &syscc <= 4
-    and &_nx_key  > 0
-    and &_nx_sum  > 0
-    and &_nx_clock > 0
-    and &_nx_do   > 0
-    and &_nx_pcnr > 0
-  %then %put NOTE: [03b_classify_s06] &qc_path.\s06_clock_classification.xlsx written (KEY=&_nx_key CLOCK=&_nx_clock DO=&_nx_do PCNR=&_nx_pcnr);
-  %else %put WARNING: [03b_classify_s06] xlsx may be incomplete -- syscc=&syscc KEY=&_nx_key CLOCK=&_nx_clock DO=&_nx_do PCNR=&_nx_pcnr;
-%mend _note_xlsx_written;
-%_note_xlsx_written;
+
+  %let _csv_ok  = %sysfunc(fileexist(C:\data_dictionary\docs\s06_column_class.csv));
+  %let _xlsx_ok = %sysfunc(fileexist(&qc_path.\s06_clock_classification.xlsx));
+
+  %if &syscc > 4 or &_nx_all  <= 0 or &_nx_sum  <= 0 or &_nx_clock <= 0
+                 or &_nx_do   <= 0 or &_nx_pcnr <= 0
+                 or not &_csv_ok   or not &_xlsx_ok
+  %then
+    %fail_out(msg=%str(ASSERT FAILED -- artifact check: syscc=&syscc ALL=&_nx_all CLOCK=&_nx_clock DO=&_nx_do PCNR=&_nx_pcnr csv_ok=&_csv_ok xlsx_ok=&_xlsx_ok));
+
+  %put NOTE: [03b_classify_s06] xlsx written -- ALL=&_nx_all CLOCK=&_nx_clock DO=&_nx_do PCNR=&_nx_pcnr;
+  %put NOTE: [03b_classify_s06] csv written -- docs/s06_column_class.csv;
+%mend _assert_artifacts;
+%_assert_artifacts;
 
 
 /* ============================================================
@@ -621,7 +773,7 @@ ods excel close;
 
 data _null_;
   set work.class_summary;
-  put NOTE: "[03b_classify_s06] FINAL class=" class +(-1) "  n=" n_cols;
+  put 'NOTE: [03b_classify_s06] FINAL class=' class +(-1) '  n=' n_cols;
 run;
 
 %put NOTE: [03b_classify_s06] Artifact: docs/s06_column_class.csv (committed -- no PHI);
