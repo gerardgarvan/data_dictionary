@@ -92,12 +92,14 @@
        or prxmatch('/[^A-Za-z0-9_]/', strip(short)) > 0;
   quit;
   %if &_nbad_ab > 0 %then %do;
-    proc print data=work._abbrev_raw
-      (where=(strip(long) = ''
+    data _null_;
+      set work._abbrev_raw (where=(strip(long) = ''
               or short = ''
               or strip(long) = strip(short)
               or prxmatch('/[^A-Za-z0-9_]/', strip(long))  > 0
-              or prxmatch('/[^A-Za-z0-9_]/', strip(short)) > 0)); run;
+              or prxmatch('/[^A-Za-z0-9_]/', strip(short)) > 0));
+      put 'ERROR: [04_name_map] ABBREV_BAD: ' long= short=;
+    run;
     %fail_out(msg=%str(name_abbrev.csv &_nbad_ab rows: blank long/short, long=short, or non-word chars));
   %end;
   %put NOTE: [04_name_map] name_abbrev.csv validated OK;
@@ -114,10 +116,12 @@
            or prxmatch('/_$/', strip(cleaned_pre_short)) > 0);
   quit;
   %if &_nba > 0 %then %do;
-    proc print data=work.name_map_cleaned
-      (where=(status = 'PCNR'
+    data _null_;
+      set work.name_map_cleaned (where=(status = 'PCNR'
               and (prxmatch('/^_/', strip(cleaned_pre_short)) > 0
-                   or prxmatch('/_$/', strip(cleaned_pre_short)) > 0))); run;
+                   or prxmatch('/_$/', strip(cleaned_pre_short)) > 0)));
+      put 'ERROR: [04_name_map] ANCHOR_BAD: ' s_code= col_order= cleaned_pre_short=;
+    run;
     %fail_out(msg=%str(D-02 &_nba cleaned_pre_short values have leading/trailing underscore after strip));
   %end;
 %mend check_cleaned_anchors;
@@ -228,7 +232,10 @@
         quit;
 
         %if &_ndis > 0 %then %do;
-          proc print data=work._d08_compare (where=(_disagree=1) obs=20); run;
+          data _null_;
+            set work._d08_compare (where=(_disagree=1));
+            put 'ERROR: [04_name_map] D08_DISAGREE: ' _norm_p= _norm_d=;
+          run;
           %fail_out(msg=%str(D-08 &_sc &_ndis rows disagree between &_pc and &_dc after norm_psid));
         %end;
         %put NOTE: [04_name_map] D-08 &_sc &_nagr rows confirmed identical (0 disagreements);
@@ -308,7 +315,10 @@
     select count(*) into :_nkwrong trimmed from work._key_check;
   quit;
   %if &_nkwrong > 0 %then %do;
-    proc print data=work._key_check; run;
+    data _null_;
+      set work._key_check;
+      put 'ERROR: [04_name_map] KEY_COUNT_WRONG: ' s_code= n_key=;
+    run;
     %fail_out(msg=%str(&_nkwrong files have != 1 KEY row (0 is a failure too) -- see above));
   %end;
 
@@ -393,7 +403,10 @@
       select count(*) into :_n_unmatched trimmed from work._dec_unmatched;
     quit;
     %if &_n_unmatched > 0 %then %do;
-      proc print data=work._dec_unmatched; run;
+      data _null_;
+        set work._dec_unmatched;
+        put 'ERROR: [04_name_map] DEC_UNMATCHED: ' s_code_a= header_a= col_order_a=;
+      run;
       %fail_out(msg=%str(&_n_unmatched decision rows do not match any name_map row));
     %end;
 
@@ -534,7 +547,10 @@
       select count(*) into :_nsc_bad trimmed from work._same_sc_bad;
     quit;
     %if &_nsc_bad > 0 %then %do;
-      proc print data=work._same_sc_bad; run;
+      data _null_;
+        set work._same_sc_bad;
+        put 'ERROR: [04_name_map] SAME_SC_BAD: ' s_code= grp_a= grp_b=;
+      run;
       %fail_out(msg=%str(SAME decision places two columns from same file in one group));
     %end;
 
@@ -635,9 +651,11 @@
        or prxmatch('/___/',            strip(pcnr_name_base)) > 0;
   quit;
   %if &_n_badbase > 0 %then %do;
-    proc print data=work._grp_names
-      (where=(prxmatch('/[^A-Za-z0-9_]/', strip(pcnr_name_base)) > 0
-              or prxmatch('/___/',         strip(pcnr_name_base)) > 0)); run;
+    data _null_;
+      set work._grp_names (where=(prxmatch('/[^A-Za-z0-9_]/', strip(pcnr_name_base)) > 0
+              or prxmatch('/___/', strip(pcnr_name_base)) > 0));
+      put 'ERROR: [04_name_map] BADBASE: ' group_id= pcnr_name_base=;
+    run;
     %fail_out(msg=%str(&_n_badbase pcnr_name_base values have invalid chars or triple underscores));
   %end;
 
@@ -682,16 +700,17 @@
     by group_id;
     if first.group_id;
     _file_num = input(substr(s_code, 2), best.);
-    keep group_id pcnr_name_base _file_num col_order;
+    _base_uc  = upcase(pcnr_name_base);
+    keep group_id pcnr_name_base _base_uc _file_num col_order;
   run;
 
-  proc sort data=work._grp_order2; by pcnr_name_base _file_num col_order; run;
+  proc sort data=work._grp_order2; by _base_uc _file_num col_order; run;
 
   data work._suffix_assign;
     set work._grp_order2;
-    by pcnr_name_base;
+    by _base_uc;
     retain _suffix_counter 1;
-    if first.pcnr_name_base then _suffix_counter = 1;
+    if first._base_uc then _suffix_counter = 1;
     _suffix_n = _suffix_counter;
     _suffix_counter = _suffix_counter + 1;
   run;
@@ -823,6 +842,41 @@
   %put NOTE: [04_name_map]   groups elided              = &_s1_elided;
   %put NOTE: [04_name_map]   between-group suffixes     = &_s1_btwn;
   %put NOTE: [04_name_map]   same-file suffixes         = &_s1_sf;
+
+  /* Self-check: Stage 1 must not leave two groups sharing the same case-folded final name */
+  proc sql noprint;
+    create table work._s1_missed as
+    select upcase(strip(pcnr_name_final)) as name_uc length=200,
+           count(distinct group_id) as n_grps
+    from work._suffix_final
+    where strip(pcnr_name_final) ne ''
+    group by upcase(strip(pcnr_name_final))
+    having count(distinct group_id) > 1;
+  quit;
+
+  %local _n_s1_missed;
+  proc sql noprint;
+    select count(*) into :_n_s1_missed trimmed from work._s1_missed;
+  quit;
+  %if &_n_s1_missed > 0 %then %do;
+    proc sql noprint;
+      create table work._s1_missed_detail as
+      select sf.group_id, sf.pcnr_name_base, sf.pcnr_name_final,
+             m.s_code, m.col_order, m.original_header
+      from work._suffix_final as sf
+      inner join work._s1_missed as ms
+        on upcase(strip(sf.pcnr_name_final)) = ms.name_uc
+      left join work.name_map_grouped as m
+        on sf.group_id = m.group_id and m.status = 'PCNR'
+      order by sf.pcnr_name_final, sf.group_id, m.s_code, m.col_order;
+    quit;
+    data _null_;
+      set work._s1_missed_detail;
+      put 'ERROR: [04_name_map] S1_MISSED: ' pcnr_name_final= group_id= pcnr_name_base= s_code= col_order= original_header=;
+    run;
+    %fail_out(msg=%str(Stage 1 missed &_n_s1_missed case-insensitive collisions -- see ERROR above));
+  %end;
+  %put NOTE: [04_name_map] Stage 1 self-check passed (&_n_s1_missed missed collisions);
 %mend stage1_suffix;
 
 /* Stage 2 hard-stop (Section 8 body).
@@ -843,7 +897,19 @@
     select count(*) into :_n_s2_dups trimmed from work._s2_dups;
   quit;
   %if &_n_s2_dups > 0 %then %do;
-    proc print data=work._s2_dups; run;
+    proc sql noprint;
+      create table work._s2_dups_detail as
+      select m.pcnr_name, m.group_id, m.s_code, m.col_order, m.original_header
+      from work.name_map_suffixed as m
+      inner join work._s2_dups as d
+        on upcase(m.pcnr_name) = upcase(d.pcnr_name)
+      where m.status = 'PCNR' and m.pcnr_name ne ''
+      order by m.pcnr_name, m.group_id, m.s_code, m.col_order;
+    quit;
+    data _null_;
+      set work._s2_dups_detail;
+      put 'ERROR: [04_name_map] S2_DUP: ' pcnr_name= group_id= s_code= col_order= original_header=;
+    run;
     %fail_out(msg=%str(Stage 2 -- &_n_s2_dups PCNR_ names assigned to multiple groups));
   %end;
 
@@ -860,7 +926,10 @@
     select count(*) into :_n_s2_long trimmed from work._s2_toolong;
   quit;
   %if &_n_s2_long > 0 %then %do;
-    proc print data=work._s2_toolong; run;
+    data _null_;
+      set work._s2_toolong;
+      put 'ERROR: [04_name_map] S2_TOOLONG: ' pcnr_name= name_len=;
+    run;
     %fail_out(msg=%str(Stage 2 -- &_n_s2_long PCNR_ names exceed 32 characters));
   %end;
 
@@ -879,7 +948,10 @@
     select count(*) into :_n_s2_inv trimmed from work._s2_invalid;
   quit;
   %if &_n_s2_inv > 0 %then %do;
-    proc print data=work._s2_invalid; run;
+    data _null_;
+      set work._s2_invalid;
+      put 'ERROR: [04_name_map] S2_INVALID: ' pcnr_name=;
+    run;
     %fail_out(msg=%str(Stage 2 -- &_n_s2_inv PCNR_ names are not valid SAS V7 names));
   %end;
 
@@ -1013,7 +1085,10 @@ quit;
     select count(*) into :_nmis trimmed from work._sc_check;
   quit;
   %if &_nmis > 0 %then %do;
-    proc print data=work._sc_check; run;
+    data _null_;
+      set work._sc_check;
+      put 'ERROR: [04_name_map] SC_COUNT_MISMATCH: ' s_code= n_spec= n_inv=;
+    run;
     %fail_out(msg=%str(import_spec and header_inventory row counts differ for &_nmis s_code values));
   %end;
   %put NOTE: [04_name_map] per-s_code row counts match header_inventory;
@@ -1315,8 +1390,14 @@ quit;
     proc freq data=pdd.name_map_nearmatches order=freq noprint;
       tables match_type / out=work._nm_top;
     run;
-    proc print data=work._nm_top; run;
-    proc print data=pdd.name_map_nearmatches (obs=20); run;
+    data _null_;
+      set work._nm_top;
+      put 'ERROR: [04_name_map] NM_TYPE: ' match_type= count=;
+    run;
+    data _null_;
+      set pdd.name_map_nearmatches (obs=20);
+      put 'ERROR: [04_name_map] NEARMATCH: ' s_code_a= name_a= s_code_b= name_b= edit_dist= match_type=;
+    run;
     %fail_out(msg=%str(D-06 near-match pair count=&_n_nm exceeds 200 -- resolve before continuing));
   %end;
 
