@@ -72,47 +72,42 @@ def main() -> int:
         ("name_abbrev_applied.csv", "ABBREVIATIONS"),
     ]
 
-    # Verify all CSVs exist and are non-empty
+    # Verify all CSVs exist and are non-empty (header-only accepted; truly empty rejected)
     for fname, _ in csv_specs:
         p = exchange / fname
         if not p.exists() or p.stat().st_size == 0:
             logging.error("Input not found or empty: %s", p)
             return 1
 
-    # Read all CSVs
-    csv_data: dict[str, list[dict[str, str]]] = {}
+    # Read all CSVs; read_csv returns (fieldnames, rows) -- fieldnames preserved for header-only files
+    csv_data: dict[str, tuple[list[str], list[dict[str, str]]]] = {}
     for fname, sheet_name in csv_specs:
         p = exchange / fname
         logging.info("Reading %s", p)
         csv_data[sheet_name] = read_csv(p)
 
-    name_map_rows = csv_data["NAME_MAP"]
+    name_map_headers, name_map_rows = csv_data["NAME_MAP"]
 
     try:
-        assert_input(name_map_rows, expected_rows=args.expected_name_map)
+        assert_input(name_map_headers, name_map_rows, expected_rows=args.expected_name_map)
     except ValueError as exc:
         logging.error("Assertion failed: %s", exc)
         return 1
 
-    # Build sheets dict (KEY is handled internally by write_workbook)
+    # Build sheets dict; use fieldnames as headers even when data is empty
     sheets: dict[str, tuple[list[str], list[list]]] = {}
     for _, sheet_name in csv_specs:
-        rows = csv_data[sheet_name]
-        if rows:
-            headers = list(rows[0].keys())
-            data = [list(r.values()) for r in rows]
-        else:
-            headers = []
-            data = []
+        headers, rows = csv_data[sheet_name]
+        data = [list(r.values()) for r in rows]
         sheets[sheet_name] = (headers, data)
 
     xlsx_path = qc / "name_map_review.xlsx"
     write_workbook(sheets, xlsx_path)
 
-    # D-10 item 5: verify SAS row counts equal Python workbook sheet row counts
     expected_data_rows: dict[str, int] = {}
     for _, sheet_name in csv_specs:
-        expected_data_rows[sheet_name] = len(csv_data[sheet_name])
+        _, rows = csv_data[sheet_name]
+        expected_data_rows[sheet_name] = len(rows)
 
     try:
         verify_workbook(xlsx_path, expected_data_rows)

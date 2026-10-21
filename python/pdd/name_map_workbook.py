@@ -26,23 +26,53 @@ SHEET_ORDER = [
     "ABBREVIATIONS",
 ]
 
+# Column names that should be written as integers in the workbook.
+_NUMERIC_INT_COLS: frozenset[str] = frozenset([
+    "col_order",
+    "col_order_a",
+    "col_order_b",
+    "length",
+    "max_length",
+    "n_sources",
+    "group_id",
+    "group_id_a",
+    "group_id_b",
+    "edit_dist",
+    "suffix_n",
+    "trunc_flag",
+])
 
-def read_csv(path: Path) -> list[dict[str, str]]:
+
+def _int_col_indices(headers: list[str]) -> frozenset[int]:
+    return frozenset(i for i, h in enumerate(headers) if h in _NUMERIC_INT_COLS)
+
+
+def read_csv(path: Path) -> tuple[list[str], list[dict[str, str]]]:
+    """Return (fieldnames, rows).  fieldnames is non-empty even for header-only files."""
     with path.open(encoding="utf-8", newline="") as fh:
-        return list(csv.DictReader(fh))
+        reader = csv.DictReader(fh)
+        rows = list(reader)
+        headers = list(reader.fieldnames or [])
+    return headers, rows
 
 
 def assert_input(
+    headers: list[str],
     name_map_rows: list[dict[str, str]],
     expected_rows: int = EXPECTED_ROWS,
 ) -> None:
-    """Raise ValueError if row count or pcnr_name uniqueness rules are violated.
+    """Raise ValueError if required columns missing, row count wrong, or pcnr_name/group_id rules violated.
 
     Rules:
+    - headers must contain 'pcnr_name' and 'group_id'.
     - len(name_map_rows) must equal expected_rows.
     - Any non-blank pcnr_name (case-insensitive) must map to exactly one
       distinct group_id. Blank pcnr_name values are unconstrained.
     """
+    if "pcnr_name" not in headers:
+        raise ValueError("name_map.csv missing required column: pcnr_name")
+    if "group_id" not in headers:
+        raise ValueError("name_map.csv missing required column: group_id")
     if len(name_map_rows) != expected_rows:
         raise ValueError(
             f"row count {len(name_map_rows)} != expected {expected_rows}"
@@ -141,15 +171,14 @@ def write_workbook(
         ws = wb.create_sheet(sheet_name)
         if sheet_name == "KEY":
             key_data = _key_rows()
-            # First row of _key_rows() is the header
             headers = key_data[0]
             data = key_data[1:]
             write_table(ws, headers, data)
         elif sheet_name in sheets:
             headers, data_rows = sheets[sheet_name]
-            write_table(ws, headers, data_rows)
+            int_cols = _int_col_indices(headers)
+            write_table(ws, headers, data_rows, int_cols=int_cols)
         else:
-            # Empty placeholder sheet
             ws.append(["(no data)"])
         style_sheet(ws)
 
@@ -166,12 +195,10 @@ def verify_workbook(path: Path, expected_data_rows: dict[str, int]) -> None:
     wb = load_workbook(path, read_only=True)
     try:
         actual_names = wb.sheetnames
-        # Assert sheet order matches SHEET_ORDER
         if actual_names != SHEET_ORDER:
             raise ValueError(
                 f"sheet order mismatch: {actual_names} != {SHEET_ORDER}"
             )
-        # Assert per-sheet data-row counts
         for sheet_name, exp in expected_data_rows.items():
             if sheet_name not in wb.sheetnames:
                 raise ValueError(f"sheet '{sheet_name}' not found in workbook")

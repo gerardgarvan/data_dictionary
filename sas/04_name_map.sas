@@ -7,7 +7,9 @@
             overrides, forms variable groups (D-01a), two-stage collision
             resolution (D-05), near-match detection (D-06).
 
-  Reads   : pdd.import_spec, pdd.header_inventory, pdd.key_analysis
+  Reads   : pdd.import_spec (orig_col_name = original_header text),
+            pdd.header_inventory (row counts per s_code only),
+            pdd.key_analysis (key_var_name, key_column_type)
             docs\s06_column_class.csv, docs\name_map_decisions.csv,
             docs\name_abbrev.csv
 
@@ -61,7 +63,7 @@
 
 /* Apply D-02 name cleaning steps 1-4 to a character expression.
    Parameters:
-     raw=   source variable name
+     raw=   source variable name (original_header)
      out=   target variable name (must be declared $200 or wider)
    Steps:
      1. strip whitespace
@@ -108,7 +110,9 @@
 %mend assert_rowcount;
 
 /* D-08 check: verify duplicate PSID columns in s15/s17 are value-identical.
-   Called from Section 3 after _psid_dup_cols is built. */
+   Called from Section 3 after _psid_dup_cols is built.
+   Primary column is the key_var_name from pdd.key_analysis.
+   %fail_out if pdd.src_s15 or pdd.src_s17 is missing when duplicates exist. */
 %macro d08_check;
   %local _nd08;
   proc sql noprint;
@@ -137,12 +141,18 @@
 
       %local _src_ok;
       %let _src_ok = 0;
-      %if &_sc = s15 and &_src_exists15 %then %let _src_ok = 1;
-      %if &_sc = s17 and &_src_exists17 %then %let _src_ok = 1;
+      %if "&_sc" = "s15" %then %do;
+        %if not &_src_exists15 %then
+          %fail_out(msg=%str(D-08 pdd.src_s15 missing -- cannot verify duplicate PSID));
+        %let _src_ok = 1;
+      %end;
+      %if "&_sc" = "s17" %then %do;
+        %if not &_src_exists17 %then
+          %fail_out(msg=%str(D-08 pdd.src_s17 missing -- cannot verify duplicate PSID));
+        %let _src_ok = 1;
+      %end;
 
       %if &_src_ok %then %do;
-        /* Replicate %pdd_norm_psid logic inline -- cannot call the macro
-           with in= out= parameters in a DATA step context here. */
         data work._d08_compare;
           set pdd.src_&_sc (keep=&_pc &_dc);
           length _norm_p $64 _norm_d $64;
@@ -179,9 +189,6 @@
         %end;
         %put NOTE: [04_name_map] D-08 &_sc &_nagr rows confirmed identical (0 disagreements);
       %end;
-      %else %do;
-        %put NOTE: [04_name_map] D-08 &_sc src not yet available -- dup PSID flagged for status only;
-      %end;
     %end;
   %end;
   %else %do;
@@ -191,68 +198,33 @@
 
 /* Status assignment and assertions (called from Section 3 body). */
 %macro build_status;
-  /* Determine if key_analysis has a col_name column */
-  %local _ka_has_col;
-  %let _ka_has_col = 0;
+  /* Join headers to key_analysis on upcase(key_var_name) = upcase(col_name)
+     within s_code. key_column_type = 'PRECEDE_STUDY_ID' marks the KEY column. */
   proc sql noprint;
-    select count(*) into :_ka_has_col trimmed
-    from dictionary.columns
-    where libname = 'WORK'
-      and memname = '_KA_COLS'
-      and lowcase(name) = 'col_name';
+    create table work._headers_aug as
+    select a.s_code,
+           a.col_order,
+           a.col_name,
+           a.sas_type,
+           a.length,
+           a.original_header,
+           a.trunc_flag,
+           case when k.ukvn is not null then 'PRECEDE_STUDY_ID' else '' end
+             as key_column_type length=20,
+           c.class as col_class,
+           case when d.col_name is not null then 1 else 0 end
+             as duplicate_study_id
+    from work.headers as a
+    left join (select s_code, upcase(strip(key_var_name)) as ukvn
+               from pdd.key_analysis
+               where key_column_type = 'PRECEDE_STUDY_ID') as k
+      on a.s_code = k.s_code
+     and upcase(a.col_name) = k.ukvn
+    left join work.s06class as c
+      on a.col_name = c.sas_name
+    left join work._psid_dup_cols as d
+      on a.s_code = d.s_code and a.col_name = d.col_name;
   quit;
-
-  %if &_ka_has_col > 0 %then %do;
-    proc sql noprint;
-      create table work._headers_aug as
-      select a.s_code,
-             a.col_order,
-             a.col_name,
-             a.sas_type,
-             a.length,
-             a.orig_col_name,
-             a.original_header_trunc,
-             b.key_column_type,
-             c.class as col_class,
-             case when d.col_name is not null then 1 else 0 end
-               as duplicate_study_id
-      from work.headers as a
-      left join (select s_code, col_name, key_column_type
-                 from pdd.key_analysis
-                 where key_column_type = 'PRECEDE_STUDY_ID') as b
-        on a.s_code = b.s_code and a.col_name = b.col_name
-      left join work.s06class as c
-        on a.col_name = c.sas_name
-      left join work._psid_dup_cols as d
-        on a.s_code = d.s_code and a.col_name = d.col_name;
-    quit;
-  %end;
-  %else %do;
-    proc sql noprint;
-      create table work._headers_aug as
-      select a.s_code,
-             a.col_order,
-             a.col_name,
-             a.sas_type,
-             a.length,
-             a.orig_col_name,
-             a.original_header_trunc,
-             b.key_column_type,
-             c.class as col_class,
-             case when d.col_name is not null then 1 else 0 end
-               as duplicate_study_id
-      from work.headers as a
-      left join (select s_code, key_column_type
-                 from pdd.key_analysis
-                 where key_column_type = 'PRECEDE_STUDY_ID') as b
-        on a.s_code = b.s_code
-       and prxmatch('/PRECEDE.Study.ID/i', a.orig_col_name) > 0
-      left join work.s06class as c
-        on a.col_name = c.sas_name
-      left join work._psid_dup_cols as d
-        on a.s_code = d.s_code and a.col_name = d.col_name;
-    quit;
-  %end;
 
   /* D-04 status: DATA step IF/ELSE (not open-code %if) */
   data work.name_map_status;
@@ -265,14 +237,26 @@
     else status = 'PCNR';
   run;
 
-  /* Assert: exactly one KEY row per file with PRECEDE_STUDY_ID */
+  /* Assert: every s_code that has a PRECEDE_STUDY_ID row in key_analysis
+     must have exactly 1 KEY row. Zero is also a failure. */
+  proc sql noprint;
+    create table work._key_expected as
+    select distinct s_code
+    from pdd.key_analysis
+    where key_column_type = 'PRECEDE_STUDY_ID';
+  quit;
+
   proc sql noprint;
     create table work._key_check as
-    select s_code, count(*) as n_key
-    from work.name_map_status
-    where status = 'KEY'
-    group by s_code
-    having count(*) ne 1;
+    select e.s_code,
+           coalesce(k.n_key, 0) as n_key
+    from work._key_expected as e
+    left join (select s_code, count(*) as n_key
+               from work.name_map_status
+               where status = 'KEY'
+               group by s_code) as k
+      on e.s_code = k.s_code
+    where coalesce(k.n_key, 0) ne 1;
   quit;
 
   %local _nkwrong;
@@ -281,7 +265,7 @@
   quit;
   %if &_nkwrong > 0 %then %do;
     proc print data=work._key_check; run;
-    %fail_out(msg=%str(&_nkwrong files have != 1 KEY row -- see above));
+    %fail_out(msg=%str(&_nkwrong files have != 1 KEY row (0 is a failure too) -- see above));
   %end;
 
   /* Assert EXCLUDED_CLK count for s06 = 2747 */
@@ -308,9 +292,9 @@
     length cleaned_pre_short $200;
     cleaned_pre_short = '';
     if status = 'PCNR' then do;
-      %clean_name(raw=original_header_trunc, out=cleaned_pre_short);
+      %clean_name(raw=original_header, out=cleaned_pre_short);
       if cleaned_pre_short = '' then do;
-        put 'ERROR: [04_name_map] D-02 empty clean for: ' original_header_trunc;
+        put 'ERROR: [04_name_map] D-02 empty clean for: ' original_header;
         call symputx('_n_empty_clean',
           cats(input(symget('_n_empty_clean'), best.) + 1));
       end;
@@ -324,7 +308,12 @@
   %put NOTE: [04_name_map] Section 4 cleaning complete;
 %mend apply_cleaning;
 
-/* Apply decision RENAME overrides (Section 5 body). */
+/* Apply decision RENAME overrides (Section 5 body).
+   Decisions file schema: s_code_a, header_a, col_order_a, s_code_b, header_b,
+     col_order_b, decision, note, new_name, decided_by, date
+   Match on (s_code, col_order) when col_order_a is non-missing, else on
+   original_header (case-insensitive).
+   new_name takes priority over note; strip leading PCNR_ from new_name. */
 %macro apply_decisions_rename;
   %local _n_decisions;
   proc sql noprint;
@@ -347,8 +336,10 @@
       from work.decisions as d
       left join work.name_map_cleaned as m
         on d.s_code_a = m.s_code
-       and (d.header_a = m.original_header_trunc
-            or (d.col_order_a is not null and d.col_order_a = m.col_order))
+       and (d.col_order_a is not missing
+            and d.col_order_a = m.col_order
+            or d.col_order_a is missing
+            and lowcase(d.header_a) = lowcase(m.original_header))
       where m.s_code is null and d.s_code_a is not null;
     quit;
 
@@ -361,14 +352,15 @@
       %fail_out(msg=%str(&_n_unmatched decision rows do not match any name_map row));
     %end;
 
-    /* Extract RENAME decisions */
+    /* Extract RENAME decisions; new_name wins over note; strip leading PCNR_ */
     proc sql noprint;
       create table work._rename_dec as
       select s_code_a as s_code length=4,
-             header_a as orig_header length=200,
+             header_a as orig_header length=256,
              col_order_a as col_order_dec,
-             /* note field holds the target name */
-             strip(note) as rename_target length=200
+             prxchange('s/^PCNR_//', 1,
+               strip(case when strip(new_name) ne '' then new_name else note end))
+               as rename_target length=200
       from work.decisions
       where upcase(strip(decision)) = 'RENAME' and s_code_a is not null;
     quit;
@@ -380,16 +372,32 @@
       from work.name_map_cleaned as m
       left join work._rename_dec as r
         on m.s_code = r.s_code
-       and m.original_header_trunc = r.orig_header;
+       and (r.col_order_dec is not missing
+            and m.col_order = r.col_order_dec
+            or r.col_order_dec is missing
+            and lowcase(m.original_header) = lowcase(r.orig_header));
     quit;
   %end;
 %mend apply_decisions_rename;
 
-/* Form variable groups and apply D-03 shortening (Section 6 body). */
+/* Form variable groups (D-01a) and apply D-03 shortening (Section 6 body).
+
+   Group rules:
+     - First occurrence of lowcase(cleaned): assign base group_id G; retain G.
+     - Same file seen again for same lowcase(cleaned): new group_id G',
+       record as SAME_FILE_CLEANED_DUPLICATE.
+     - Different file, same lowcase(cleaned): join base group_id G.
+
+   Abbreviation rules:
+     - Apply only when length(cleaned) > 27.
+     - Apply longest-first; stop as soon as length <= 27.
+     - Token boundary: start of string, end of string, _, digit, or
+       lower-to-upper case transition.
+     - Log each applied substitution with group_id. */
 %macro form_groups_and_shorten;
 
-  /* 6a. Assign group_id: same lowcase(cleaned_pre_short) across files = same group.
-         Same file = separate group. */
+  /* 6a. Assign group_id: same lowcase(cleaned_pre_short) across files = base group.
+         Same file repeat = new group (SAME_FILE_CLEANED_DUPLICATE). */
   proc sort data=work.name_map_overrides (where=(status='PCNR' and cleaned_pre_short ne ''))
     out=work._pcnr_only;
     by s_code col_order;
@@ -402,26 +410,31 @@
 
   proc sort data=work._pcnr_lc; by _lc_clean s_code col_order; run;
 
-  /* Assign group_id: new group when lc_clean changes OR same file seen again in current lc_clean */
   data work._group_assign;
     set work._pcnr_lc;
     by _lc_clean;
     length _seen_file $500;
-    retain _grp_id 0 _seen_file;
+    retain _grp_id 0 _base_grp_id 0 _seen_file '';
     if first._lc_clean then do;
-      _grp_id    = _grp_id + 1;
-      _seen_file = '';
+      _grp_id      = _grp_id + 1;
+      _base_grp_id = _grp_id;
+      _seen_file   = s_code;
+      group_id     = _grp_id;
+      _same_file_collision = 0;
     end;
-    /* Same-file collision: same lc_clean, same s_code as a previous row in this group */
-    if not first._lc_clean and index(cats('|', _seen_file, '|'), cats('|', s_code, '|')) > 0 then do;
+    else if index(cats('|', _seen_file, '|'), cats('|', s_code, '|')) > 0 then do;
+      /* Same file already in this lc_clean group -- new group */
       _grp_id = _grp_id + 1;
       _same_file_collision = 1;
+      group_id = _grp_id;
     end;
-    else _same_file_collision = 0;
-    if index(cats('|', _seen_file, '|'), cats('|', s_code, '|')) = 0 then
+    else do;
+      /* Different file -- joins base group */
+      _same_file_collision = 0;
       _seen_file = catx('|', _seen_file, s_code);
-    group_id = _grp_id;
-    drop _seen_file;
+      group_id   = _base_grp_id;
+    end;
+    drop _seen_file _base_grp_id;
   run;
 
   /* 6b. Apply SAME decisions: find pairs that need group merging */
@@ -438,22 +451,26 @@
     select count(*) into :_nsg trimmed from work._same_dec;
   quit;
 
-  /* Map SAME pairs to group_ids */
   data work._group_final;
     set work._group_assign;
   run;
 
   %if &_nsg > 0 %then %do;
+    /* Map SAME pairs to group_ids; match on (s_code, col_order) or original_header */
     proc sql noprint;
       create table work._same_grpids as
       select a.group_id as grp_a, b.group_id as grp_b
       from work._same_dec as d
       inner join work._group_assign as a
         on d.s_code_a = a.s_code
-       and lowcase(d.header_a) = lowcase(a.cleaned_pre_short)
+       and (d.col_order_a is not missing and d.col_order_a = a.col_order
+            or d.col_order_a is missing
+               and lowcase(d.header_a) = lowcase(a.original_header))
       inner join work._group_assign as b
         on d.s_code_b = b.s_code
-       and lowcase(d.header_b) = lowcase(b.cleaned_pre_short)
+       and (d.col_order_b is not missing and d.col_order_b = b.col_order
+            or d.col_order_b is missing
+               and lowcase(d.header_b) = lowcase(b.original_header))
       where a.group_id ne b.group_id;
     quit;
 
@@ -501,55 +518,44 @@
     keep group_id cleaned_pre_short pcnr_name_override;
   run;
 
-  /* 6d. Apply abbreviation table then elide to shorten to <= 27 chars */
-  /* First load abbreviation table to a work dataset sorted desc by long length */
-  data work._abbrev_applied_raw;
-    length group_id 8
-           long $200 short $200
-           cleaned_before $200 cleaned_after $200;
-    stop;
-  run;
-
-  /* Process each group representative */
-  %local _ngrep _gi;
+  /* 6d. Apply abbreviation table then elide.
+         Abbreviation: only when length > 27; longest-first; stop as soon as <= 27.
+         Token boundary: start, end, _, digit, or lower-to-upper transition. */
+  %local _ngrep;
   proc sql noprint;
     select count(*) into :_ngrep trimmed from work._grp_rep;
   quit;
 
-  /* Process abbreviations via explicit DO loop inside a DATA step.
-     Load abbrev as a fixed dataset; iterate with SET ... POINT. */
   data work._grp_names (keep=group_id pcnr_name_base)
        work._abbrev_hits (keep=group_id long short cleaned_before cleaned_after);
     length group_id 8
            pcnr_name_base $200
-           _nm $200 _cbe $200 _pat $400
+           _nm $200 _cbe $200 _pat $400 _esc_long $400
            long $200 short $200
            cleaned_before $200 cleaned_after $200
-           _elide_first 8 _elide_last 8;
-    if _N_ = 1 then _nab = 0;
-    /* Count abbrev rows once */
+           _elide_first 8 _elide_last 8 _nab 8 _nab_tot 8;
+
+    /* Load total abbreviation count once */
     if _N_ = 1 then do;
       _nab = 0;
-      do while (1);
-        _nab = _nab + 1;
-        set work.abbrev point=_nab nobs=_nab_tot;
-        if _nab >= _nab_tot then leave;
-      end;
+      set work.abbrev (keep=long short _longlen) nobs=_nab_tot point=_nab;
       _nab = _nab_tot;
     end;
     retain _nab;
+
     set work._grp_rep;
 
     _nm = cleaned_pre_short;
     if pcnr_name_override ne '' then _nm = pcnr_name_override;
     else do;
-      /* Apply abbreviations, longest-first (work.abbrev already sorted desc by _longlen) */
-      do _ai = 1 to _nab;
+      /* Apply abbreviations longest-first; only when length > 27; stop early */
+      if length(_nm) > 27 then do _ai = 1 to _nab;
         set work.abbrev (keep=long short _longlen) point=_ai;
-        _cbe = _nm;
-        /* Whole-token match: bounded by start, end, or underscore */
-        _pat = cats('s/(^|_)', prxchange('s/([.+*?()\[\]{}|\\^$])/\\$1/', -1, long),
-                    '($|_)/$1', short, '$2/');
+        if length(_nm) <= 27 then leave;
+        _cbe     = _nm;
+        _esc_long = prxchange('s/([.+*?()\[\]{}|\\^$])/\\$1/', -1, long);
+        /* Token boundary: start | after _ or digit | after lowercase (camelCase) */
+        _pat = cats('s/(?:^|(?<=[_0-9a-z]))', _esc_long, '(?=[A-Z0-9_]|$)/', short, '/');
         _nm  = prxchange(_pat, -1, _nm);
         if _nm ne _cbe then do;
           cleaned_before = _cbe;
@@ -557,19 +563,14 @@
           output work._abbrev_hits;
         end;
       end;
-      /* Elide if still > 27 chars */
+      /* Elide if still > 27 chars after abbreviation */
       %elide_middle(nm=_nm);
     end;
     pcnr_name_base = _nm;
     output work._grp_names;
   run;
 
-  /* Copy abbrev hits with correct name */
-  data work._abbrev_applied_raw;
-    set work._abbrev_hits;
-  run;
-
-  /* Join pcnr_name_base back to all rows in name_map_overrides */
+  /* Join pcnr_name_base back to all rows */
   proc sql noprint;
     create table work._gid_map as
     select g.group_id, gn.pcnr_name_base, g.s_code, g.col_name
@@ -595,9 +596,11 @@
   %put NOTE: [04_name_map] Section 6 groups and shortening complete;
 %mend form_groups_and_shorten;
 
-/* Stage 1 collision suffix between groups (Section 7 body). */
+/* Stage 1 collision suffix between groups (Section 7 body).
+   If base + suffix > 27, re-apply middle-elide to the base (not cut end).
+   Choose next suffix not already used by any final name in this run. */
 %macro stage1_suffix;
-  /* Representative row per group for ordering: s01->s20 then col_order */
+  /* Representative row per group for ordering */
   proc sort data=work.name_map_grouped (where=(status='PCNR' and group_id>.))
     out=work._pcnr_grp;
     by group_id s_code col_order;
@@ -646,21 +649,54 @@
     where same_file_collision = 1 and status = 'PCNR';
   quit;
 
-  /* Build final pcnr_name with suffix (ensured <= 27 chars) */
+  /* Build final pcnr_name with suffix.
+     If base + suffix > 27: re-apply middle-elide to base (not cut end).
+     Use a hash to track all final names and pick next unused suffix. */
   data work._suffix_final;
+    if _N_ = 1 then do;
+      /* Pre-populate hash with all unsuffixed (suffix_n=1) names */
+      declare hash _used();
+      _used.defineKey('_k');
+      _used.defineDone();
+      do until (_eof1);
+        set work._suffix_assign (where=(_suffix_n=1)) end=_eof1;
+        _k = lowcase(pcnr_name_base);
+        _used.replace();
+      end;
+    end;
     set work._suffix_assign;
-    length pcnr_name_final $200
-           _sfx $10 _base_trim $200;
+    length pcnr_name_final $200 _sfx $10 _base_trim $200 _candidate $200 _k $200;
     _elide_first = 0;
     _elide_last  = 0;
     if _suffix_n = 1 then pcnr_name_final = pcnr_name_base;
     else do;
-      _sfx     = cats('_', put(_suffix_n, best.));
-      _allowed = 27 - length(_sfx);
-      if length(pcnr_name_base) > _allowed then
-        _base_trim = substr(pcnr_name_base, 1, _allowed);
-      else _base_trim = pcnr_name_base;
-      pcnr_name_final = cats(_base_trim, _sfx);
+      _try = _suffix_n;
+      do while (_try < 1000);
+        _sfx     = cats('_', put(_try, best.));
+        _allowed = 27 - length(_sfx);
+        _base_trim = pcnr_name_base;
+        /* Re-apply middle-elide to base if needed */
+        if length(_base_trim) > _allowed then do;
+          _elide_first = max(4, ceil((_allowed - 2) / 2));
+          _elide_last  = _allowed - 2 - _elide_first;
+          if _elide_last < 1 then do;
+            _elide_first = _allowed - 3;
+            _elide_last  = 1;
+          end;
+          _base_trim = cats(substr(_base_trim, 1, _elide_first), '__',
+                            substr(_base_trim, length(_base_trim) - _elide_last + 1));
+        end;
+        _candidate = cats(_base_trim, _sfx);
+        _k = lowcase(_candidate);
+        if _used.check() ne 0 then do;
+          pcnr_name_final = _candidate;
+          _used.replace();
+          leave;
+        end;
+        _try = _try + 1;
+      end;
+      if _try >= 1000 then
+        put 'ERROR: [04_name_map] stage1_suffix exhausted 1000 suffix tries for: ' pcnr_name_base;
     end;
     keep group_id pcnr_name_base pcnr_name_final _suffix_n;
   run;
@@ -699,16 +735,17 @@
   %put NOTE: [04_name_map] Stage 1 complete -- &_ncoll collision rows in qc_name_map_collisions;
 %mend stage1_suffix;
 
-/* Stage 2 hard-stop (Section 8 body). */
+/* Stage 2 hard-stop (Section 8 body).
+   Duplicate = count(distinct group_id) > 1 per upcase(pcnr_name). */
 %macro stage2_validate;
-  /* Check 1: case-insensitive duplicate pcnr_name */
+  /* Check 1: case-insensitive duplicate pcnr_name -- different group_ids with same name */
   proc sql noprint;
     create table work._s2_dups as
-    select pcnr_name, count(*) as n_rows
+    select pcnr_name, count(distinct group_id) as n_groups
     from work.name_map_suffixed
     where status = 'PCNR' and pcnr_name ne ''
     group by upcase(pcnr_name)
-    having count(*) > 1;
+    having count(distinct group_id) > 1;
   quit;
 
   %local _n_s2_dups;
@@ -717,7 +754,7 @@
   quit;
   %if &_n_s2_dups > 0 %then %do;
     proc print data=work._s2_dups; run;
-    %fail_out(msg=%str(Stage 2 -- &_n_s2_dups PCNR_ names are case-insensitive duplicates));
+    %fail_out(msg=%str(Stage 2 -- &_n_s2_dups PCNR_ names assigned to multiple groups));
   %end;
 
   /* Check 2: length > 32 */
@@ -758,16 +795,58 @@
 
   %put NOTE: [04_name_map] Stage 2 passed;
 
-  /* Persist work.name_map_core for downstream plans */
   data work.name_map_core;
     set work.name_map_suffixed;
-    /* Log truncated labels (D-10 criterion 6) */
-    if length(original_header_trunc) >= 256 then
+    if length(original_header) >= 256 then
       put 'NOTE: [04_name_map] LABEL TRUNCATED: ' s_code= col_order= col_name=;
   run;
 
   %put NOTE: [04_name_map] work.name_map_core ready;
 %mend stage2_validate;
+
+/* DRY-RUN gate: when env var PDD_DRYRUN=1, stop after Section 3 and
+   print diagnostics (rows loaded, status counts, KEY rows, D-08 result). */
+%macro pdd_dryrun_gate;
+  %local _dryrun_flag;
+  %if %sysfunc(sysexist(PDD_DRYRUN)) %then
+    %let _dryrun_flag = %sysget(PDD_DRYRUN);
+  %else %let _dryrun_flag = 0;
+
+  %if "&_dryrun_flag" = "1" %then %do;
+    %put NOTE: [04_name_map] PDD_DRYRUN=1 -- stopping after Section 3;
+
+    %local _n_spec;
+    proc sql noprint;
+      select count(*) into :_n_spec trimmed from work.headers;
+    quit;
+    %put NOTE: [04_name_map] DRYRUN rows loaded from import_spec: &_n_spec;
+
+    %put NOTE: [04_name_map] DRYRUN status counts by s_code:;
+    proc sql;
+      select s_code, status, count(*) as n
+      from work.name_map_status
+      group by s_code, status
+      order by s_code, status;
+    quit;
+
+    %put NOTE: [04_name_map] DRYRUN KEY rows per file:;
+    proc sql;
+      select s_code, count(*) as n_key
+      from work.name_map_status
+      where status = 'KEY'
+      group by s_code;
+    quit;
+
+    %local _nd08_dr;
+    proc sql noprint;
+      select count(*) into :_nd08_dr trimmed from work._psid_dup_cols;
+    quit;
+    %put NOTE: [04_name_map] DRYRUN D-08 duplicate PSID columns: &_nd08_dr;
+
+    %restore_log;
+    %abort cancel;
+  %end;
+%mend pdd_dryrun_gate;
 
 
 /* ============================================================
@@ -797,7 +876,7 @@
 %mend check_import_spec_counts;
 %check_import_spec_counts;
 
-/* Per-s_code count comparison */
+/* Per-s_code count comparison with header_inventory (count only) */
 proc sql noprint;
   create table work._sc_check as
   select a.file_code as s_code,
@@ -834,75 +913,98 @@ quit;
    SECTION 2 -- Load inputs
    ============================================================ */
 
+/* Log column names of key inputs for diagnostics */
+proc contents data=pdd.import_spec noprint
+  out=work._is_cols (keep=name varnum); run;
+proc contents data=pdd.key_analysis noprint
+  out=work._ka_cols (keep=name varnum); run;
+
 /* 2a. Base spec */
 data work.importspec;
   set pdd.import_spec;
 run;
 
-/* 2b. Headers: join import_spec to header_inventory for original_header_trunc */
-proc sql noprint;
-  create table work.headers as
-  select a.file_code  as s_code,
-         a.col_order,
-         a.sas_name   as col_name,
-         a.sas_type,
-         a.length,
-         b.orig_col_name,
-         b.original_header_trunc
-  from pdd.import_spec as a
-  left join pdd.header_inventory as b
-    on a.file_code = b.s_code
-   and a.sas_name  = b.sas_name;
-quit;
+/* 2b. Headers: build directly from pdd.import_spec.
+        original_header = first 256 chars of orig_col_name.
+        trunc_flag = 1 when orig_col_name length >= 256.
+        col_name = sas_name (column in pdd.src_<s_code>). */
+data work.headers;
+  set pdd.import_spec (rename=(file_code=s_code sas_name=col_name));
+  length original_header $256;
+  original_header = substr(strip(orig_col_name), 1, 256);
+  trunc_flag      = (length(strip(orig_col_name)) >= 256);
+  keep s_code col_order col_name sas_type length orig_col_name original_header trunc_flag;
+run;
 
-%macro check_header_join;
-  %local _nmis_hdr;
+%macro check_orig_col_name;
+  %local _n_empty_orig;
   proc sql noprint;
-    select count(*) into :_nmis_hdr trimmed
+    select count(*) into :_n_empty_orig trimmed
     from work.headers
-    where original_header_trunc is null;
+    where original_header = '';
   quit;
-  %if &_nmis_hdr > 0 %then %do;
-    %fail_out(msg=%str(&_nmis_hdr import_spec rows failed to join to header_inventory));
+  %if &_n_empty_orig > 0 %then %do;
+    %fail_out(msg=%str(&_n_empty_orig import_spec rows have blank orig_col_name));
   %end;
-  %put NOTE: [04_name_map] All import_spec rows joined to header_inventory;
-%mend check_header_join;
-%check_header_join;
+  %put NOTE: [04_name_map] All import_spec rows have non-empty original_header;
+%mend check_orig_col_name;
+%check_orig_col_name;
 
-/* 2c. Key analysis */
+/* 2c. Key analysis -- keep key_var_name for join */
 data work.keyanalysis;
-  set pdd.key_analysis (keep=s_code key_column_type);
+  set pdd.key_analysis (keep=s_code key_column_type key_var_name);
 run;
 
-/* 2d. S06 column class */
-proc import datafile="&sas_path.\..\docs\s06_column_class.csv"
-  out=work.s06class dbms=csv replace;
-  guessingrows=max;
-run;
-
+/* 2d. S06 column class -- DATA step INFILE (03_import pattern) */
 data work.s06class;
-  set work.s06class (keep=sas_name class);
+  length sas_name $32 orig_col_name $256 token $100 class $20 rule $200;
+  infile "&sas_path.\..\docs\s06_column_class.csv"
+         encoding='utf-8' dsd dlm=',' missover firstobs=2 lrecl=32767;
+  input sas_name $ orig_col_name $ token $ class $ rule $;
   sas_name = strip(sas_name);
   class    = strip(class);
+  if sas_name = '' then delete;
+  keep sas_name class;
 run;
 
-/* 2e. Decision overrides (may be empty) */
-proc import datafile="&sas_path.\..\docs\name_map_decisions.csv"
-  out=work.decisions dbms=csv replace;
-  guessingrows=max;
+/* 2e. Decision overrides (may be header-only) -- DATA step INFILE.
+        Schema: s_code_a, header_a, col_order_a, s_code_b, header_b,
+                col_order_b, decision, note, new_name, decided_by, date */
+data work.decisions;
+  length s_code_a $4    header_a $256    col_order_a 8
+         s_code_b $4    header_b $256    col_order_b 8
+         decision $20   note $200        new_name $200
+         decided_by $50 date $10;
+  infile "&sas_path.\..\docs\name_map_decisions.csv"
+         encoding='utf-8' dsd dlm=',' missover firstobs=2 lrecl=32767;
+  input s_code_a $ header_a $ col_order_a
+        s_code_b $ header_b $ col_order_b
+        decision $ note $ new_name $ decided_by $ date $;
+  s_code_a   = strip(s_code_a);
+  header_a   = strip(header_a);
+  s_code_b   = strip(s_code_b);
+  header_b   = strip(header_b);
+  decision   = strip(decision);
+  note       = strip(note);
+  new_name   = strip(new_name);
+  decided_by = strip(decided_by);
+  date       = strip(date);
+  if strip(decision) = '' and strip(s_code_a) = '' then delete;
 run;
 
-/* 2f. Abbreviation table -- already sorted desc by _longlen from PROC IMPORT.
-        Add length variable then sort. */
-proc import datafile="&sas_path.\..\docs\name_abbrev.csv"
-  out=work._abbrev_raw dbms=csv replace;
-  guessingrows=max;
+/* 2f. Abbreviation table -- DATA step INFILE; sort desc by long length */
+data work._abbrev_raw;
+  length long $200 short $200;
+  infile "&sas_path.\..\docs\name_abbrev.csv"
+         encoding='utf-8' dsd dlm=',' missover firstobs=2 lrecl=32767;
+  input long $ short $;
+  long  = strip(long);
+  short = strip(short);
+  if long = '' then delete;
 run;
 
 data work.abbrev;
   set work._abbrev_raw;
-  long     = strip(long);
-  short    = strip(short);
   _longlen = length(long);
 run;
 
@@ -913,52 +1015,51 @@ proc sort data=work.abbrev; by descending _longlen; run;
    SECTION 3 -- D-08 duplicate Study ID (s15, s17) THEN status
    ============================================================ */
 
-/* 3a. Identify PSID-like headers in s15/s17 */
+/* 3a. Identify PSID-like headers in s15/s17 via original_header */
 proc sql noprint;
   create table work._psid_headers as
-  select s_code, col_name, col_order, orig_col_name
+  select s_code, col_name, col_order, original_header
   from work.headers
   where s_code in ('s15','s17')
-    and prxmatch('/PRECEDE.Study.ID/i', orig_col_name) > 0
+    and prxmatch('/PRECEDE.?Study.?ID/i', original_header) > 0
   order by s_code, col_order;
 quit;
 
-/* 3b. Duplicate columns = all beyond the first (min col_order) per file */
+/* 3b. Duplicate columns = all beyond the primary (key_var_name) per file */
 proc sql noprint;
   create table work._psid_dup_cols as
-  select a.s_code, a.col_name, a.col_order
-  from work._psid_headers as a
-  inner join (select s_code, min(col_order) as min_order
-              from work._psid_headers
-              group by s_code) as b
-    on a.s_code = b.s_code
-   and a.col_order > b.min_order;
+  select h.s_code, h.col_name, h.col_order
+  from work._psid_headers as h
+  where not exists (
+    select 1 from pdd.key_analysis as k
+    where k.s_code = h.s_code
+      and k.key_column_type = 'PRECEDE_STUDY_ID'
+      and upcase(k.key_var_name) = upcase(h.col_name));
 quit;
 
-/* 3c. Build _d08_primary: primary vs dup col pairs */
+/* 3c. Build _d08_primary: key_var_name column vs each dup column */
 proc sql noprint;
   create table work._d08_primary as
-  select p.s_code,
-         p.col_name as primary_col,
+  select h.s_code,
+         h.col_name as primary_col,
          d.col_name as dup_col
-  from (select s_code, col_name
-        from work._psid_headers as h
-        inner join (select s_code, min(col_order) as min_order
-                    from work._psid_headers group by s_code) as m
-          on h.s_code = m.s_code and h.col_order = m.min_order) as p
+  from work._psid_headers as h
+  inner join pdd.key_analysis as k
+    on h.s_code = k.s_code
+   and k.key_column_type = 'PRECEDE_STUDY_ID'
+   and upcase(k.key_var_name) = upcase(h.col_name)
   inner join work._psid_dup_cols as d
-    on p.s_code = d.s_code;
+    on h.s_code = d.s_code;
 quit;
 
 /* 3d. D-08 value comparison */
 %d08_check;
 
-/* 3e. Determine key_analysis column structure */
-proc contents data=pdd.key_analysis noprint
-  out=work._ka_cols (keep=name varnum); run;
-
-/* 3f. Status assignment */
+/* 3e. Status assignment */
 %build_status;
+
+/* 3f. DRY-RUN gate: PDD_DRYRUN=1 stops here */
+%pdd_dryrun_gate;
 
 
 /* ============================================================
@@ -995,36 +1096,38 @@ proc contents data=pdd.key_analysis noprint
 
 %stage2_validate;
 
-%restore_log;
-
 
 /* ============================================================
    SECTION 9 -- Near-match detection (D-06)
    ============================================================ */
 
 %macro section9_nearmatches;
-  /* Distinct (s_code, cleaned_pre_short, group_id) from PCNR rows */
+  /* Distinct rows for cross-file comparison; assign key in DATA step */
   proc sql noprint;
-    create table work._nm_distinct as
-    select distinct s_code,
-                    cleaned_pre_short,
-                    group_id,
-                    monotonic() as key
+    create table work._nm_distinct_0 as
+    select distinct s_code, col_order, original_header, cleaned_pre_short, group_id
     from work.name_map_core
     where status = 'PCNR' and cleaned_pre_short ne '';
   quit;
 
-  /* Cross-join: different s_code, each pair once (a.key < b.key),
-     length difference <= 2, edit distance <= 2, not identical,
-     not already in same group_id */
+  data work._nm_distinct;
+    set work._nm_distinct_0;
+    key = _N_;
+  run;
+
+  /* Edit-distance pairs */
   proc sql noprint;
     create table work._nm_pairs_edit as
-    select a.s_code      as s_code_a,
+    select a.s_code         as s_code_a,
+           a.col_order      as col_order_a,
+           a.original_header as original_header_a,
            a.cleaned_pre_short as name_a,
-           a.group_id    as group_id_a,
-           b.s_code      as s_code_b,
+           a.group_id       as group_id_a,
+           b.s_code         as s_code_b,
+           b.col_order      as col_order_b,
+           b.original_header as original_header_b,
            b.cleaned_pre_short as name_b,
-           b.group_id    as group_id_b,
+           b.group_id       as group_id_b,
            complev(lowcase(a.cleaned_pre_short),
                    lowcase(b.cleaned_pre_short)) as edit_dist,
            'EDIT_DISTANCE' as match_type length=20
@@ -1039,16 +1142,19 @@ proc contents data=pdd.key_analysis noprint
       and lowcase(a.cleaned_pre_short) ne lowcase(b.cleaned_pre_short);
   quit;
 
-  /* Trailing-suffix rule: one name has _N or _dupN suffix;
-     stripped version equals the other name */
+  /* Trailing-suffix rule: tested in BOTH directions */
   proc sql noprint;
     create table work._nm_pairs_suffix as
-    select a.s_code      as s_code_a,
+    select a.s_code         as s_code_a,
+           a.col_order      as col_order_a,
+           a.original_header as original_header_a,
            a.cleaned_pre_short as name_a,
-           a.group_id    as group_id_a,
-           b.s_code      as s_code_b,
+           a.group_id       as group_id_a,
+           b.s_code         as s_code_b,
+           b.col_order      as col_order_b,
+           b.original_header as original_header_b,
            b.cleaned_pre_short as name_b,
-           b.group_id    as group_id_b,
+           b.group_id       as group_id_b,
            . as edit_dist,
            'TRAILING_SUFFIX' as match_type length=20
     from work._nm_distinct as a,
@@ -1056,17 +1162,24 @@ proc contents data=pdd.key_analysis noprint
     where a.s_code ne b.s_code
       and a.key < b.key
       and a.group_id ne b.group_id
-      and prxmatch('/(_\d+|_dup\d*)$/i', strip(a.cleaned_pre_short)) > 0
-      and lowcase(prxchange('s/(_\d+|_dup\d*)$//i', 1,
-                  strip(a.cleaned_pre_short))) =
-          lowcase(strip(b.cleaned_pre_short));
+      and (
+        /* a has suffix, stripped a = b */
+        (prxmatch('/(_\d+|_dup\d*)$/i', strip(a.cleaned_pre_short)) > 0
+         and lowcase(prxchange('s/(_\d+|_dup\d*)$//i', 1, strip(a.cleaned_pre_short)))
+             = lowcase(strip(b.cleaned_pre_short)))
+        or
+        /* b has suffix, stripped b = a */
+        (prxmatch('/(_\d+|_dup\d*)$/i', strip(b.cleaned_pre_short)) > 0
+         and lowcase(prxchange('s/(_\d+|_dup\d*)$//i', 1, strip(b.cleaned_pre_short)))
+             = lowcase(strip(a.cleaned_pre_short)))
+      );
   quit;
 
-  /* Union both sets, deduplicate */
+  /* Union both sets */
   proc sql noprint;
     create table pdd.name_map_nearmatches as
-    select distinct s_code_a, name_a, group_id_a,
-                    s_code_b, name_b, group_id_b,
+    select distinct s_code_a, col_order_a, original_header_a, name_a, group_id_a,
+                    s_code_b, col_order_b, original_header_b, name_b, group_id_b,
                     edit_dist, match_type
     from (select * from work._nm_pairs_edit
           union all
@@ -1081,7 +1194,6 @@ proc contents data=pdd.key_analysis noprint
   %put NOTE: near-match pair count=&_n_nm;
 
   %if &_n_nm > 200 %then %do;
-    /* Report top patterns before failing */
     proc freq data=pdd.name_map_nearmatches order=freq noprint;
       tables match_type / out=work._nm_top;
     run;
@@ -1090,7 +1202,7 @@ proc contents data=pdd.key_analysis noprint
     %fail_out(msg=%str(D-06 near-match pair count=&_n_nm exceeds 200 -- resolve before continuing));
   %end;
 
-  /* Count undecided pairs (no SAME or DIFFERENT decision) */
+  /* Count undecided pairs (decisions match on (s_code, col_order) or original_header) */
   %local _n_undecided;
   proc sql noprint;
     select count(*) into :_n_undecided trimmed
@@ -1099,13 +1211,21 @@ proc contents data=pdd.key_analysis noprint
       select 1 from work.decisions as d
       where upcase(strip(d.decision)) in ('SAME','DIFFERENT')
         and ((d.s_code_a = nm.s_code_a
-              and lowcase(d.header_a) = lowcase(nm.name_a)
+              and (d.col_order_a is not missing and d.col_order_a = nm.col_order_a
+                   or d.col_order_a is missing
+                      and lowcase(d.header_a) = lowcase(nm.original_header_a))
               and d.s_code_b = nm.s_code_b
-              and lowcase(d.header_b) = lowcase(nm.name_b))
+              and (d.col_order_b is not missing and d.col_order_b = nm.col_order_b
+                   or d.col_order_b is missing
+                      and lowcase(d.header_b) = lowcase(nm.original_header_b)))
           or (d.s_code_a = nm.s_code_b
-              and lowcase(d.header_a) = lowcase(nm.name_b)
+              and (d.col_order_a is not missing and d.col_order_a = nm.col_order_b
+                   or d.col_order_a is missing
+                      and lowcase(d.header_a) = lowcase(nm.original_header_b))
               and d.s_code_b = nm.s_code_a
-              and lowcase(d.header_b) = lowcase(nm.name_a))));
+              and (d.col_order_b is not missing and d.col_order_b = nm.col_order_a
+                   or d.col_order_b is missing
+                      and lowcase(d.header_b) = lowcase(nm.original_header_a)))));
   quit;
   %put NOTE: [04_name_map] undecided near-match pairs=&_n_undecided;
   %if &_n_undecided > 0 %then
@@ -1117,7 +1237,7 @@ proc contents data=pdd.key_analysis noprint
 
 
 /* ============================================================
-   SECTION 10 -- D-08 confirmed (duplicate PSID handled in Plan 02)
+   SECTION 10 -- D-08 confirmed
    ============================================================ */
 
 %put NOTE: Section 10 D-08 confirmed in Plan 02;
@@ -1129,20 +1249,17 @@ proc contents data=pdd.key_analysis noprint
    ============================================================ */
 
 %macro section11_types;
-  /* Join name_map_core to import_spec on (s_code=file_code, col_order=col_order)
-     to get sas_type and spec_length per row */
   proc sql noprint;
     create table work._nm_typed as
     select c.*,
-           coalesce(s.sas_type,  c.sas_type)  as spec_sas_type  length=1,
-           coalesce(s.length,    c.length)     as spec_length
+           coalesce(s.sas_type, c.sas_type) as spec_sas_type  length=1,
+           coalesce(s.length,   c.length)   as spec_length
     from work.name_map_core as c
     left join pdd.import_spec as s
-      on c.s_code     = s.file_code
-     and c.col_order  = s.col_order;
+      on c.s_code    = s.file_code
+     and c.col_order = s.col_order;
   quit;
 
-  /* Per PCNR_ variable: result_type, max_length, type_conflict */
   proc sql noprint;
     create table work._var_types as
     select pcnr_name,
@@ -1158,7 +1275,6 @@ proc contents data=pdd.key_analysis noprint
     group by pcnr_name;
   quit;
 
-  /* Log type-conflict variables */
   %local _ntc;
   proc sql noprint;
     select count(*) into :_ntc trimmed
@@ -1174,19 +1290,18 @@ proc contents data=pdd.key_analysis noprint
     run;
   %end;
 
-  /* Flag original_header_trunc > 256 chars (SAS LABEL silent truncation -- Pitfall 4 / D-10 item 6) */
   %local _ntrunc;
   proc sql noprint;
     select count(*) into :_ntrunc trimmed
     from work.name_map_core
-    where length(original_header_trunc) >= 256;
+    where trunc_flag = 1;
   quit;
   %put NOTE: [04_name_map] labels >= 256 chars (truncated in SAS LABEL): &_ntrunc;
 
   %if &_ntrunc > 0 %then %do;
     data _null_;
-      set work.name_map_core (where=(length(original_header_trunc) >= 256));
-      put 'NOTE: [04_name_map] LABEL TRUNCATED >= 256: ' s_code= col_order= original_header_trunc=;
+      set work.name_map_core (where=(trunc_flag=1));
+      put 'NOTE: [04_name_map] LABEL TRUNCATED >= 256: ' s_code= col_order= original_header=;
     run;
   %end;
 
@@ -1201,15 +1316,21 @@ proc contents data=pdd.key_analysis noprint
    ============================================================ */
 
 %macro section12_final;
-  /* pdd.name_map: 4795 rows, one per (s_code, col_order) */
+  /* pdd.name_map: 4795 rows.
+     Columns: s_code, col_order, sas_name (column in pdd.src_<s_code>),
+              original_header, trunc_flag, status, group_id, pcnr_name,
+              sas_type, length. */
   proc sql noprint;
     create table pdd.name_map as
     select c.s_code,
            c.col_order,
-           c.original_header_trunc as original_header length=256,
+           c.col_name       as sas_name       length=32,
+           c.original_header                  length=256,
+           c.trunc_flag,
            c.status,
+           c.group_id,
            case when c.status = 'PCNR' then c.pcnr_name else '' end
-             as pcnr_name length=32,
+             as pcnr_name                     length=32,
            coalesce(t.spec_sas_type, c.sas_type) as sas_type length=1,
            coalesce(t.spec_length,   c.length)   as length
     from work.name_map_core as c
@@ -1219,18 +1340,19 @@ proc contents data=pdd.key_analysis noprint
      and c.col_order = t.col_order;
   quit;
 
-  /* Apply LABEL = full original_header_trunc */
   data pdd.name_map;
     set pdd.name_map;
     label original_header = 'Original header (truncated at 256 if longer)';
     label pcnr_name       = 'PCNR_ variable name';
     label status          = 'Column status (PCNR|KEY|EXCLUDED_CLK|LINKAGE_ONLY|DUPLICATE_DROPPED)';
+    label sas_name        = 'SAS column name in pdd.src_<s_code>';
+    label trunc_flag      = '1 when original header length >= 256';
+    label group_id        = 'Variable group identifier';
   run;
 
   %assert_rowcount(ds=pdd.name_map, expected=4795,
     label=pdd.name_map);
 
-  /* Verify unique on (s_code, col_order) */
   %local _ndupnm;
   proc sql noprint;
     select count(*) into :_ndupnm trimmed
@@ -1243,24 +1365,35 @@ proc contents data=pdd.key_analysis noprint
     %fail_out(msg=%str(pdd.name_map has &_ndupnm (s_code,col_order) duplicates -- not unique));
   %end;
 
-  /* pdd.name_map_vars: one row per unique PCNR_ variable */
-  proc sql noprint;
-    create table work._var_scodes as
-    select pcnr_name,
-           count(distinct s_code) as n_sources,
-           /* contributing s_codes as space-delimited list */
-           (select distinct cats(s_code, ' ')
-            from pdd.name_map as m2
-            where m2.pcnr_name = m1.pcnr_name
-              and m2.status = 'PCNR') as s_codes_contributing length=200
-    from pdd.name_map as m1
-    where status = 'PCNR' and pcnr_name ne ''
-    group by pcnr_name;
-  quit;
+  /* pdd.name_map_vars: one row per unique PCNR_ variable.
+     s_codes_contributing built with DATA step (by pcnr_name, retain, catx). */
+  proc sort data=pdd.name_map (where=(status='PCNR' and pcnr_name ne ''))
+    out=work._nm_sorted_sc;
+    by pcnr_name s_code;
+  run;
 
+  data work._var_scodes;
+    set work._nm_sorted_sc;
+    by pcnr_name s_code;
+    length s_codes_contributing $200;
+    retain s_codes_contributing n_sources;
+    if first.pcnr_name then do;
+      s_codes_contributing = '';
+      n_sources = 0;
+    end;
+    if first.s_code then do;
+      s_codes_contributing = catx(' ', s_codes_contributing, s_code);
+      n_sources = n_sources + 1;
+    end;
+    if last.pcnr_name then output;
+    keep pcnr_name n_sources s_codes_contributing;
+  run;
+
+  /* pdd.name_map_vars adds group_id */
   proc sql noprint;
     create table pdd.name_map_vars as
     select v.pcnr_name,
+           nm.group_id,
            t.result_type,
            t.max_length,
            t.type_conflict,
@@ -1269,6 +1402,11 @@ proc contents data=pdd.key_analysis noprint
     from work._var_scodes as v
     inner join work._var_types as t
       on v.pcnr_name = t.pcnr_name
+    inner join (select pcnr_name, min(group_id) as group_id
+                from pdd.name_map
+                where status = 'PCNR' and pcnr_name ne ''
+                group by pcnr_name) as nm
+      on v.pcnr_name = nm.pcnr_name
     order by v.pcnr_name;
   quit;
 
@@ -1294,18 +1432,18 @@ proc contents data=pdd.key_analysis noprint
     %fail_out(msg=%str(D-10(a): &_n_nostatus rows missing status in pdd.name_map));
   %end;
 
-  /* (b) No duplicate or invalid final pcnr_name -- Stage 2 already checked, re-assert */
+  /* (b) No duplicate pcnr_name across different group_ids */
   %local _n_pcnr_dup;
   proc sql noprint;
     select count(*) into :_n_pcnr_dup trimmed
-    from (select upcase(pcnr_name), count(*) as n
+    from (select upcase(pcnr_name), count(distinct group_id) as ng
           from pdd.name_map
           where status = 'PCNR' and pcnr_name ne ''
           group by upcase(pcnr_name)
-          having count(*) > 1);
+          having count(distinct group_id) > 1);
   quit;
   %if &_n_pcnr_dup > 0 %then %do;
-    %fail_out(msg=%str(D-10(b): &_n_pcnr_dup case-insensitive duplicate pcnr_name values in pdd.name_map));
+    %fail_out(msg=%str(D-10(b): &_n_pcnr_dup pcnr_name values map to multiple group_ids in pdd.name_map));
   %end;
 
   /* (c) Every decisions.csv row matched an existing name_map row */
@@ -1317,8 +1455,9 @@ proc contents data=pdd.key_analysis noprint
       and not exists (
         select 1 from pdd.name_map as m
         where m.s_code = d.s_code_a
-          and (lowcase(m.original_header) = lowcase(d.header_a)
-               or (d.col_order_a is not null and m.col_order = d.col_order_a)));
+          and (d.col_order_a is not missing and m.col_order = d.col_order_a
+               or d.col_order_a is missing
+                  and lowcase(m.original_header) = lowcase(d.header_a)));
   quit;
   %if &_n_dec_unmatched > 0 %then %do;
     %fail_out(msg=%str(D-10(c): &_n_dec_unmatched decisions.csv rows do not match any pdd.name_map row));
@@ -1333,13 +1472,21 @@ proc contents data=pdd.key_analysis noprint
       select 1 from work.decisions as d
       where upcase(strip(d.decision)) in ('SAME','DIFFERENT')
         and ((d.s_code_a = nm.s_code_a
-              and lowcase(d.header_a) = lowcase(nm.name_a)
+              and (d.col_order_a is not missing and d.col_order_a = nm.col_order_a
+                   or d.col_order_a is missing
+                      and lowcase(d.header_a) = lowcase(nm.original_header_a))
               and d.s_code_b = nm.s_code_b
-              and lowcase(d.header_b) = lowcase(nm.name_b))
+              and (d.col_order_b is not missing and d.col_order_b = nm.col_order_b
+                   or d.col_order_b is missing
+                      and lowcase(d.header_b) = lowcase(nm.original_header_b)))
           or (d.s_code_a = nm.s_code_b
-              and lowcase(d.header_a) = lowcase(nm.name_b)
+              and (d.col_order_a is not missing and d.col_order_a = nm.col_order_b
+                   or d.col_order_a is missing
+                      and lowcase(d.header_a) = lowcase(nm.original_header_b))
               and d.s_code_b = nm.s_code_a
-              and lowcase(d.header_b) = lowcase(nm.name_a))));
+              and (d.col_order_b is not missing and d.col_order_b = nm.col_order_a
+                   or d.col_order_b is missing
+                      and lowcase(d.header_b) = lowcase(nm.original_header_a)))));
   quit;
   %put NOTE: [04_name_map] D-10(d) undecided near-match pairs=&_n_undec_d10;
   %if &_n_undec_d10 > 0 %then
@@ -1359,7 +1506,6 @@ proc contents data=pdd.key_analysis noprint
 %macro section14_exports;
   %local _nrow;
 
-  /* name_map.csv */
   proc export data=pdd.name_map
     outfile="&exchange_path.\name_map.csv"
     dbms=csv replace;
@@ -1369,7 +1515,6 @@ proc contents data=pdd.key_analysis noprint
   quit;
   %put NOTE: [04_name_map] exported name_map.csv rows=&_nrow;
 
-  /* name_map_vars.csv */
   proc export data=pdd.name_map_vars
     outfile="&exchange_path.\name_map_vars.csv"
     dbms=csv replace;
@@ -1379,7 +1524,6 @@ proc contents data=pdd.key_analysis noprint
   quit;
   %put NOTE: [04_name_map] exported name_map_vars.csv rows=&_nrow;
 
-  /* name_map_collisions.csv */
   proc export data=pdd.qc_name_map_collisions
     outfile="&exchange_path.\name_map_collisions.csv"
     dbms=csv replace;
@@ -1389,7 +1533,6 @@ proc contents data=pdd.key_analysis noprint
   quit;
   %put NOTE: [04_name_map] exported name_map_collisions.csv rows=&_nrow;
 
-  /* name_map_nearmatches.csv */
   proc export data=pdd.name_map_nearmatches
     outfile="&exchange_path.\name_map_nearmatches.csv"
     dbms=csv replace;
@@ -1399,13 +1542,12 @@ proc contents data=pdd.key_analysis noprint
   quit;
   %put NOTE: [04_name_map] exported name_map_nearmatches.csv rows=&_nrow;
 
-  /* name_abbrev_applied.csv */
-  proc export data=work._abbrev_applied_raw
+  proc export data=work._abbrev_hits
     outfile="&exchange_path.\name_abbrev_applied.csv"
     dbms=csv replace;
   run;
   proc sql noprint;
-    select count(*) into :_nrow trimmed from work._abbrev_applied_raw;
+    select count(*) into :_nrow trimmed from work._abbrev_hits;
   quit;
   %put NOTE: [04_name_map] exported name_abbrev_applied.csv rows=&_nrow;
 
@@ -1413,3 +1555,5 @@ proc contents data=pdd.key_analysis noprint
 %mend section14_exports;
 
 %section14_exports;
+
+%restore_log;
