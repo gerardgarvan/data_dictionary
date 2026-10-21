@@ -581,16 +581,12 @@
            _nm $200 _cbe $200 _pat $400 _pre_elide $200
            long $200 short $200
            cleaned_before $200 cleaned_after $200
-           _elide_first 8 _elide_last 8 _nab 8 _nab_tot 8 _elided 8
+           _elide_first 8 _elide_last 8 _nab_tot 8 _elided 8
            _elide_head $200 _elide_tail $200;
 
-    /* Load total abbreviation count once */
-    if _N_ = 1 then do;
-      _nab = 0;
-      set work.abbrev (keep=long short _longlen) nobs=_nab_tot point=_nab;
-      _nab = _nab_tot;
-    end;
-    retain _nab;
+    /* Load total abbreviation count once without reading row 0 */
+    if 0 then set work.abbrev (keep=long short _longlen) nobs=_nab_tot;
+    retain _nab_tot;
 
     set work._grp_rep;
 
@@ -600,7 +596,7 @@
     else do;
       /* Apply abbreviations longest-first; only when length > 27; stop early.
          long/short validated [A-Za-z0-9_] only -- no regex escaping needed. */
-      if length(strip(_nm)) > 27 then do _ai = 1 to _nab;
+      if length(strip(_nm)) > 27 then do _ai = 1 to _nab_tot;
         set work.abbrev (keep=long short _longlen) point=_ai;
         if length(strip(_nm)) <= 27 then leave;
         _cbe = _nm;
