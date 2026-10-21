@@ -1295,66 +1295,111 @@ quit;
    ============================================================ */
 
 %macro section9_nearmatches;
-  /* Distinct rows for cross-file comparison; assign key in DATA step */
+  /* ── Step 1: Group-level representative (lowest s_code, then col_order) ── */
   proc sql noprint;
-    create table work._nm_distinct_0 as
-    select distinct s_code, col_order, original_header, cleaned_pre_short, group_id
-    from work.name_map_core
-    where status = 'PCNR' and cleaned_pre_short ne '';
+    create table work._nm_grp_rep as
+    select distinct c.group_id,
+           c.s_code,
+           c.col_order,
+           c.original_header,
+           c.cleaned_pre_short
+    from work.name_map_core as c
+    where c.status = 'PCNR'
+      and c.cleaned_pre_short ne ''
+      and c.s_code = (
+        select min(c2.s_code)
+        from work.name_map_core as c2
+        where c2.group_id = c.group_id
+          and c2.status   = 'PCNR'
+          and c2.cleaned_pre_short ne '')
+      and c.col_order = (
+        select min(c2.col_order)
+        from work.name_map_core as c2
+        where c2.group_id = c.group_id
+          and c2.s_code   = c.s_code
+          and c2.status   = 'PCNR'
+          and c2.cleaned_pre_short ne '');
   quit;
 
-  data work._nm_distinct;
-    set work._nm_distinct_0;
-    key = _N_;
+  /* ── Step 2: File list (n_files, pipe-separated scodes) per group ──────── */
+  proc sort data=work.name_map_core (
+      where=(status='PCNR' and cleaned_pre_short ne '')
+      keep=group_id s_code)
+    out=work._nm_grp_detail nodupkey;
+    by group_id s_code;
   run;
 
-  /* Edit-distance pairs */
+  data work._nm_grp_files;
+    length scodes $500;
+    retain scodes '' n_files 0;
+    set work._nm_grp_detail;
+    by group_id;
+    if first.group_id then do; scodes = ''; n_files = 0; end;
+    scodes  = catx('|', scodes, s_code);
+    n_files + 1;
+    if last.group_id then output;
+    keep group_id scodes n_files;
+  run;
+
+  /* ── Step 3: Join representative to file stats ──────────────────────────── */
   proc sql noprint;
-    create table work._nm_pairs_edit as
-    select a.s_code         as s_code_a,
-           a.col_order      as col_order_a,
-           a.original_header as original_header_a,
+    create table work._nm_grp as
+    select r.group_id, r.s_code, r.col_order, r.original_header,
+           r.cleaned_pre_short, f.n_files, f.scodes
+    from work._nm_grp_rep as r
+    inner join work._nm_grp_files as f on r.group_id = f.group_id;
+  quit;
+
+  /* ── Step 4: Group-level near-match pairs ───────────────────────────────── */
+  /* Edit-distance pairs (a.group_id < b.group_id — one row per group pair) */
+  proc sql noprint;
+    create table work._nm_gpairs_edit as
+    select a.group_id         as group_id_a,
+           a.s_code           as s_code_a,
+           a.col_order        as col_order_a,
+           a.original_header  as original_header_a,
            a.cleaned_pre_short as name_a,
-           a.group_id       as group_id_a,
-           b.s_code         as s_code_b,
-           b.col_order      as col_order_b,
-           b.original_header as original_header_b,
+           a.n_files          as n_files_a,
+           a.scodes           as scodes_a,
+           b.group_id         as group_id_b,
+           b.s_code           as s_code_b,
+           b.col_order        as col_order_b,
+           b.original_header  as original_header_b,
            b.cleaned_pre_short as name_b,
-           b.group_id       as group_id_b,
+           b.n_files          as n_files_b,
+           b.scodes           as scodes_b,
            complev(lowcase(a.cleaned_pre_short),
                    lowcase(b.cleaned_pre_short)) as edit_dist,
            'EDIT_DISTANCE' as match_type length=20
-    from work._nm_distinct as a,
-         work._nm_distinct as b
-    where a.s_code ne b.s_code
-      and a.key < b.key
-      and a.group_id ne b.group_id
+    from work._nm_grp as a, work._nm_grp as b
+    where a.group_id < b.group_id
       and abs(length(a.cleaned_pre_short) - length(b.cleaned_pre_short)) <= 2
       and complev(lowcase(a.cleaned_pre_short),
                   lowcase(b.cleaned_pre_short)) <= 2
       and lowcase(a.cleaned_pre_short) ne lowcase(b.cleaned_pre_short);
   quit;
 
-  /* Trailing-suffix rule: tested in BOTH directions */
+  /* Trailing-suffix pairs — tested in BOTH directions */
   proc sql noprint;
-    create table work._nm_pairs_suffix as
-    select a.s_code         as s_code_a,
-           a.col_order      as col_order_a,
-           a.original_header as original_header_a,
+    create table work._nm_gpairs_suffix as
+    select a.group_id         as group_id_a,
+           a.s_code           as s_code_a,
+           a.col_order        as col_order_a,
+           a.original_header  as original_header_a,
            a.cleaned_pre_short as name_a,
-           a.group_id       as group_id_a,
-           b.s_code         as s_code_b,
-           b.col_order      as col_order_b,
-           b.original_header as original_header_b,
+           a.n_files          as n_files_a,
+           a.scodes           as scodes_a,
+           b.group_id         as group_id_b,
+           b.s_code           as s_code_b,
+           b.col_order        as col_order_b,
+           b.original_header  as original_header_b,
            b.cleaned_pre_short as name_b,
-           b.group_id       as group_id_b,
+           b.n_files          as n_files_b,
+           b.scodes           as scodes_b,
            . as edit_dist,
            'TRAILING_SUFFIX' as match_type length=20
-    from work._nm_distinct as a,
-         work._nm_distinct as b
-    where a.s_code ne b.s_code
-      and a.key < b.key
-      and a.group_id ne b.group_id
+    from work._nm_grp as a, work._nm_grp as b
+    where a.group_id < b.group_id
       and (
         /* a has suffix, stripped a = b */
         (prxmatch('/(_\d+|_dup\d*)$/i', strip(a.cleaned_pre_short)) > 0
@@ -1368,22 +1413,42 @@ quit;
       );
   quit;
 
-  /* Union both sets */
+  /* ── Step 5: Union, stage counts, co-occurrence exclusion ──────────────── */
   proc sql noprint;
-    create table pdd.name_map_nearmatches as
-    select distinct s_code_a, col_order_a, original_header_a, name_a, group_id_a,
-                    s_code_b, col_order_b, original_header_b, name_b, group_id_b,
-                    edit_dist, match_type
-    from (select * from work._nm_pairs_edit
-          union all
-          select * from work._nm_pairs_suffix);
+    create table work._nm_gpairs_all as
+    select distinct * from (
+      select * from work._nm_gpairs_edit
+      union all
+      select * from work._nm_gpairs_suffix);
   quit;
 
-  %local _n_nm;
+  %local _n_raw _n_after_cooc _n_cooc_removed _n_nm;
   proc sql noprint;
-    select count(*) into :_n_nm trimmed
-    from pdd.name_map_nearmatches;
+    select count(*) into :_n_raw trimmed from work._nm_gpairs_all;
   quit;
+  %put NOTE: [S9] raw group-level pairs=&_n_raw;
+
+  /* Remove pairs where both groups share at least one source file (D-01a) */
+  proc sql noprint;
+    create table pdd.name_map_nearmatches as
+    select *
+    from work._nm_gpairs_all as p
+    where not exists (
+      select 1
+      from work._nm_grp_detail as da
+      inner join work._nm_grp_detail as db
+        on da.s_code = db.s_code
+      where da.group_id = p.group_id_a
+        and db.group_id = p.group_id_b);
+  quit;
+
+  proc sql noprint;
+    select count(*) into :_n_after_cooc trimmed from pdd.name_map_nearmatches;
+  quit;
+  %let _n_cooc_removed = %eval(&_n_raw - &_n_after_cooc);
+  %put NOTE: [S9] after co-occurrence exclusion=&_n_after_cooc (removed &_n_cooc_removed co-occurring group pairs);
+
+  %let _n_nm = &_n_after_cooc;
   %put NOTE: near-match pair count=&_n_nm;
 
   %if &_n_nm > 200 %then %do;
@@ -1396,12 +1461,13 @@ quit;
     run;
     data _null_;
       set pdd.name_map_nearmatches (obs=20);
-      put 'ERROR: [04_name_map] NEARMATCH: ' s_code_a= name_a= s_code_b= name_b= edit_dist= match_type=;
+      put 'ERROR: [04_name_map] NEARMATCH: ' group_id_a= name_a= scodes_a=
+          group_id_b= name_b= scodes_b= edit_dist= match_type=;
     run;
     %fail_out(msg=%str(D-06 near-match pair count=&_n_nm exceeds 200 -- resolve before continuing));
   %end;
 
-  /* Count undecided pairs (decisions match on (s_code, col_order) or original_header) */
+  /* Count undecided pairs; decisions match on representative (s_code, col_order) */
   %local _n_undecided;
   proc sql noprint;
     select count(*) into :_n_undecided trimmed
