@@ -618,9 +618,10 @@ run;
 
 /* Macro to emit PROC REPORT style options without repeating the string */
 %macro _rpt_hdr;
-  style(header)=[background='#0021A5' color=white font_weight=bold font_size=10pt]
+  style(header)=[background=cx0021A5 foreground=white font_weight=bold font_size=10pt]
 %mend _rpt_hdr;
 
+ods listing close;
 ods excel file="&qc_path.\s06_clock_classification.xlsx"
   style=styles.minimal
   options(sheet_name='KEY'
@@ -647,7 +648,7 @@ ods excel options(sheet_interval='none');
   proc report data=work.class_summary nowd %_rpt_hdr;
     columns class n_cols;
     define class  / display 'Class'
-                    style(column)=[background='#FA4616' color=white];
+                    style(column)=[background=cxFA4616 foreground=white];
     define n_cols / display 'Column count';
   run;
 
@@ -658,7 +659,7 @@ ods excel options(sheet_interval='none');
     columns rule class n_cols;
     define rule   / display 'Rule';
     define class  / display 'Class'
-                    style(column)=[background='#FA4616' color=white];
+                    style(column)=[background=cxFA4616 foreground=white];
     define n_cols / display 'Column count';
   run;
 
@@ -673,7 +674,7 @@ ods excel options(sheet_name='ALL_COLUMNS' sheet_interval='now');
     define orig_col_name / display 'Original Column';
     define token         / display 'Token';
     define class         / display 'Class'
-                           style(column)=[background='#FA4616' color=white];
+                           style(column)=[background=cxFA4616 foreground=white];
     define rule          / display 'Rule';
     define pct_nonnull   / display '% Non-null' format=6.1;
   run;
@@ -722,6 +723,14 @@ ods excel options(sheet_name='PCNR' sheet_interval='now');
 
 title;
 ods excel close;
+ods listing;
+
+%macro _check_xlsx_syscc;
+  %if &syscc > 4 %then
+    %fail_out(msg=%str(ODS Excel failed -- syscc=&syscc after ods excel close));
+  %put NOTE: [03b_classify_s06] ods excel close ok -- syscc=&syscc;
+%mend _check_xlsx_syscc;
+%_check_xlsx_syscc;
 
 /* Assert xlsx and CSV written; %fail_out (not WARNING) on any failure */
 %macro _assert_artifacts;
