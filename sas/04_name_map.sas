@@ -89,7 +89,8 @@
        or short = ''
        or strip(long) = strip(short)
        or prxmatch('/[^A-Za-z0-9_]/', strip(long))  > 0
-       or prxmatch('/[^A-Za-z0-9_]/', strip(short)) > 0;
+       or prxmatch('/[^A-Za-z0-9_]/', strip(short)) > 0
+       or prxmatch('/^[^A-Z]/', strip(long)) > 0;
   quit;
   %if &_nbad_ab > 0 %then %do;
     data _null_;
@@ -97,10 +98,11 @@
               or short = ''
               or strip(long) = strip(short)
               or prxmatch('/[^A-Za-z0-9_]/', strip(long))  > 0
-              or prxmatch('/[^A-Za-z0-9_]/', strip(short)) > 0));
+              or prxmatch('/[^A-Za-z0-9_]/', strip(short)) > 0
+              or prxmatch('/^[^A-Z]/', strip(long)) > 0));
       put 'ERROR: [04_name_map] ABBREV_BAD: ' long= short=;
     run;
-    %fail_out(msg=%str(name_abbrev.csv &_nbad_ab rows: blank long/short, long=short, or non-word chars));
+    %fail_out(msg=%str(name_abbrev.csv &_nbad_ab rows: blank long/short, long=short, non-word chars, or long not starting with uppercase));
   %end;
   %put NOTE: [04_name_map] name_abbrev.csv validated OK;
 %mend check_abbrev_csv;
@@ -126,16 +128,18 @@
   %end;
 %mend check_cleaned_anchors;
 
-/* Apply D-03 middle-elide so name fits within 27 chars.
+/* Apply D-03 middle-elide so name fits within target chars (default 27).
    Keeps first _elide_first chars and last _elide_last chars joined by __.
    Never drops COM or COPY prefix (requires at least 4 chars before __).
-   Parameter: nm= variable name to shorten (in-place, $200). */
-%macro elide_middle(nm=);
-  if length(&nm) > 27 then do;
-    _elide_first = max(4, ceil((27 - 2) / 2));
-    _elide_last  = 27 - 2 - _elide_first;
+   Parameters: nm=     variable name to shorten (in-place, $200).
+               target= max allowed length; may be a SAS variable name or
+                       a literal integer (default 27). */
+%macro elide_middle(nm=, target=27);
+  if length(&nm) > &target then do;
+    _elide_first = max(4, ceil((&target - 2) / 2));
+    _elide_last  = &target - 2 - _elide_first;
     if _elide_last < 1 then do;
-      _elide_first = 24;
+      _elide_first = &target - 3;
       _elide_last  = 1;
     end;
     _elide_head = prxchange('s/_+$//', 1, strip(substr(&nm, 1, _elide_first)));
@@ -382,6 +386,11 @@
       length pcnr_name_override $200;
       pcnr_name_override = '';
     run;
+    /* Empty rename table so form_groups_and_shorten can always reference it */
+    data work._rename_dec;
+      length s_code $4 orig_header $256 col_order_dec 8 rename_target $200;
+      stop;
+    run;
   %end;
   %else %do;
     /* Verify every decision row matches an existing (s_code, header/col_order) */
@@ -422,6 +431,47 @@
       from work.decisions
       where upcase(strip(decision)) = 'RENAME' and s_code_a is not null;
     quit;
+
+    /* RENAME length check: rename_target must be <= 27 chars after stripping PCNR_ */
+    %local _n_rename_long;
+    proc sql noprint;
+      select count(*) into :_n_rename_long trimmed
+      from work._rename_dec
+      where length(strip(rename_target)) > 27;
+    quit;
+    %if &_n_rename_long > 0 %then %do;
+      data _null_;
+        set work._rename_dec (where=(length(strip(rename_target)) > 27));
+        put 'ERROR: [04_name_map] RENAME_TOO_LONG: ' s_code= orig_header= rename_target=;
+      run;
+      %fail_out(msg=%str(&_n_rename_long RENAME targets exceed 27 chars (after stripping PCNR_)));
+    %end;
+
+    /* RENAME single-row match: each RENAME decision must resolve to exactly one row */
+    proc sql noprint;
+      create table work._rename_multimatch as
+      select r.s_code, r.orig_header, r.col_order_dec, count(*) as n_match
+      from work._rename_dec as r
+      inner join work.name_map_cleaned as m
+        on m.s_code = r.s_code
+       and (r.col_order_dec is not missing and m.col_order = r.col_order_dec
+            or r.col_order_dec is missing
+               and lowcase(m.original_header) = lowcase(r.orig_header))
+      group by r.s_code, r.orig_header, r.col_order_dec
+      having count(*) ne 1;
+    quit;
+
+    %local _n_rename_multi;
+    proc sql noprint;
+      select count(*) into :_n_rename_multi trimmed from work._rename_multimatch;
+    quit;
+    %if &_n_rename_multi > 0 %then %do;
+      data _null_;
+        set work._rename_multimatch;
+        put 'ERROR: [04_name_map] RENAME_MULTIMATCH: ' s_code= orig_header= col_order_dec= n_match=;
+      run;
+      %fail_out(msg=%str(&_n_rename_multi RENAME decisions match != 1 row));
+    %end;
 
     proc sql noprint;
       create table work.name_map_overrides as
@@ -554,14 +604,196 @@
       %fail_out(msg=%str(SAME decision places two columns from same file in one group));
     %end;
 
-    /* Remap grp_b to grp_a */
+    /* Union-find: iterative label propagation (min-label) until convergence, max 50 passes.
+       A single UPDATE misses chains (A=B, B=C), so we repeat until no group_id changes.
+       Each group maps to the minimum group_id reachable through SAME edges in both
+       directions. */
+    proc sql noprint;
+      create table work._uf_map as
+      select distinct group_id, group_id as canon_id
+      from work._group_final;
+    quit;
+
+    %local _uf_pass _uf_changed;
+    %let _uf_pass    = 0;
+    %let _uf_changed = 1;
+
+    %do %while (&_uf_changed > 0 and &_uf_pass < 50);
+      %let _uf_pass = %eval(&_uf_pass + 1);
+
+      /* Propagate minimum canon_id through each SAME edge in both directions */
+      proc sql noprint;
+        create table work._uf_updates as
+        select m.group_id,
+               min(m.canon_id,
+                   coalesce(from_b.mc, m.canon_id),
+                   coalesce(from_a.mc, m.canon_id)) as new_canon
+        from work._uf_map as m
+        /* this group appears as grp_b: pull min canon from the grp_a side */
+        left join (select s.grp_b as group_id, min(ma.canon_id) as mc
+                   from work._same_grpids as s
+                   inner join work._uf_map as ma on s.grp_a = ma.group_id
+                   group by s.grp_b) as from_b
+          on m.group_id = from_b.group_id
+        /* this group appears as grp_a: pull min canon from the grp_b side */
+        left join (select s.grp_a as group_id, min(mb.canon_id) as mc
+                   from work._same_grpids as s
+                   inner join work._uf_map as mb on s.grp_b = mb.group_id
+                   group by s.grp_a) as from_a
+          on m.group_id = from_a.group_id
+        group by m.group_id;
+      quit;
+
+      proc sql noprint;
+        select count(*) into :_uf_changed trimmed
+        from work._uf_updates as u
+        inner join work._uf_map as o on u.group_id = o.group_id
+        where u.new_canon ne o.canon_id;
+      quit;
+
+      %put NOTE: [04_name_map] SAME union-find pass=&_uf_pass changes=&_uf_changed;
+
+      proc sql noprint;
+        update work._uf_map as m
+        set canon_id = (select u.new_canon from work._uf_updates as u
+                        where u.group_id = m.group_id);
+      quit;
+    %end;
+
+    %if &_uf_changed > 0 %then
+      %fail_out(msg=%str(SAME union-find did not converge after 50 passes));
+
+    /* Apply canonical labels to _group_final */
     proc sql noprint;
       update work._group_final as g
-      set group_id = (select min(s.grp_a)
-                      from work._same_grpids as s
-                      where s.grp_b = g.group_id)
-      where group_id in (select grp_b from work._same_grpids);
+      set group_id = (select m.canon_id from work._uf_map as m
+                      where m.group_id = g.group_id);
     quit;
+  %end;
+
+  /* 6b-ii. DIFFERENT decisions: split b-side rows that ended up in the same group
+     as their a-side partner after SAME merging.  The a-side row keeps the original
+     group_id; the b-side row is reassigned a new group_id beyond the current maximum.
+     After splitting, %fail_out if any DIFFERENT pair still shares a group. */
+  proc sql noprint;
+    create table work._diff_dec as
+    select s_code_a, header_a, col_order_a,
+           s_code_b, header_b, col_order_b
+    from work.decisions
+    where upcase(strip(decision)) = 'DIFFERENT' and s_code_a is not null;
+  quit;
+
+  %local _ndiff;
+  proc sql noprint;
+    select count(*) into :_ndiff trimmed from work._diff_dec;
+  quit;
+
+  %if &_ndiff > 0 %then %do;
+    /* Find b-side rows whose group_id now equals their a-side partner's group_id */
+    proc sql noprint;
+      create table work._diff_splits as
+      select b.s_code, b.col_order, b.group_id as old_group_id
+      from work._diff_dec as d
+      inner join work._group_final as a
+        on d.s_code_a = a.s_code
+       and (d.col_order_a is not missing and d.col_order_a = a.col_order
+            or d.col_order_a is missing
+               and lowcase(d.header_a) = lowcase(a.original_header))
+      inner join work._group_final as b
+        on d.s_code_b = b.s_code
+       and (d.col_order_b is not missing and d.col_order_b = b.col_order
+            or d.col_order_b is missing
+               and lowcase(d.header_b) = lowcase(b.original_header))
+      where a.group_id = b.group_id;
+    quit;
+
+    %local _nsplits;
+    proc sql noprint;
+      select count(*) into :_nsplits trimmed from work._diff_splits;
+    quit;
+
+    %if &_nsplits > 0 %then %do;
+      %local _max_grp;
+      proc sql noprint;
+        select max(group_id) into :_max_grp trimmed from work._group_final;
+      quit;
+
+      data work._diff_splits;
+        set work._diff_splits;
+        new_group_id = &_max_grp + _N_;
+      run;
+
+      %put NOTE: [04_name_map] DIFFERENT: splitting &_nsplits b-side row(s) to new group_ids;
+      proc sql noprint;
+        update work._group_final as g
+        set group_id = (select ds.new_group_id
+                        from work._diff_splits as ds
+                        where ds.s_code = g.s_code and ds.col_order = g.col_order)
+        where exists (select 1 from work._diff_splits as ds
+                      where ds.s_code = g.s_code and ds.col_order = g.col_order);
+      quit;
+    %end;
+    %else %do;
+      %put NOTE: [04_name_map] DIFFERENT: no b-side rows share a group with a-side after SAME merging;
+    %end;
+
+    /* Post-split invariant: no DIFFERENT pair must share a final group_id */
+    proc sql noprint;
+      create table work._diff_samegroup as
+      select a.group_id,
+             a.s_code as s_code_a, a.col_order as col_order_a,
+             b.s_code as s_code_b, b.col_order as col_order_b
+      from work._diff_dec as d
+      inner join work._group_final as a
+        on d.s_code_a = a.s_code
+       and (d.col_order_a is not missing and d.col_order_a = a.col_order
+            or d.col_order_a is missing
+               and lowcase(d.header_a) = lowcase(a.original_header))
+      inner join work._group_final as b
+        on d.s_code_b = b.s_code
+       and (d.col_order_b is not missing and d.col_order_b = b.col_order
+            or d.col_order_b is missing
+               and lowcase(d.header_b) = lowcase(b.original_header))
+      where a.group_id = b.group_id;
+    quit;
+
+    %local _ndiff_bad;
+    proc sql noprint;
+      select count(*) into :_ndiff_bad trimmed from work._diff_samegroup;
+    quit;
+    %if &_ndiff_bad > 0 %then %do;
+      data _null_;
+        set work._diff_samegroup;
+        put 'ERROR: [04_name_map] DIFF_SAMEGROUP: group_id=' group_id
+            ' s_code_a=' s_code_a ' col_order_a=' col_order_a
+            ' s_code_b=' s_code_b ' col_order_b=' col_order_b;
+      run;
+      %fail_out(msg=%str(&_ndiff_bad DIFFERENT-decision pairs remain in the same group after split));
+    %end;
+  %end;
+
+  /* Global invariant: no group_id contains two rows with the same s_code.
+     DUPLICATE_DROPPED rows carry no group_id and are excluded by the IS NOT MISSING guard. */
+  proc sql noprint;
+    create table work._grp_scode_dup as
+    select group_id, s_code, count(*) as n
+    from work._group_final
+    where group_id is not missing
+    group by group_id, s_code
+    having count(*) > 1;
+  quit;
+
+  %local _n_gsdup;
+  proc sql noprint;
+    select count(*) into :_n_gsdup trimmed from work._grp_scode_dup;
+  quit;
+  %if &_n_gsdup > 0 %then %do;
+    data _null_;
+      set work._grp_scode_dup;
+      put 'ERROR: [04_name_map] GRP_SCODE_DUP: group_id=' group_id
+          ' s_code=' s_code ' n=' n;
+    run;
+    %fail_out(msg=%str(&_n_gsdup (group_id,s_code) combinations have >1 row -- same-file duplicate in merged group));
   %end;
 
   /* 6c. One representative name per group (lowest s_code file num, then col_order) */
@@ -578,6 +810,35 @@
     if first.group_id;
     keep group_id cleaned_pre_short pcnr_name_override;
   run;
+
+  /* RENAME group-agreement check: all RENAME decisions touching the same final
+     group_id must agree on the rename_target value.  If they conflict, the user
+     must resolve before continuing. */
+  proc sql noprint;
+    create table work._rename_grp_check as
+    select gf.group_id, count(distinct strip(r.rename_target)) as n_targets
+    from work._group_final as gf
+    inner join work._rename_dec as r
+      on gf.s_code = r.s_code
+     and (r.col_order_dec is not missing and gf.col_order = r.col_order_dec
+          or r.col_order_dec is missing
+             and lowcase(gf.original_header) = lowcase(r.orig_header))
+    group by gf.group_id
+    having count(distinct strip(r.rename_target)) > 1;
+  quit;
+
+  %local _n_rename_disagree;
+  proc sql noprint;
+    select count(*) into :_n_rename_disagree trimmed from work._rename_grp_check;
+  quit;
+  %if &_n_rename_disagree > 0 %then %do;
+    data _null_;
+      set work._rename_grp_check;
+      put 'ERROR: [04_name_map] RENAME_DISAGREE: group_id=' group_id
+          ' n_conflicting_targets=' n_targets;
+    run;
+    %fail_out(msg=%str(&_n_rename_disagree groups have conflicting RENAME targets -- resolve in name_map_decisions.csv));
+  %end;
 
   /* 6d. Apply abbreviation table then elide.
          Abbreviation: only when length > 27; longest-first; stop as soon as <= 27.
@@ -617,7 +878,9 @@
         if length(strip(_nm)) <= 27 then leave;
         _cbe = _nm;
         /* Token boundary: start | after _ or digit | after lowercase (camelCase) */
-        _pat = cats('s/(?:^|(?<=[_0-9a-z]))', strip(long), '(?=[A-Z0-9_]|$)/', strip(short), '/');
+        /* Boundary: long must start [A-Z] (enforced by check_abbrev_csv);
+           require lookahead of [A-Z0-9_] or end-of-string after the match. */
+        _pat = cats('s/', strip(long), '(?=[A-Z0-9_]|$)/', strip(short), '/');
         _nm  = prxchange(_pat, -1, strip(_nm));
         if strip(_nm) ne strip(_cbe) then do;
           if length(strip(_nm)) > length(strip(_cbe)) then do;
@@ -755,7 +1018,8 @@
       end;
     end;
     set work._suffix_assign;
-    length pcnr_name_final $200 _sfx $10 _base_trim $200 _candidate $200 _k $200;
+    length pcnr_name_final $200 _sfx $10 _base_trim $200 _candidate $200 _k $200
+           _elide_head $200 _elide_tail $200;
     _elide_first = 0;
     _elide_last  = 0;
     if _suffix_n = 1 then pcnr_name_final = pcnr_name_base;
@@ -765,17 +1029,8 @@
         _sfx     = cats('_', put(_try, best.));
         _allowed = 27 - length(_sfx);
         _base_trim = pcnr_name_base;
-        /* Re-apply middle-elide to base if needed */
-        if length(_base_trim) > _allowed then do;
-          _elide_first = max(4, ceil((_allowed - 2) / 2));
-          _elide_last  = _allowed - 2 - _elide_first;
-          if _elide_last < 1 then do;
-            _elide_first = _allowed - 3;
-            _elide_last  = 1;
-          end;
-          _base_trim = cats(substr(_base_trim, 1, _elide_first), '__',
-                            substr(_base_trim, length(_base_trim) - _elide_last + 1));
-        end;
+        /* Re-apply middle-elide to base if needed; shares %elide_middle logic */
+        %elide_middle(nm=_base_trim, target=_allowed);
         _candidate = cats(_base_trim, _sfx);
         _k = lowcase(_candidate);
         if _used.check() ne 0 then do;
@@ -1170,7 +1425,7 @@ data work.decisions;
          encoding='utf-8' dsd dlm=',' missover firstobs=2 lrecl=32767;
   input s_code_a $ header_a $ col_order_a
         s_code_b $ header_b $ col_order_b
-        decision $ note $ new_name $ decided_by $ date $;
+        decision $ new_name $ note $ decided_by $ date $;
   s_code_a   = strip(s_code_a);
   header_a   = strip(header_a);
   s_code_b   = strip(s_code_b);
@@ -1467,30 +1722,52 @@ quit;
     %fail_out(msg=%str(D-06 near-match pair count=&_n_nm exceeds 200 -- resolve before continuing));
   %end;
 
-  /* Count undecided pairs; decisions match on representative (s_code, col_order) */
+  /* Count undecided pairs.  A decision covers a pair when its a-side is any member
+     of group_id_a and its b-side is any member of group_id_b (either orientation).
+     Precompute decided (group_id_a, group_id_b) pairs to keep the final count simple. */
+  proc sql noprint;
+    create table work._s9_decided as
+    /* forward: a-side member of group_id_a, b-side member of group_id_b */
+    select distinct nm.group_id_a, nm.group_id_b
+    from pdd.name_map_nearmatches as nm
+    inner join work.name_map_core as ma on ma.group_id = nm.group_id_a
+    inner join work.name_map_core as mb on mb.group_id = nm.group_id_b
+    inner join work.decisions as d
+      on upcase(strip(d.decision)) in ('SAME','DIFFERENT')
+     and ((d.col_order_a is not missing
+           and d.s_code_a = ma.s_code and d.col_order_a = ma.col_order)
+          or (d.col_order_a is missing
+              and lowcase(d.header_a) = lowcase(ma.original_header)))
+     and ((d.col_order_b is not missing
+           and d.s_code_b = mb.s_code and d.col_order_b = mb.col_order)
+          or (d.col_order_b is missing
+              and lowcase(d.header_b) = lowcase(mb.original_header)))
+    union
+    /* reverse: a-side member of group_id_b, b-side member of group_id_a */
+    select distinct nm.group_id_a, nm.group_id_b
+    from pdd.name_map_nearmatches as nm
+    inner join work.name_map_core as ma on ma.group_id = nm.group_id_b
+    inner join work.name_map_core as mb on mb.group_id = nm.group_id_a
+    inner join work.decisions as d
+      on upcase(strip(d.decision)) in ('SAME','DIFFERENT')
+     and ((d.col_order_a is not missing
+           and d.s_code_a = ma.s_code and d.col_order_a = ma.col_order)
+          or (d.col_order_a is missing
+              and lowcase(d.header_a) = lowcase(ma.original_header)))
+     and ((d.col_order_b is not missing
+           and d.s_code_b = mb.s_code and d.col_order_b = mb.col_order)
+          or (d.col_order_b is missing
+              and lowcase(d.header_b) = lowcase(mb.original_header)));
+  quit;
+
   %local _n_undecided;
   proc sql noprint;
     select count(*) into :_n_undecided trimmed
     from pdd.name_map_nearmatches as nm
     where not exists (
-      select 1 from work.decisions as d
-      where upcase(strip(d.decision)) in ('SAME','DIFFERENT')
-        and ((d.s_code_a = nm.s_code_a
-              and (d.col_order_a is not missing and d.col_order_a = nm.col_order_a
-                   or d.col_order_a is missing
-                      and lowcase(d.header_a) = lowcase(nm.original_header_a))
-              and d.s_code_b = nm.s_code_b
-              and (d.col_order_b is not missing and d.col_order_b = nm.col_order_b
-                   or d.col_order_b is missing
-                      and lowcase(d.header_b) = lowcase(nm.original_header_b)))
-          or (d.s_code_a = nm.s_code_b
-              and (d.col_order_a is not missing and d.col_order_a = nm.col_order_b
-                   or d.col_order_a is missing
-                      and lowcase(d.header_a) = lowcase(nm.original_header_b))
-              and d.s_code_b = nm.s_code_a
-              and (d.col_order_b is not missing and d.col_order_b = nm.col_order_a
-                   or d.col_order_b is missing
-                      and lowcase(d.header_b) = lowcase(nm.original_header_a)))));
+      select 1 from work._s9_decided as dp
+      where dp.group_id_a = nm.group_id_a
+        and dp.group_id_b = nm.group_id_b);
   quit;
   %put NOTE: [04_name_map] undecided near-match pairs=&_n_undecided;
   %if &_n_undecided > 0 %then
@@ -1728,30 +2005,48 @@ quit;
     %fail_out(msg=%str(D-10(c): &_n_dec_unmatched decisions.csv rows do not match any pdd.name_map row));
   %end;
 
-  /* (d) Undecided near-match count */
+  /* (d) Undecided near-match count; match by group membership, both orientations */
+  proc sql noprint;
+    create table work._d10_decided as
+    select distinct nm.group_id_a, nm.group_id_b
+    from pdd.name_map_nearmatches as nm
+    inner join pdd.name_map as ma on ma.group_id = nm.group_id_a
+    inner join pdd.name_map as mb on mb.group_id = nm.group_id_b
+    inner join work.decisions as d
+      on upcase(strip(d.decision)) in ('SAME','DIFFERENT')
+     and ((d.col_order_a is not missing
+           and d.s_code_a = ma.s_code and d.col_order_a = ma.col_order)
+          or (d.col_order_a is missing
+              and lowcase(d.header_a) = lowcase(ma.original_header)))
+     and ((d.col_order_b is not missing
+           and d.s_code_b = mb.s_code and d.col_order_b = mb.col_order)
+          or (d.col_order_b is missing
+              and lowcase(d.header_b) = lowcase(mb.original_header)))
+    union
+    select distinct nm.group_id_a, nm.group_id_b
+    from pdd.name_map_nearmatches as nm
+    inner join pdd.name_map as ma on ma.group_id = nm.group_id_b
+    inner join pdd.name_map as mb on mb.group_id = nm.group_id_a
+    inner join work.decisions as d
+      on upcase(strip(d.decision)) in ('SAME','DIFFERENT')
+     and ((d.col_order_a is not missing
+           and d.s_code_a = ma.s_code and d.col_order_a = ma.col_order)
+          or (d.col_order_a is missing
+              and lowcase(d.header_a) = lowcase(ma.original_header)))
+     and ((d.col_order_b is not missing
+           and d.s_code_b = mb.s_code and d.col_order_b = mb.col_order)
+          or (d.col_order_b is missing
+              and lowcase(d.header_b) = lowcase(mb.original_header)));
+  quit;
+
   %local _n_undec_d10;
   proc sql noprint;
     select count(*) into :_n_undec_d10 trimmed
     from pdd.name_map_nearmatches as nm
     where not exists (
-      select 1 from work.decisions as d
-      where upcase(strip(d.decision)) in ('SAME','DIFFERENT')
-        and ((d.s_code_a = nm.s_code_a
-              and (d.col_order_a is not missing and d.col_order_a = nm.col_order_a
-                   or d.col_order_a is missing
-                      and lowcase(d.header_a) = lowcase(nm.original_header_a))
-              and d.s_code_b = nm.s_code_b
-              and (d.col_order_b is not missing and d.col_order_b = nm.col_order_b
-                   or d.col_order_b is missing
-                      and lowcase(d.header_b) = lowcase(nm.original_header_b)))
-          or (d.s_code_a = nm.s_code_b
-              and (d.col_order_a is not missing and d.col_order_a = nm.col_order_b
-                   or d.col_order_a is missing
-                      and lowcase(d.header_a) = lowcase(nm.original_header_b))
-              and d.s_code_b = nm.s_code_a
-              and (d.col_order_b is not missing and d.col_order_b = nm.col_order_a
-                   or d.col_order_b is missing
-                      and lowcase(d.header_b) = lowcase(nm.original_header_a)))));
+      select 1 from work._d10_decided as dp
+      where dp.group_id_a = nm.group_id_a
+        and dp.group_id_b = nm.group_id_b);
   quit;
   %put NOTE: [04_name_map] D-10(d) undecided near-match pairs=&_n_undec_d10;
   %if &_n_undec_d10 > 0 %then
