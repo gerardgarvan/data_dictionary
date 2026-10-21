@@ -85,16 +85,20 @@
   proc sql noprint;
     select count(*) into :_nbad_ab trimmed
     from work._abbrev_raw
-    where short = ''
+    where strip(long) = ''
+       or short = ''
+       or strip(long) = strip(short)
        or prxmatch('/[^A-Za-z0-9_]/', strip(long))  > 0
        or prxmatch('/[^A-Za-z0-9_]/', strip(short)) > 0;
   quit;
   %if &_nbad_ab > 0 %then %do;
     proc print data=work._abbrev_raw
-      (where=(short = ''
+      (where=(strip(long) = ''
+              or short = ''
+              or strip(long) = strip(short)
               or prxmatch('/[^A-Za-z0-9_]/', strip(long))  > 0
               or prxmatch('/[^A-Za-z0-9_]/', strip(short)) > 0)); run;
-    %fail_out(msg=%str(name_abbrev.csv &_nbad_ab rows: blank short or non-word chars in long/short));
+    %fail_out(msg=%str(name_abbrev.csv &_nbad_ab rows: blank long/short, long=short, or non-word chars));
   %end;
   %put NOTE: [04_name_map] name_abbrev.csv validated OK;
 %mend check_abbrev_csv;
@@ -130,8 +134,9 @@
       _elide_first = 24;
       _elide_last  = 1;
     end;
-    &nm = cats(substr(&nm, 1, _elide_first), '__',
-               substr(&nm, length(&nm) - _elide_last + 1));
+    _elide_head = prxchange('s/_+$//', 1, strip(substr(&nm, 1, _elide_first)));
+    _elide_tail = prxchange('s/^_+//', 1, strip(substr(&nm, length(&nm) - _elide_last + 1)));
+    &nm = cats(_elide_head, '__', _elide_tail);
   end;
 %mend elide_middle;
 
@@ -576,7 +581,8 @@
            _nm $200 _cbe $200 _pat $400 _pre_elide $200
            long $200 short $200
            cleaned_before $200 cleaned_after $200
-           _elide_first 8 _elide_last 8 _nab 8 _nab_tot 8 _elided 8;
+           _elide_first 8 _elide_last 8 _nab 8 _nab_tot 8 _elided 8
+           _elide_head $200 _elide_tail $200;
 
     /* Load total abbreviation count once */
     if _N_ = 1 then do;
@@ -937,6 +943,30 @@
 %mend pdd_dryrun_gate;
 
 
+/* Delete Phase 4 exchange CSVs so a failed run cannot leave stale files
+   for the Python step. Called after Section 1 preconditions pass. */
+%macro delete_stale_csvs;
+  %local _fi _fname _rc;
+  %local _f1 _f2 _f3 _f4 _f5 _f6;
+  %let _f1 = name_map.csv;
+  %let _f2 = name_map_vars.csv;
+  %let _f3 = name_map_collisions.csv;
+  %let _f4 = name_map_nearmatches.csv;
+  %let _f5 = name_abbrev_applied.csv;
+  %let _f6 = name_map_decisions_template.csv;
+  %do _fi = 1 %to 6;
+    %let _fname = &&_f&_fi;
+    filename _dlcsvf "&exchange_path.\&_fname";
+    %let _rc = %sysfunc(fdelete(_dlcsvf));
+    %if &_rc = 0 %then
+      %put NOTE: [04_name_map] deleted stale exchange CSV: &_fname;
+    %else
+      %put NOTE: [04_name_map] exchange CSV not present (no delete needed): &_fname;
+    filename _dlcsvf clear;
+  %end;
+%mend delete_stale_csvs;
+
+
 /* ============================================================
    SECTION 1 -- Assertions: 4795 rows, unique on (file_code, col_order)
    ============================================================ */
@@ -995,6 +1025,8 @@ quit;
 %check_per_scode;
 
 %put NOTE: [04_name_map] 4795 rows;
+
+%delete_stale_csvs;
 
 
 /* ============================================================
