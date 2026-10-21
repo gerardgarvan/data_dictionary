@@ -39,7 +39,7 @@ goto :main
   set _LOG_FILE=%LOGS_PATH%\%~n2.log
 
   echo Running %_LABEL% ...
-  "%PDD_PYTHON%" "%~dp0python\scripts\%_SCRIPT%" > "%_LOG_FILE%" 2>&1
+  "%PDD_PYTHON%" "%~dp0python\scripts\%_SCRIPT%" > "%LOGS_PATH%\%~n2_console.txt" 2>&1
   set _EC=!ERRORLEVEL!
 
   echo %DATE% %TIME%  [%_LABEL%]  exit=%_EC% >> "%MASTER_LOG%"
