@@ -63,7 +63,7 @@ Next: Phase 04 — Name map (original header to PCNR_)
 | PDD-D-18 | s04/s05 appear to be linkage/QC files (same encryption, 100% match) â€” not dictionary variables. Pending Gerard confirmation | Phase 3 (s04, s05), Phase 5 (s04, s05) |
 | PDD-D-19 | **LOCKED (2026-10-19).** `cats('Precede', put(input(strip(id),??8.),z5.))` â€” 9,001 pairs, ndis=0 (run 19:21). `%pdd_norm_psid` in `00_config.sas`. Phase 3 QC: s01 274 not in spine (1 spine case no PACU row); s18 269 not in spine, 2 dup/blank rows (`pdd.qc_s18_dup`); s06 29 and s11 1 not in spine; s04/s05 4 not in spine | â€” |
 | PDD-D-20 | **LOCKED.** 6 s17 ENCRYPTED_ENCOUNTER values that map to >1 PRECEDE_STUDY_ID â†’ set to missing for linkage; unchanged in PCNR_ | Phase 3 (s17) |
-| PDD-D-21 | **LOCKED (2026-10-20).** Clock columns (COM*/COPY* + ClockFace/HH/MH/HandPair/Digit/Hooklet/PCF/Intersect) excluded from PCNR_; all other s06 columns are PCNR_ candidates. Split applied Phase 4 onward via docs/s06_column_class.csv. UNSURE columns need Gerard review before Phase 4. | Phase 4 gate |
+| PDD-D-21 | **LOCKED (2026-10-20, reviewed Gerard 2026-10-20).** Excluded from PCNR_: 2,747 digital clock columns (COM/COPY clock tokens + LINUS DCTclock summary). Kept in PCNR_: 809 other digital-battery tests (DIGITAL_OTHER) + 431 other columns (PCNR), including clock admin flags and Mini-Cog clock scores. UNSURE=0; Phase 4 gate clear. Split applied Phase 4 onward via docs/s06_column_class.csv. | Phase 4 gate |
 
 ## Decisions (Phase 03)
 
