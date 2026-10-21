@@ -1003,8 +1003,9 @@
     %end;
   %end;
 
-  /* Global invariant: no group_id contains two rows with the same s_code.
-     DUPLICATE_DROPPED rows carry no group_id and are excluded by the IS NOT MISSING guard. */
+  /* B5: same-file guard -- no group_id may contain two rows with the same s_code after
+     all decisions are applied (B1/B2/B4). DUPLICATE_DROPPED rows have no group_id and
+     are excluded by the IS NOT MISSING guard. */
   proc sql noprint;
     create table work._grp_scode_dup as
     select group_id, s_code, count(*) as n
@@ -1024,7 +1025,7 @@
       put 'ERROR: [04_name_map] GRP_SCODE_DUP: group_id=' group_id
           ' s_code=' s_code ' n=' n;
     run;
-    %fail_out(msg=%str(&_n_gsdup (group_id,s_code) combinations have >1 row -- same-file duplicate in merged group));
+    %fail_out(msg=%str(B5: &_n_gsdup (group_id,s_code) combinations have >1 row -- same-file duplicate in group));
   %end;
 
   /* 6c. One representative name per group (lowest s_code file num, then col_order) */
