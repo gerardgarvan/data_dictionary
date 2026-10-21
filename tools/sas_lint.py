@@ -19,6 +19,7 @@ C10 array _character_ / _numeric_ declared before SET/MERGE/INPUT in a DATA step
 C11 SAS macro keyword inside a quoted string on a PUT line (macro-in-put)
 C13 Macro called before its %macro definition within the same file
 C14 DATA or SET statement with no dataset name (bare "data ;" / "set ;")
+C19 put() / input() inside %sysfunc() -- use putn()/putc() or inputn()/inputc()
 W2  Assert-style count query: reports dataset name and WHERE-clause columns for reviewer
 
 Usage
@@ -663,6 +664,27 @@ def check_name_c_temp_vars(path, lines):
     return hits
 
 
+# ── C19: put() / input() inside %sysfunc() ───────────────────────────────────
+#
+# %sysfunc() requires the DATA-step function name, not the general-purpose
+# format functions.  put() and input() are not available inside %sysfunc();
+# use putn()/putc() or inputn()/inputc() instead.
+
+_SYSFUNC_PUT_INPUT = re.compile(
+    r'%[qQ]?sysfunc\s*\(\s*(put|input)\s*\(',
+    CI,
+)
+
+def check_sysfunc_put_input(path, lines):
+    hits = []
+    for i, raw in enumerate(lines, 1):
+        if _SYSFUNC_PUT_INPUT.search(raw):
+            hits.append((path, i, 'C19',
+                'put() / input() cannot be used inside %sysfunc() -- '
+                'use putn() / putc() or inputn() / inputc() instead'))
+    return hits
+
+
 # ── runner ────────────────────────────────────────────────────────────────────
 
 CHECKS = [
@@ -686,6 +708,7 @@ CHECKS = [
     check_syscc_reset,
     check_local_global_opencode,
     check_name_c_temp_vars,
+    check_sysfunc_put_input,
 ]
 
 

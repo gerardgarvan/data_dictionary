@@ -121,7 +121,8 @@
   %global &hit_mv;
   %let &hit_mv = 0;
   %local _force _cur_sha _cached_sha _ds_exists;
-  %let _force     = %sysget(PDD_FORCE_XLSX);
+  %if %sysfunc(sysexist(PDD_FORCE_XLSX)) %then %let _force = %sysget(PDD_FORCE_XLSX);
+  %else %let _force = 0;
   %let _ds_exists = %sysfunc(exist(pdd.src_&fc));
   %if "%superq(_force)" = "1" %then
     %put NOTE: [03_import] PDD_FORCE_XLSX=1 -- bypassing cache for &fc;
@@ -164,7 +165,9 @@
     from pdd.source_inventory where s_code = "&fc"
     having count(*) > 0;
   quit;
-  %let _upd_ts = %sysfunc(put(%sysfunc(datetime()), datetime20.));
+  %let _upd_ts = %sysfunc(putn(%sysfunc(datetime()), datetime20.));
+  %if %length(%superq(_upd_ts)) = 0 %then
+    %fail_out(msg=%str(_xlsx_cache_update -- timestamp resolved to blank for &fc));
   proc sql;
     delete from pdd.import_cache where s_code = "&fc";
     insert into pdd.import_cache values ("&fc", "%superq(_upd_sha)", "&_upd_ts");
@@ -973,10 +976,11 @@ options validvarname=any;
   %else
     %put NOTE: [03_import] &fc generator syntax check passed;
 
+  %let _cc0 = &syscc;
   options errors=1;
   %include _xl_gen;
   options errors=20;
-  %if &syscc > 4 %then
+  %if &syscc > %sysfunc(max(&_cc0, 4)) %then
     %fail_out(msg=%str(XLSX generated include for &fc failed -- syscc=&syscc));
   %else %if not %sysfunc(exist(&target)) %then
     %fail_out(msg=%str(XLSX generated include for &fc -- target &target does not exist after include));
