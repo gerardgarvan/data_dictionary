@@ -30,6 +30,7 @@ SHEET_ORDER = [
     "CONFLICT_SUMMARY",
     "CONFLICT_DETAIL",
     "TYPECHECK",
+    "TYPEFAIL",
 ]
 
 # Required columns per non-KEY sheet (item 18).
@@ -41,7 +42,8 @@ REQUIRED_COLUMNS: dict[str, list[str]] = {
         "norm_psid", "pcnr_name", "conflict_type", "winning_s_code", "winning_value",
         "candidate_s_code", "candidate_value", "value_type",
     ],
-    "TYPECHECK": ["pcnr_name", "s_code", "raw_value", "n"],
+    "TYPECHECK": ["pcnr_name", "resolved_type", "out_length", "n_char_sources", "n_failures"],
+    "TYPEFAIL": ["pcnr_name", "s_code", "raw_value", "n"],
 }
 
 # Fixed integer column names (item 18).
@@ -94,15 +96,20 @@ def _key_rows() -> list[list[str]]:
          "One row per source file (s_code). Key matching counts: n_keys (total NORM_PSID "
          "values), n_keys_not_in_spine, n_blank_keys, n_dup_keys."],
         ["Sheet", "CONFLICT_SUMMARY",
-         "One row per (pcnr_name, conflict_type) combination. Shows n_conflict_events "
-         "(number of patients) and n_conflict_cells (number of affected cells)."],
+         "One row per (pcnr_name, conflict_type) combination. "
+         "n_conflict_events = number of disagreements (one per patient x variable pair that differs). "
+         "n_conflict_cells = distinct patient x variable pairs with a conflict."],
         ["Sheet", "CONFLICT_DETAIL",
          f"One row per conflicting cell. Capped at {CONFLICT_DETAIL_CAP} rows in this workbook. "
          f"Full table is pdd.qc_pcnr_conflicts on P:. "
          "Each row shows the winning value and the losing candidate value."],
         ["Sheet", "TYPECHECK",
+         "One row per pcnr_name with a type conflict. "
+         "type resolution = N8 when all values parse via input(strip(val), best32.) else C. "
+         "Columns: pcnr_name, resolved_type, out_length, n_char_sources, n_failures."],
+        ["Sheet", "TYPEFAIL",
          "One row per (pcnr_name, s_code, raw_value) combination for values that failed "
-         "type resolution. Shows n (count of occurrences)."],
+         "numeric parse during type resolution. Shows n (count of occurrences)."],
         # Conflict types (D-15)
         ["conflict_type", "SPINE_VS_SOURCE",
          "Spine is non-missing AND a non-spine source is non-missing AND they disagree. "

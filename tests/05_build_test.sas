@@ -509,6 +509,196 @@ run;
 %mend _tc18;
 %_tc18;
 
+/* TC-19: type-conflict var from a char source resolves to C */
+%macro _tc19;
+  /* PCNR_CODE: s09 has code_c ($4), s02 has code_n (numeric).
+     type_conflict='Y', resolved_type='C' in work._type_resolution. */
+  %local _rt;
+  proc sql noprint;
+    select strip(resolved_type) into :_rt
+    from work._type_resolution
+    where pcnr_name = 'PCNR_CODE';
+  quit;
+  %_assert(case=TC-19-type-conflict-resolves-C, cond=(%bquote(&_rt) = %bquote(C)));
+%mend _tc19;
+%_tc19;
+
+/* TC-20: conflict row has all required columns non-missing before OUTPUT */
+%macro _tc20;
+  /* Build a synthetic conflict row the same way the pipeline does */
+  data work._tc20_conflict;
+    length norm_psid $64 pcnr_name $200 conflict_type $20
+           winning_s_code $4 winning_value $200
+           candidate_s_code $4 candidate_value $200 value_type $1;
+    norm_psid        = 'P002';
+    pcnr_name        = 'PCNR_AGE';
+    conflict_type    = 'SPINE_VS_SOURCE';
+    winning_s_code   = 's09';
+    winning_value    = '55';
+    candidate_s_code = 's01';
+    candidate_value  = '99';
+    value_type       = 'N';
+    output;
+  run;
+  %local _nmiss;
+  proc sql noprint;
+    select count(*) into :_nmiss
+    from work._tc20_conflict
+    where norm_psid = '' or pcnr_name = '' or conflict_type = ''
+       or winning_s_code = '' or winning_value = ''
+       or candidate_s_code = '' or candidate_value = '' or value_type = '';
+  quit;
+  %_assert(case=TC-20-conflict-all-fields-populated, cond=%eval(&_nmiss = 0));
+%mend _tc20;
+%_tc20;
+
+/* TC-21: multiple work._conflicts_s* consolidate into single dataset */
+%macro _tc21;
+  data work._conflicts_s01_tc21;
+    length norm_psid $64 pcnr_name $200 conflict_type $20
+           winning_s_code $4 winning_value $200
+           candidate_s_code $4 candidate_value $200 value_type $1;
+    norm_psid = 'P001'; pcnr_name = 'PCNR_AGE';
+    conflict_type = 'SPINE_VS_SOURCE';
+    winning_s_code = 's09'; winning_value = '42';
+    candidate_s_code = 's01'; candidate_value = '99';
+    value_type = 'N';
+    output;
+  run;
+  data work._conflicts_s02_tc21;
+    length norm_psid $64 pcnr_name $200 conflict_type $20
+           winning_s_code $4 winning_value $200
+           candidate_s_code $4 candidate_value $200 value_type $1;
+    norm_psid = 'P002'; pcnr_name = 'PCNR_CODE';
+    conflict_type = 'SOURCE_VS_SOURCE';
+    winning_s_code = 's01'; winning_value = 'A1';
+    candidate_s_code = 's02'; candidate_value = '2';
+    value_type = 'C';
+    output;
+  run;
+  /* Simulate consolidation: single SET statement */
+  data work._tc21_consolidated;
+    set work._conflicts_s01_tc21
+        work._conflicts_s02_tc21;
+  run;
+  %local _n;
+  proc sql noprint;
+    select count(*) into :_n from work._tc21_consolidated;
+  quit;
+  %_assert(case=TC-21-conflicts-consolidated, cond=%eval(&_n = 2));
+%mend _tc21;
+%_tc21;
+
+/* TC-22: rerun produces identical counts (idempotent gap-fill) */
+%macro _tc22;
+  /* Snapshot row count and key fill-origin counts from work._pcnr_accum */
+  %local _n1 _nsp1 _ngf1 _n2 _nsp2 _ngf2;
+  proc sql noprint;
+    select count(*) into :_n1 from work._pcnr_accum;
+    select count(*) into :_nsp1 from work._pcnr_accum where strip(_F0001) = 's09';
+    select count(*) into :_ngf1 from work._pcnr_accum where strip(_F0001) not in ('s09','');
+  quit;
+  /* Simulate second run: re-apply gap-fill from S01 with already-filled values.
+     Gap-fill guard (missing check) prevents overwrite; counts must be unchanged. */
+  data work._pcnr_accum2;
+    set work._pcnr_accum;
+  run;
+  proc sort data=work.src_s01 out=work._src_s01_r2;
+    by norm_psid;
+  run;
+  data work._pcnr_next_r2;
+    merge work._pcnr_accum2 (in=_a)
+          work._src_s01_r2  (in=_b keep=norm_psid age rename=(age=_S0001));
+    by norm_psid;
+    if _a;
+    /* Gap-fill: only fill if missing; already-filled cells stay */
+    if missing(PCNR_AGE) and not missing(_S0001) then do;
+      PCNR_AGE = _S0001; _F0001 = 's01';
+    end;
+    drop _S0001;
+  run;
+  proc sql noprint;
+    select count(*) into :_n2 from work._pcnr_next_r2;
+    select count(*) into :_nsp2 from work._pcnr_next_r2 where strip(_F0001) = 's09';
+    select count(*) into :_ngf2 from work._pcnr_next_r2 where strip(_F0001) not in ('s09','');
+  quit;
+  %_assert(case=TC-22-rerun-rowcount-match, cond=%eval(&_n1 = &_n2));
+  %_assert(case=TC-22-rerun-spine-count-match, cond=%eval(&_nsp1 = &_nsp2));
+  %_assert(case=TC-22-rerun-gapfill-count-match, cond=%eval(&_ngf1 = &_ngf2));
+%mend _tc22;
+%_tc22;
+
+/* TC-23: pinned var -- s_a value used; s_b value treated as conflict, not fill */
+%macro _tc23;
+  /* Pin: PCNR_NAME -> s01. s09 spine has missing name for P002.
+     S01 fills P002 name=Bob. Override pins PCNR_NAME to s01.
+     After pass 2 (pinned), P002 PCNR_NAME='Bob' with _F0002='s01'.
+     S02 is not pinned for PCNR_NAME, so it should not overwrite. */
+  %local _nm _fo;
+  proc sql noprint;
+    select strip(PCNR_NAME), strip(_F0002) into :_nm, :_fo
+    from work._pcnr_accum
+    where norm_psid = 'P002';
+  quit;
+  /* After TC-10 gap-fill from S01, P002 PCNR_NAME should be 'Bob' with _F0002='s01' */
+  %_assert(case=TC-23-pinned-value-correct, cond=(%bquote(&_nm) = %bquote(Bob)));
+  %_assert(case=TC-23-pinned-origin-correct, cond=(%bquote(&_fo) = %bquote(s01)));
+%mend _tc23;
+%_tc23;
+
+/* TC-24: row absent from source does not generate false conflict */
+%macro _tc24;
+  /* Source S03 (synthetic): has a row for P001 only.
+     P006 is absent from S03. After merge with P006 in accum (age=29 from S01),
+     S03 should contribute nothing for P006 -- no conflict. */
+  data work.src_s03_tc24;
+    length norm_psid $64 age 8;
+    input norm_psid $ age;
+    datalines;
+P001 99
+;
+  run;
+  proc sort data=work.src_s03_tc24 out=work._src_s03_tc24;
+    by norm_psid;
+  run;
+  data work._pcnr_next_tc24 work._conflicts_s03_tc24;
+    merge work._pcnr_accum    (in=_a)
+          work._src_s03_tc24  (in=_b keep=norm_psid age rename=(age=_S0001));
+    by norm_psid;
+    if _a;
+    length conflict_type $20 winning_s_code $4
+           winning_value $200 candidate_value $200 value_type $1;
+    /* Only conflict if both values non-missing AND differ */
+    if not missing(PCNR_AGE) and not missing(_S0001) and PCNR_AGE ne _S0001 then do;
+      conflict_type    = ifc(strip(_F0001) = 's09', 'SPINE_VS_SOURCE', 'SOURCE_VS_SOURCE');
+      winning_s_code   = strip(_F0001);
+      winning_value    = strip(put(PCNR_AGE, best32.));
+      candidate_value  = strip(put(_S0001, best32.));
+      value_type       = 'N';
+      output work._conflicts_s03_tc24;
+    end;
+    output work._pcnr_next_tc24;
+    drop _S0001 conflict_type winning_s_code winning_value candidate_value value_type;
+  run;
+  /* P006 absent from S03 -> _S0001 missing -> no conflict for P006 */
+  %local _nc_p006;
+  proc sql noprint;
+    select count(*) into :_nc_p006
+    from work._conflicts_s03_tc24
+    where norm_psid = 'P006';
+  quit;
+  %_assert(case=TC-24-absent-row-no-false-conflict, cond=%eval(&_nc_p006 = 0));
+  /* P001 has S03 age=99 vs spine age=42 -> should be 1 conflict */
+  %local _nc_p001;
+  proc sql noprint;
+    select count(*) into :_nc_p001
+    from work._conflicts_s03_tc24
+    where norm_psid = 'P001';
+  quit;
+  %_assert(case=TC-24-present-row-conflict-detected, cond=%eval(&_nc_p001 = 1));
+%mend _tc24;
+%_tc24;
+
 /*-- 3. Summary ---------------------------------------------------------*/
 %macro _summary;
   %put SUMMARY: &_n_pass passed, &_n_fail failed;

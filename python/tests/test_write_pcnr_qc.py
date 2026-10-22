@@ -29,7 +29,8 @@ REQUIRED = {
         "norm_psid", "pcnr_name", "conflict_type", "winning_s_code", "winning_value",
         "candidate_s_code", "candidate_value", "value_type",
     ],
-    "TYPECHECK": ["pcnr_name", "s_code", "raw_value", "n"],
+    "TYPECHECK": ["pcnr_name", "resolved_type", "out_length", "n_char_sources", "n_failures"],
+    "TYPEFAIL": ["pcnr_name", "s_code", "raw_value", "n"],
 }
 
 
