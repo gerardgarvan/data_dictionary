@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import csv
 import logging
+from collections import defaultdict
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
@@ -34,6 +35,8 @@ _NUMERIC_INT_COLS: frozenset[str] = frozenset([
     "length",
     "max_length",
     "n_sources",
+    "n_files_a",
+    "n_files_b",
     "group_id",
     "group_id_a",
     "group_id_b",
@@ -41,6 +44,35 @@ _NUMERIC_INT_COLS: frozenset[str] = frozenset([
     "suffix_n",
     "trunc_flag",
 ])
+
+
+def build_group_meta(
+    name_map_rows: list[dict[str, str]],
+) -> dict[str, dict[str, str]]:
+    """For each group_id: representative original_header and sorted s_codes string.
+
+    Representative = row with lowest s_code, then lowest col_order (numeric).
+    """
+    groups: dict[str, list[dict[str, str]]] = defaultdict(list)
+    for row in name_map_rows:
+        gid = row.get("group_id", "").strip()
+        if gid:
+            groups[gid].append(row)
+
+    result: dict[str, dict[str, str]] = {}
+    for gid, rows in groups.items():
+        def _sort_key(r: dict[str, str]) -> tuple[str, int]:
+            try:
+                co = int(r.get("col_order", "0") or "0")
+            except ValueError:
+                co = 0
+            return (r.get("s_code", ""), co)
+
+        sorted_rows = sorted(rows, key=_sort_key)
+        rep_header = sorted_rows[0].get("original_header", "")
+        s_codes = sorted({r.get("s_code", "") for r in rows if r.get("s_code", "")})
+        result[gid] = {"original_header": rep_header, "s_codes": ", ".join(s_codes)}
+    return result
 
 
 def _int_col_indices(headers: list[str]) -> frozenset[int]:
@@ -99,7 +131,7 @@ def assert_input(
 DECISIONS_TEMPLATE_COLS: list[str] = [
     "s_code_a", "header_a", "col_order_a",
     "s_code_b", "header_b", "col_order_b",
-    "decision", "note", "new_name", "decided_by", "date",
+    "decision", "new_name", "note", "decided_by", "date",
 ]
 
 
@@ -159,16 +191,16 @@ def _key_rows() -> list[list[str]]:
          "and group_id assigned by the SAS pipeline."],
         ["Sheet", "VARIABLES",
          "One row per unique PCNR_ variable across all source files. Shows type, "
-         "max length, and how many sources contribute it."],
+         "max length, how many sources contribute it, plus original_header."],
         ["Sheet", "NAME_MAP_COLLISIONS",
-         "Pairs of variables in the same source file whose cleaned names collide "
-         "(would produce the same PCNR_ name)."],
+         "Groups of variables whose cleaned names collide (same PCNR_ base name). "
+         "Includes original_header and s_codes for the group."],
         ["Sheet", "NEAR_MATCHES",
          "Pairs of PCNR_ names across files that are similar but not identical — "
          "candidates for manual harmonisation."],
         ["Sheet", "ABBREVIATIONS",
          "Abbreviation pairs applied by D-03 (docs/name_abbrev.csv). "
-         "long = original token, short = replacement."],
+         "long = original token, short = replacement, mode = always|as_needed."],
         # group_id
         ["group_id", "Meaning",
          "Each distinct PCNR_ variable has one group_id. Rows in NAME_MAP from "
@@ -177,7 +209,7 @@ def _key_rows() -> list[list[str]]:
         # How to record a decision
         ["Decision", "Columns",
          "docs/name_map_decisions.csv: s_code_a, header_a, col_order_a, "
-         "s_code_b, header_b, col_order_b, decision, note, new_name, decided_by, date."],
+         "s_code_b, header_b, col_order_b, decision, new_name, note, decided_by, date."],
         ["Decision", "SAME",
          "The two near-match variables are the same construct — keep existing group_id; "
          "no rename needed."],
@@ -185,6 +217,13 @@ def _key_rows() -> list[list[str]]:
          "The two near-match variables are distinct constructs — keep separate group_ids."],
         ["Decision", "RENAME",
          "One variable should be renamed; put the chosen PCNR_ name in new_name."],
+        # Derived columns added by Python post-processing
+        ["Column", "original_header",
+         "Representative original header text for this group_id — the row with the "
+         "lowest s_code, then lowest col_order (numeric)."],
+        ["Column", "s_codes",
+         "Comma-separated distinct source codes (s_code) contributing to this "
+         "group_id, sorted alphabetically."],
     ]
 
 

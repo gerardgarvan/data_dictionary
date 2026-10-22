@@ -12,7 +12,9 @@ import pytest
 from pdd.name_map_workbook import (
     DECISIONS_TEMPLATE_COLS,
     SHEET_ORDER,
+    _NUMERIC_INT_COLS,
     assert_input,
+    build_group_meta,
     make_decisions_template,
     read_csv,
     verify_workbook,
@@ -150,9 +152,9 @@ def test_verify_workbook(tmp_path: Path) -> None:
     sheets = _small_sheets()
     write_workbook(sheets, out)
 
-    # KEY sheet has 24 data rows (25 rows in _key_rows() minus the header row)
+    # KEY sheet has 26 data rows (27 rows in _key_rows() minus the header row)
     expected = {
-        "KEY": 24,
+        "KEY": 26,
         "NAME_MAP": 2,
         "VARIABLES": 2,
         "NAME_MAP_COLLISIONS": 2,
@@ -344,7 +346,8 @@ def test_script_header_only_csvs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     wb = lw(qc / "name_map_review.xlsx", read_only=True)
     ws = wb["VARIABLES"]
     header_row = [c.value for c in next(ws.iter_rows(min_row=1, max_row=1))]
-    assert header_row == ["pcnr_name", "group_id", "result_type"]
+    # original_header is injected into VARIABLES (s_codes is NOT injected; s_codes_contributing comes from the CSV)
+    assert header_row == ["pcnr_name", "group_id", "result_type", "original_header"]
     wb.close()
 
 
@@ -417,6 +420,9 @@ def test_decisions_template_written(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert rows[0]["s_code_a"] == "s01"
     assert rows[0]["header_a"] == "Age"
     assert rows[0]["decision"] == ""
+    # Verify new_name comes before note in column order
+    cols = list(rows[0].keys())
+    assert cols.index("new_name") < cols.index("note")
 
 
 # ---------------------------------------------------------------------------
@@ -430,3 +436,81 @@ def test_make_decisions_template_missing_cols() -> None:
     assert result[0]["s_code_a"] == ""
     assert result[0]["decision"] == ""
     assert list(result[0].keys()) == DECISIONS_TEMPLATE_COLS
+
+
+# ---------------------------------------------------------------------------
+# Test 15: n_files_a and n_files_b are in _NUMERIC_INT_COLS
+# ---------------------------------------------------------------------------
+
+def test_numeric_int_cols_includes_n_files() -> None:
+    assert "n_files_a" in _NUMERIC_INT_COLS
+    assert "n_files_b" in _NUMERIC_INT_COLS
+
+
+# ---------------------------------------------------------------------------
+# Test 16: build_group_meta returns correct original_header and s_codes
+# ---------------------------------------------------------------------------
+
+def test_build_group_meta_basic() -> None:
+    rows = [
+        {"group_id": "1", "s_code": "s02", "col_order": "1", "original_header": "Age Years"},
+        {"group_id": "1", "s_code": "s01", "col_order": "3", "original_header": "Age"},
+        {"group_id": "1", "s_code": "s01", "col_order": "1", "original_header": "Age (yrs)"},
+        {"group_id": "2", "s_code": "s03", "col_order": "5", "original_header": "Weight"},
+    ]
+    meta = build_group_meta(rows)
+    assert set(meta.keys()) == {"1", "2"}
+    # group 1: rep = s01/col_order=1 (lowest s_code, then lowest col_order)
+    assert meta["1"]["original_header"] == "Age (yrs)"
+    assert meta["1"]["s_codes"] == "s01, s02"
+    # group 2: single source
+    assert meta["2"]["original_header"] == "Weight"
+    assert meta["2"]["s_codes"] == "s03"
+
+
+def test_build_group_meta_empty() -> None:
+    assert build_group_meta([]) == {}
+
+
+def test_build_group_meta_blank_group_id_ignored() -> None:
+    rows = [
+        {"group_id": "", "s_code": "s01", "col_order": "1", "original_header": "X"},
+        {"group_id": "5", "s_code": "s01", "col_order": "2", "original_header": "Y"},
+    ]
+    meta = build_group_meta(rows)
+    assert "" not in meta
+    assert "5" in meta
+
+
+# ---------------------------------------------------------------------------
+# Test 17: script injects original_header and s_codes into VARIABLES sheet
+# ---------------------------------------------------------------------------
+
+def test_script_injects_group_meta(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    exchange = tmp_path / "exchange"
+    qc = tmp_path / "qc"
+    logs = tmp_path / "logs"
+    _make_exchange(exchange, n_name_map=3)
+
+    mod = _load_script()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "write_name_map_review.py",
+            "--exchange", str(exchange),
+            "--qc", str(qc),
+            "--logs", str(logs),
+            "--expected-name-map", "3",
+        ],
+    )
+    rc = mod.main()
+    assert rc == 0
+
+    from openpyxl import load_workbook as lw
+    wb = lw(qc / "name_map_review.xlsx", read_only=True)
+    ws = wb["VARIABLES"]
+    headers = [c.value for c in next(ws.iter_rows(min_row=1, max_row=1))]
+    assert "original_header" in headers
+    assert "s_codes" not in headers  # s_codes_contributing comes from CSV; s_codes not injected into VARIABLES
+    wb.close()

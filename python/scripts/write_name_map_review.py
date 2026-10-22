@@ -28,6 +28,7 @@ from pdd.name_map_workbook import (
     DECISIONS_TEMPLATE_COLS,
     EXPECTED_ROWS,
     assert_input,
+    build_group_meta,
     make_decisions_template,
     read_csv,
     verify_workbook,
@@ -104,8 +105,38 @@ def main() -> int:
         data = [list(r.values()) for r in rows]
         sheets[sheet_name] = (headers, data)
 
+    # Inject group meta into VARIABLES (original_header only) and NAME_MAP_COLLISIONS (both)
+    group_meta = build_group_meta(name_map_rows)
+    for sheet_name in ("VARIABLES", "NAME_MAP_COLLISIONS"):
+        if sheet_name not in sheets:
+            continue
+        hdrs, rows = sheets[sheet_name]
+        if "group_id" not in hdrs:
+            continue
+        gid_idx = hdrs.index("group_id")
+        if sheet_name == "VARIABLES":
+            new_hdrs = hdrs + ["original_header"]
+            new_rows = [
+                row + [group_meta.get(str(row[gid_idx]), {}).get("original_header", "")]
+                for row in rows
+            ]
+        else:
+            new_hdrs = hdrs + ["original_header", "s_codes"]
+            new_rows = [
+                row + [
+                    group_meta.get(str(row[gid_idx]), {}).get("original_header", ""),
+                    group_meta.get(str(row[gid_idx]), {}).get("s_codes", ""),
+                ]
+                for row in rows
+            ]
+        sheets[sheet_name] = (new_hdrs, new_rows)
+
     xlsx_path = qc / "name_map_review.xlsx"
-    write_workbook(sheets, xlsx_path)
+    try:
+        write_workbook(sheets, xlsx_path)
+    except PermissionError:
+        logging.error("Permission denied writing %s -- close the file in Excel and rerun", xlsx_path)
+        return 1
 
     expected_data_rows: dict[str, int] = {}
     for _, sheet_name in csv_specs:
@@ -121,7 +152,12 @@ def main() -> int:
     _, near_rows = csv_data["NEAR_MATCHES"]
     template_rows = make_decisions_template(near_rows)
     template_path = exchange / "name_map_decisions_template.csv"
-    with template_path.open("w", newline="", encoding="utf-8") as fh:
+    try:
+        fh_ctx = template_path.open("w", newline="", encoding="utf-8")
+    except PermissionError:
+        logging.error("Permission denied writing %s -- close the file in Excel and rerun", template_path)
+        return 1
+    with fh_ctx as fh:
         w = csv.DictWriter(fh, fieldnames=DECISIONS_TEMPLATE_COLS)
         w.writeheader()
         w.writerows(template_rows)
