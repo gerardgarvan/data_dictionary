@@ -15,7 +15,6 @@ from pdd.pcnr_qc_workbook import (
     SHEET_ORDER,
     assert_input,
     write_workbook,
-    verify_workbook,
 )
 
 # ---------------------------------------------------------------------------
