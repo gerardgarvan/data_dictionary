@@ -1192,6 +1192,8 @@
     %let _rc = %sysfunc(fdelete(_dlcsvf));
     %if &_rc = 0 %then
       %put NOTE: [04_name_map] deleted stale exchange CSV: &_fname;
+    %else %if %sysfunc(fileexist("&exchange_path.\&_fname")) %then
+      %put ERROR: [04_name_map] could not delete exchange CSV -- file locked: &_fname;
     %else
       %put NOTE: [04_name_map] exchange CSV not present (no delete needed): &_fname;
     filename _dlcsvf clear;
