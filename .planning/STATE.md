@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: PCNR_ raw layer and dictionary framework
 status: Phase complete — ready for verification
-last_updated: "2026-10-22T03:11:08.028Z"
+last_updated: "2026-10-22T03:22:47.177Z"
 progress:
   total_phases: 7
   completed_phases: 4
@@ -24,7 +24,7 @@ Next: Phase 04 — Name map (original header to PCNR_)
 | Phase | 03 — Direct import of the 20 sources |
 | Status | All 3 plans complete — 03a_build_spec.sas, 03_import.sas (Sections 0-15), 99_run_all.sas Phase 3 wired |
 | Last updated | 2026-10-20 |
-| Stopped at | Completed 05-04-PLAN.md |
+| Stopped at | Completed 03-03-PLAN.md |
 
 ## Milestone v1.0 phase checklist
 
