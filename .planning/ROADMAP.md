@@ -63,10 +63,19 @@ Plans:
 - `05_build_pcnr.sas`: start from s09 (spine confirmed by Phase 2), left-join 1:1 PRECEDE_STUDY_ID files
 - s01 and s08 join spine 1:1 (PDD-D-17 fully closed); crosswalk-keyed files (s04, s05) integrated per PDD-D-18
 - s06 columns: only class != CLOCK in `docs/s06_column_class.csv` are included in pdd.pcnr (D-21 LOCKED)
-- Overlapping variables: spine value first, gap-fill from the other files (PDD-D-05; tie-break waits on PDD-D-15)
+- Overlapping variables: spine value first, gap-fill from the other files (PDD-D-05; D-15 LOCKED: s01→s20 order, s09 skip)
 - Values exactly as in source (PDD-D-02); type-conflicting columns kept as character
-- QC: gap-fill counts per variable, non-missing disagreements written to `qc\pcnr_conflicts`
-- **Done when:** `pdd.pcnr` has one row per spine patient, contains every variable from the inventory, and QC has signed off; **blocks on PDD-D-17 and PDD-D-18 for s01, s04, s05, s08**
+- QC: gap-fill counts per variable (D-16 LOCKED: QC-only via exchange/pcnr_gapfill.csv), non-missing disagreements in pdd.qc_pcnr_conflicts
+- **Done when:** `pdd.pcnr` has one row per spine patient, contains every variable from the inventory, and QC has signed off
+- **Plans:** 1/6 complete
+
+Plans:
+- [x] 05-01-PLAN.md — Wave 0 scaffold: docs/pcnr_source_priority.csv, docs/pcnr_source_override.csv, sas/05_build_pcnr.sas stub
+- [ ] 05-02-PLAN.md — Wave 1: spine load and key assertions
+- [ ] 05-03-PLAN.md — Wave 2: source joins and gap-fill macro
+- [ ] 05-04-PLAN.md — Wave 3: type resolution
+- [ ] 05-05-PLAN.md — Wave 4: QC outputs (pcnr_gapfill.csv, pdd.qc_pcnr_conflicts)
+- [ ] 05-06-PLAN.md — Wave 5: wire 99_run_all.sas, final assertions
 
 ### Phase 6: Distribution engine (reusable macro)
 - `%pdd_profile(lib=, ds=, prefix=, family=)`: classifies each variable by distinct-value count and computes distributions per PDD-D-06
@@ -96,8 +105,8 @@ Phases 8–13 have no fixed order. Whichever gate clears first runs first, excep
 ## Open decisions (phase gates)
 | ID | Blocks | Description |
 |----|--------|-------------|
-| PDD-D-15 | Phase 5 | Gap-fill tie-break order among non-spine sources |
-| PDD-D-16 | Phase 5 | Per-cell source flag vs. QC-only summary |
+| PDD-D-15 | **LOCKED** | Gap-fill tie-break order: s01=1..s20=20, s09 spine skip; docs/pcnr_source_priority.csv |
+| PDD-D-16 | **LOCKED** | No per-cell source columns; traceability in exchange/pcnr_gapfill.csv + pdd.qc_pcnr_conflicts |
 | PDD-D-17 | Phase 3 (s01, s08), Phase 5 (s01, s08) | Multi-row-per-patient files — aggregate / first-last / wide / separate long table — decided after Phase 2 |
 | PDD-D-18 | Phase 3 (s04, s05), Phase 5 (s04, s05) | MRN/encounter-keyed crosswalk files — linkage path and ID mismatch resolution — decided after Phase 2 |
 
