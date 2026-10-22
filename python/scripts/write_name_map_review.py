@@ -132,7 +132,11 @@ def main() -> int:
         sheets[sheet_name] = (new_hdrs, new_rows)
 
     xlsx_path = qc / "name_map_review.xlsx"
-    write_workbook(sheets, xlsx_path)
+    try:
+        write_workbook(sheets, xlsx_path)
+    except PermissionError:
+        logging.error("Permission denied writing %s -- close the file in Excel and rerun", xlsx_path)
+        return 1
 
     expected_data_rows: dict[str, int] = {}
     for _, sheet_name in csv_specs:
@@ -148,7 +152,12 @@ def main() -> int:
     _, near_rows = csv_data["NEAR_MATCHES"]
     template_rows = make_decisions_template(near_rows)
     template_path = exchange / "name_map_decisions_template.csv"
-    with template_path.open("w", newline="", encoding="utf-8") as fh:
+    try:
+        fh_ctx = template_path.open("w", newline="", encoding="utf-8")
+    except PermissionError:
+        logging.error("Permission denied writing %s -- close the file in Excel and rerun", template_path)
+        return 1
+    with fh_ctx as fh:
         w = csv.DictWriter(fh, fieldnames=DECISIONS_TEMPLATE_COLS)
         w.writeheader()
         w.writerows(template_rows)
