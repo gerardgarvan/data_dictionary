@@ -70,14 +70,15 @@ Plans:
 - QC-only provenance (D-16): pdd.qc_pcnr_provenance (2+-source cells); no per-cell _SRC columns
 - QC: exchange CSVs → `qc\pcnr_qc.xlsx` (KEY, GAPFILL, SPINE_COVERAGE, CONFLICT_SUMMARY, CONFLICT_DETAIL cap 5,000, TYPECHECK)
 - **Done when:** `pdd.pcnr` has 41,150 rows × 1,299 PCNR_ + NORM_PSID, 0 dup/blank keys, 0 CLOCK columns, QC written and reviewed; wired into 99_run_all.sas
+- **Status: ✅ VERIFIED 2026-10-21 — static verification passed (10/10 must-haves).** All SAS macros, Python QC module, test harness, and pipeline wiring verified. Live run (pdd.pcnr production) and QC workbook output require human verification before phase is fully closed.
 - **Plans:** 5 plans
 
 Plans:
-- [ ] 05-01-PLAN.md — Wave 0 scaffold: docs/pcnr_source_priority.csv + pcnr_source_override.csv + lint-clean 05_build_pcnr.sas stub (wave 1)
-- [ ] 05-02-PLAN.md — Python QC writer: pcnr_qc_workbook.py + write_pcnr_qc.py + test_write_pcnr_qc.py (KEY-first, 5,000 cap) (wave 1)
-- [ ] 05-03-PLAN.md — 05_build_pcnr_macros.sas: Section 0 + %p5_preflight (D-18) + %p5_spine_coverage (D-19) + %p5_resolve_types (D-02) (wave 2)
-- [ ] 05-04-PLAN.md — 05_build_pcnr_macros.sas: %p5_build_accumulator + %p5_gapfill_source + %p5_finalize_pcnr + %p5_write_qc (wave 3)
-- [ ] 05-05-PLAN.md — 05_build_pcnr.sas orchestrator + Python QC invoke + wire Phase 5 into 99_run_all.sas (wave 4)
+- [x] 05-01-PLAN.md — Wave 0 scaffold: docs/pcnr_source_priority.csv + pcnr_source_override.csv + lint-clean 05_build_pcnr.sas stub (wave 1)
+- [x] 05-02-PLAN.md — Python QC writer: pcnr_qc_workbook.py + write_pcnr_qc.py + test_write_pcnr_qc.py (KEY-first, 5,000 cap) (wave 1)
+- [x] 05-03-PLAN.md — 05_build_pcnr_macros.sas: Section 0 + %p5_preflight (D-18) + %p5_spine_coverage (D-19) + %p5_resolve_types (D-02) (wave 2)
+- [x] 05-04-PLAN.md — 05_build_pcnr_macros.sas: %p5_build_accumulator + %p5_gapfill_source + %p5_finalize_pcnr + %p5_write_qc (wave 3)
+- [x] 05-05-PLAN.md — 05_build_pcnr.sas orchestrator + Python QC invoke + wire Phase 5 into 99_run_all.sas (wave 4)
 
 ### Phase 6: Distribution engine (reusable macro)
 - `%pdd_profile(lib=, ds=, prefix=, family=)`: classifies each variable by distinct-value count and computes distributions per PDD-D-06
