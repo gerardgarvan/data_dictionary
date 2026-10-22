@@ -51,31 +51,33 @@ Plans:
 - CLOCK columns written to a separate CLK_ candidate list for Phase 9
 - **Gate:** Gerard must review `qc\s06_clock_classification.xlsx` UNSURE sheet and resolve all UNSURE tokens before Phase 4 starts
 - **Done when:** NAME_MAP has no duplicates or truncation collisions, and Gerard has reviewed it
+- **Status: ✅ VERIFIED 2026-10-21 — all open items closed.** exit=0, warnings=0; 4795→1299 PCNR_, 0 collisions, 0 suffixes, 31 elided, 0 undecided near-matches; merged 93f1d09. Naming rules A1–A4 approved by Gerard 2026-10-21; Price sign-off pending before Phase 7 release. D-21 boundary confirmed: 34 COMmoca*/COPYmoca* stay PCNR_ (Gerard 2026-10-21). 9 type conflicts forwarded to Phase 5 as character columns.
 - **Plans:** 4 plans
 
 Plans:
-- [ ] 04-01-PLAN.md — Wave 0 scaffold: seed CSVs (name_abbrev, name_map_decisions) + name_map_workbook.py + pytest (wave 1)
-- [ ] 04-02-PLAN.md — 04_name_map.sas Sections 0-8: load, status (D-04), clean/shorten (D-02/D-03), groups, two-stage collisions (D-05) (wave 2)
-- [ ] 04-03-PLAN.md — 04_name_map.sas Sections 9-15: near-match (D-06), dup Study ID (D-08), type tracking (D-07), name_map_vars, exports; wire 99_run_all (wave 3)
-- [ ] 04-04-PLAN.md — write_name_map_review.py + workbook verify + Gerard/Price review gate (wave 4)
+- [x] 04-01-PLAN.md — Wave 0 scaffold: seed CSVs (name_abbrev, name_map_decisions) + name_map_workbook.py + pytest (wave 1)
+- [x] 04-02-PLAN.md — 04_name_map.sas Sections 0-8: load, status (D-04), clean/shorten (D-02/D-03), groups, two-stage collisions (D-05) (wave 2)
+- [x] 04-03-PLAN.md — 04_name_map.sas Sections 9-15: near-match (D-06), dup Study ID (D-08), type tracking (D-07), name_map_vars, exports; wire 99_run_all (wave 3)
+- [x] 04-04-PLAN.md — write_name_map_review.py + workbook verify + Gerard/Price review gate (wave 4)
 
 ### Phase 5: Build PCNR_ on the spine
 - `05_build_pcnr.sas`: start from s09 (spine confirmed by Phase 2), left-join 1:1 PRECEDE_STUDY_ID files
-- s01 and s08 join spine 1:1 (PDD-D-17 fully closed); crosswalk-keyed files (s04, s05) integrated per PDD-D-18
+- Iterative DATA-step merge loop (two datasets open at a time) in rank order from `docs/pcnr_source_priority.csv` (D-15)
+- s01 and s08 join spine 1:1 (PDD-D-17 fully closed); s04/s05 contribute 0 PCNR_ columns, asserted (PDD-D-18)
 - s06 columns: only class != CLOCK in `docs/s06_column_class.csv` are included in pdd.pcnr (D-21 LOCKED)
-- Overlapping variables: spine value first, gap-fill from the other files (PDD-D-05; D-15 LOCKED: s01→s20 order, s09 skip)
-- Values exactly as in source (PDD-D-02); type-conflicting columns kept as character
-- QC: gap-fill counts per variable (D-16 LOCKED: QC-only via exchange/pcnr_gapfill.csv), non-missing disagreements in pdd.qc_pcnr_conflicts
-- **Done when:** `pdd.pcnr` has one row per spine patient, contains every variable from the inventory, and QC has signed off
-- **Plans:** 1/6 complete
+- Overlapping variables: spine value first, gap-fill by rank order (D-05/D-05b); conflicts classified SPINE_VS_SOURCE / SOURCE_VS_SOURCE (D-20)
+- Type resolution before build for the 9 type-conflict variables: N8 if all parse, else C (D-02 amendment)
+- QC-only provenance (D-16): pdd.qc_pcnr_provenance (2+-source cells); no per-cell _SRC columns
+- QC: exchange CSVs → `qc\pcnr_qc.xlsx` (KEY, GAPFILL, SPINE_COVERAGE, CONFLICT_SUMMARY, CONFLICT_DETAIL cap 5,000, TYPECHECK)
+- **Done when:** `pdd.pcnr` has 41,150 rows × 1,299 PCNR_ + NORM_PSID, 0 dup/blank keys, 0 CLOCK columns, QC written and reviewed; wired into 99_run_all.sas
+- **Plans:** 5 plans
 
 Plans:
-- [x] 05-01-PLAN.md — Wave 0 scaffold: docs/pcnr_source_priority.csv, docs/pcnr_source_override.csv, sas/05_build_pcnr.sas stub
-- [ ] 05-02-PLAN.md — Wave 1: spine load and key assertions
-- [ ] 05-03-PLAN.md — Wave 2: source joins and gap-fill macro
-- [ ] 05-04-PLAN.md — Wave 3: type resolution
-- [ ] 05-05-PLAN.md — Wave 4: QC outputs (pcnr_gapfill.csv, pdd.qc_pcnr_conflicts)
-- [ ] 05-06-PLAN.md — Wave 5: wire 99_run_all.sas, final assertions
+- [ ] 05-01-PLAN.md — Wave 0 scaffold: docs/pcnr_source_priority.csv + pcnr_source_override.csv + lint-clean 05_build_pcnr.sas stub (wave 1)
+- [ ] 05-02-PLAN.md — Python QC writer: pcnr_qc_workbook.py + write_pcnr_qc.py + test_write_pcnr_qc.py (KEY-first, 5,000 cap) (wave 1)
+- [ ] 05-03-PLAN.md — 05_build_pcnr_macros.sas: Section 0 + %p5_preflight (D-18) + %p5_spine_coverage (D-19) + %p5_resolve_types (D-02) (wave 2)
+- [ ] 05-04-PLAN.md — 05_build_pcnr_macros.sas: %p5_build_accumulator + %p5_gapfill_source + %p5_finalize_pcnr + %p5_write_qc (wave 3)
+- [ ] 05-05-PLAN.md — 05_build_pcnr.sas orchestrator + Python QC invoke + wire Phase 5 into 99_run_all.sas (wave 4)
 
 ### Phase 6: Distribution engine (reusable macro)
 - `%pdd_profile(lib=, ds=, prefix=, family=)`: classifies each variable by distinct-value count and computes distributions per PDD-D-06
@@ -105,8 +107,8 @@ Phases 8–13 have no fixed order. Whichever gate clears first runs first, excep
 ## Open decisions (phase gates)
 | ID | Blocks | Description |
 |----|--------|-------------|
-| PDD-D-15 | **LOCKED** | Gap-fill tie-break order: s01=1..s20=20, s09 spine skip; docs/pcnr_source_priority.csv |
-| PDD-D-16 | **LOCKED** | No per-cell source columns; traceability in exchange/pcnr_gapfill.csv + pdd.qc_pcnr_conflicts |
+| PDD-D-15 | Phase 5 | Gap-fill tie-break order among non-spine sources |
+| PDD-D-16 | Phase 5 | Per-cell source flag vs. QC-only summary |
 | PDD-D-17 | Phase 3 (s01, s08), Phase 5 (s01, s08) | Multi-row-per-patient files — aggregate / first-last / wide / separate long table — decided after Phase 2 |
 | PDD-D-18 | Phase 3 (s04, s05), Phase 5 (s04, s05) | MRN/encounter-keyed crosswalk files — linkage path and ID mismatch resolution — decided after Phase 2 |
 

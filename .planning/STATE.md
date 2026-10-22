@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: PCNR_ raw layer and dictionary framework
 status: Executing Phase 05
-last_updated: "2026-10-22T03:00:00.000Z"
+last_updated: "2026-10-22T02:50:31.809Z"
 progress:
   total_phases: 7
   completed_phases: 4
-  total_plans: 12
-  completed_plans: 13
+  total_plans: 18
+  completed_plans: 12
 ---
 
 # GSD State: PeCAN Data Dictionary (PDD)
@@ -16,15 +16,16 @@ progress:
 ## Current position
 
 Phase: 05 (build-pcnr-on-the-spine) — EXECUTING
-Plan: 2 of 6 complete
-Next: Phase 05 Plan 03 — SAS build_pcnr.sas
+Plan: 1 of 6
+Next: Phase 05 — Build PCNR_ on the spine
 | Field | Value |
 |-------|-------|
 | Milestone | v1.0 — PCNR_ raw layer and dictionary framework |
-| Phase | 05 — Build PCNR_ on the spine |
-| Status | Plan 02 complete — pcnr_qc_workbook.py, write_pcnr_qc.py, test_write_pcnr_qc.py |
-| Last updated | 2026-10-22 |
-| Stopped at | Completed 05-02-PLAN.md |
+| Phase | 04 — Name map |
+| Status | All 4 plans complete — 04_name_map.sas, write_name_map_review.py, decisions tests; merged to master 93f1d09 |
+| Last updated | 2026-10-21 |
+| Stopped at | Phase 5 context gathered (2026-10-21) |
+| Resume file | .planning/phases/05-build-pcnr-on-the-spine/05-CONTEXT.md |
 
 ## Milestone v1.0 phase checklist
 
@@ -34,7 +35,7 @@ Next: Phase 05 Plan 03 — SAS build_pcnr.sas
 | 2 | Source guard and header inventory | âœ… Complete â€” live run passed 2026-10-19 14:15 |
 | 3 | Direct import of the 20 sources | ✅ Complete — live run 2026-10-20 20:58 passed all criteria (0 MISMATCH, n_pairs=9001 ndis=0, exit=1 warnings only) |
 | 4 | Name map | ✅ Complete — VERIFIED 2026-10-21; exit=0, warnings=0; 4795→1299 PCNR_, 0 collisions, 31 elided, 0 undecided; merged 93f1d09 |
-| 5 | Build PCNR_ on the spine | 🔄 In progress — Plan 02 complete (pcnr_qc_workbook.py, write_pcnr_qc.py) |
+| 5 | Build PCNR_ on the spine | â¬œ Blocked (PDD-D-15, PDD-D-16, PDD-D-17 closed, PDD-D-18 pending) |
 | 6 | Distribution engine | â¬œ Not started |
 | 7 | Dictionary workbook writer | â¬œ Not started |
 
@@ -67,17 +68,19 @@ SAS/Python split locked. SAS owns data; Python owns xlsx output. Phase 3 unchang
 | PDD-D-18 | s04/s05 appear to be linkage/QC files (same encryption, 100% match) â€” not dictionary variables. Pending Gerard confirmation | Phase 3 (s04, s05), Phase 5 (s04, s05) |
 | PDD-D-19 | **LOCKED (2026-10-19).** `cats('Precede', put(input(strip(id),??8.),z5.))` â€” 9,001 pairs, ndis=0 (run 19:21). `%pdd_norm_psid` in `00_config.sas`. Phase 3 QC: s01 274 not in spine (1 spine case no PACU row); s18 269 not in spine, 2 dup/blank rows (`pdd.qc_s18_dup`); s06 29 and s11 1 not in spine; s04/s05 4 not in spine | â€” |
 | PDD-D-20 | **LOCKED.** 6 s17 ENCRYPTED_ENCOUNTER values that map to >1 PRECEDE_STUDY_ID â†’ set to missing for linkage; unchanged in PCNR_ | Phase 3 (s17) |
-| PDD-D-21 | **LOCKED (2026-10-20, reviewed Gerard 2026-10-20).** Excluded from PCNR_: 2,747 digital clock columns (COM/COPY clock tokens + LINUS DCTclock summary). Kept in PCNR_: 809 other digital-battery tests (DIGITAL_OTHER) + 431 other columns (PCNR), including clock admin flags and Mini-Cog clock scores. UNSURE=0; Phase 4 gate clear. Split applied Phase 4 onward via docs/s06_column_class.csv. | Phase 4 gate |
+| PDD-D-21 | **LOCKED (2026-10-20, reviewed Gerard 2026-10-20; boundary confirmed 2026-10-21).** Excluded from PCNR_: 2,747 digital clock columns (COM/COPY clock tokens + LINUS DCTclock summary). Kept in PCNR_: 809 other digital-battery tests (DIGITAL_OTHER) + 431 other columns (PCNR), including clock admin flags and Mini-Cog clock scores. **Boundary clarification (2026-10-21, Gerard):** 34 COMmoca*/COPYmoca* clock-geometry columns stay PCNR_ — MoCA is a PCNR instrument, not a CLK_ instrument. docs/s06_column_class.csv unchanged. UNSURE=0; Phase 4 gate clear. Split applied Phase 4 onward via docs/s06_column_class.csv. | Phase 4 gate |
 
-## Decisions (Phase 05)
+## Decisions (Phase 04)
 
 | Date | Decision |
 |------|----------|
-| 2026-10-22 | CONFLICT_DETAIL raises ValueError on >5,000 rows (error, not silent truncation) |
-| 2026-10-22 | All sheets always written with headers even when 0 data rows (item 18) |
-| 2026-10-22 | n_filled_* columns treated as integers via regex pattern (item 18) |
-| 2026-10-22 | assert_input validates required columns per CSV before write (item 18) |
-| 2026-10-22 | _key_rows() documents provenance scope: spine-origin cells NOT in pdd.qc_pcnr_provenance (item 14) |
+| 2026-10-21 | name_abbrev.csv modes: `always` abbreviations applied unconditionally; `as_needed` only when name would exceed limit (A1–A4) |
+| 2026-10-21 | Part B decision handling: B1 SAME=transitive union-find; B2 DIFFERENT=group split; B3 match by (s_code,col_order); B4 RENAME V7/length/unique; B5 same-file guard; B6 11-col header; B7 suffix re-elision; B8 synthetic tests T1–T9 all PASS (see 04-PART-B-DECISIONS.md) |
+| 2026-10-21 | Near-match: s06 ASA_Anest_Record = s03 ASA (Anesth Record) → SAME (Gerard; value sets verified via check_nearmatch_values.sas) |
+| 2026-10-21 | Near-match: s06 Holiday = s03 Holidays → SAME (Gerard; value sets verified via check_nearmatch_values.sas) |
+| 2026-10-21 | Open item carried to Phase 5: 9 type conflicts (s19 numerics as C8; PCNR_YEAR C9/N8) kept as character in PCNR_ |
+| 2026-10-21 | Naming rules A1–A4 (mode=always, always-shortened test prefixes) approved by Gerard 2026-10-21. Price sign-off pending before Phase 7 release. |
+| 2026-10-21 | D-21 boundary confirmed by Gerard 2026-10-21: 34 COMmoca*/COPYmoca* stay PCNR_ (MoCA is PCNR, not CLK_). docs/s06_column_class.csv unchanged. |
 
 ## Decisions (Phase 03)
 
