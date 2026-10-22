@@ -2,29 +2,29 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: PCNR_ raw layer and dictionary framework
-status: Phase 03 verified — ready for Phase 04
-last_updated: "2026-10-20T01:00:33.038Z"
+status: Executing Phase 05
+last_updated: "2026-10-22T03:00:00.000Z"
 progress:
   total_phases: 7
-  completed_phases: 3
-  total_plans: 8
-  completed_plans: 8
+  completed_phases: 4
+  total_plans: 12
+  completed_plans: 13
 ---
 
 # GSD State: PeCAN Data Dictionary (PDD)
 
 ## Current position
 
-Phase: 03 (direct-import-of-the-20-sources) — COMPLETE
-Plan: 3 of 3 (all complete)
-Next: Phase 04 — Name map (original header to PCNR_)
+Phase: 05 (build-pcnr-on-the-spine) — EXECUTING
+Plan: 2 of 6 complete
+Next: Phase 05 Plan 03 — SAS build_pcnr.sas
 | Field | Value |
 |-------|-------|
 | Milestone | v1.0 — PCNR_ raw layer and dictionary framework |
-| Phase | 03 — Direct import of the 20 sources |
-| Status | All 3 plans complete — 03a_build_spec.sas, 03_import.sas (Sections 0-15), 99_run_all.sas Phase 3 wired |
-| Last updated | 2026-10-20 |
-| Stopped at | Completed 03-03-PLAN.md |
+| Phase | 05 — Build PCNR_ on the spine |
+| Status | Plan 02 complete — pcnr_qc_workbook.py, write_pcnr_qc.py, test_write_pcnr_qc.py |
+| Last updated | 2026-10-22 |
+| Stopped at | Completed 05-02-PLAN.md |
 
 ## Milestone v1.0 phase checklist
 
@@ -33,8 +33,8 @@ Next: Phase 04 — Name map (original header to PCNR_)
 | 1 | Repo and config scaffold | âœ… Complete |
 | 2 | Source guard and header inventory | âœ… Complete â€” live run passed 2026-10-19 14:15 |
 | 3 | Direct import of the 20 sources | ✅ Complete — live run 2026-10-20 20:58 passed all criteria (0 MISMATCH, n_pairs=9001 ndis=0, exit=1 warnings only) |
-| 4 | Name map | â¬œ Not started |
-| 5 | Build PCNR_ on the spine | â¬œ Blocked (PDD-D-15, PDD-D-16, PDD-D-17 closed, PDD-D-18 pending) |
+| 4 | Name map | ✅ Complete — VERIFIED 2026-10-21; exit=0, warnings=0; 4795→1299 PCNR_, 0 collisions, 31 elided, 0 undecided; merged 93f1d09 |
+| 5 | Build PCNR_ on the spine | 🔄 In progress — Plan 02 complete (pcnr_qc_workbook.py, write_pcnr_qc.py) |
 | 6 | Distribution engine | â¬œ Not started |
 | 7 | Dictionary workbook writer | â¬œ Not started |
 
@@ -68,6 +68,16 @@ SAS/Python split locked. SAS owns data; Python owns xlsx output. Phase 3 unchang
 | PDD-D-19 | **LOCKED (2026-10-19).** `cats('Precede', put(input(strip(id),??8.),z5.))` â€” 9,001 pairs, ndis=0 (run 19:21). `%pdd_norm_psid` in `00_config.sas`. Phase 3 QC: s01 274 not in spine (1 spine case no PACU row); s18 269 not in spine, 2 dup/blank rows (`pdd.qc_s18_dup`); s06 29 and s11 1 not in spine; s04/s05 4 not in spine | â€” |
 | PDD-D-20 | **LOCKED.** 6 s17 ENCRYPTED_ENCOUNTER values that map to >1 PRECEDE_STUDY_ID â†’ set to missing for linkage; unchanged in PCNR_ | Phase 3 (s17) |
 | PDD-D-21 | **LOCKED (2026-10-20, reviewed Gerard 2026-10-20).** Excluded from PCNR_: 2,747 digital clock columns (COM/COPY clock tokens + LINUS DCTclock summary). Kept in PCNR_: 809 other digital-battery tests (DIGITAL_OTHER) + 431 other columns (PCNR), including clock admin flags and Mini-Cog clock scores. UNSURE=0; Phase 4 gate clear. Split applied Phase 4 onward via docs/s06_column_class.csv. | Phase 4 gate |
+
+## Decisions (Phase 05)
+
+| Date | Decision |
+|------|----------|
+| 2026-10-22 | CONFLICT_DETAIL raises ValueError on >5,000 rows (error, not silent truncation) |
+| 2026-10-22 | All sheets always written with headers even when 0 data rows (item 18) |
+| 2026-10-22 | n_filled_* columns treated as integers via regex pattern (item 18) |
+| 2026-10-22 | assert_input validates required columns per CSV before write (item 18) |
+| 2026-10-22 | _key_rows() documents provenance scope: spine-origin cells NOT in pdd.qc_pcnr_provenance (item 14) |
 
 ## Decisions (Phase 03)
 
