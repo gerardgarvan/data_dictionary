@@ -312,18 +312,24 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
   %else
     %put NOTE: [99_run_all] Phase 4 skipped (not in PDD_PHASES=&pdd_phases_run);
 
+
+  /* =========================================================================
+     PHASE 5 -- Build PCNR_ on the Spine
+     ========================================================================= */
+  %_check_pipeline_ok(phase=5);
+  %if %_phase_in(5) %then %do;
+    %put NOTE: [timing] phase 5 start %sysfunc(datetime(), datetime20.);
+    %put NOTE: ---- Phase 5: Build PCNR_ on the spine --------------------;
+    %include "&sas_path.\05_build_pcnr.sas";
+    %put NOTE: ---- Phase 5 complete --------------------------------------;
+    %let pdd_phases_done = &pdd_phases_done 5;
+    %put NOTE: [timing] phase 5 end %sysfunc(datetime(), datetime20.);
+  %end;
+  %else
+    %put NOTE: [99_run_all] Phase 5 skipped (not in PDD_PHASES=&pdd_phases_run);
+
 %mend _run_phases;
 %_run_phases;
-
-
-/* =========================================================================
-   PHASE 5 -- Build PCNR_ on the Spine
-   ========================================================================= */
-/*
-%put NOTE: ---- Phase 5: Build PCNR_ on the spine ---------------------;
-%include "&sas_path.\05_build_pcnr.sas";
-%put NOTE: ---- Phase 5 complete --------------------------------------;
-*/
 
 
 /* =========================================================================
