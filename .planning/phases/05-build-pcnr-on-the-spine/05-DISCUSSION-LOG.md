@@ -70,6 +70,26 @@
 
 ---
 
+---
+
+## Post-review amendments (Gerard, 2026-10-21)
+
+Applied after initial context session. All changes reflected in CONTEXT.md.
+
+| # | Amendment | Decision node |
+|---|-----------|---------------|
+| 1 | SPINE_VS_SOURCE conflict type added: spine non-missing AND non-spine non-missing AND disagree → spine wins, written to pdd.qc_pcnr_conflicts with conflict_type = SPINE_VS_SOURCE. conflict_type column (SPINE_VS_SOURCE \| SOURCE_VS_SOURCE) added to conflict table and summary. | D-15 / D-05 |
+| 2 | pdd.qc_pcnr_provenance: rows only for variables with 2+ contributing sources; single-source provenance implied by name_map. Row count logged. | D-16 |
+| 3 | Spine-coverage QC added (D-19): per source, n_keys and n_keys_not_in_spine → exchange\pcnr_spine_coverage.csv → SPINE_COVERAGE sheet; NOTE in SAS log. | D-19 (new) |
+| 4 | s04/s05 name-map assertion clarified: query pdd.name_map (s_code IN ('s04','s05')), NOT pdd.name_map_vars (which has comma-list s_codes_contributing, no s_code column). | D-18 ext |
+| 5 | Equality rule (D-20 new): character → strip(a) = strip(b), case-sensitive; numeric → exact equality. | D-20 (new) |
+| 6 | Type-conflict resolves to character: numeric source values converted with strip(put(x, best32.)) before merge. Documented in D-02 note as the only representation change. | D-02 amend |
+| 7 | Override semantics: spine still wins unconditionally; pcnr_source_override.csv replaces rank order only (step 2). If pinned source is missing for a row, fall back to rank order for that row. | D-05b |
+| 8 | QC workbook consolidated: qc\pcnr_qc.xlsx (Python, D-22) with sheets KEY, GAPFILL, SPINE_COVERAGE, CONFLICT_SUMMARY, CONFLICT_DETAIL (capped 5,000), TYPECHECK. Replaces separate qc\pcnr_conflicts.xlsx and the deferred Phase 7 gap-fill sheet. Phase 5 QC now fully reviewable. | D-16b (new) |
+| 9 | Done criteria extended: no CLOCK columns in pdd.pcnr; no blank norm_psid in spine; every PCNR_ variable present with resolved type/length; variable labels = representative original_header. | Domain |
+
+---
+
 ## Claude's Discretion
 
 - Exact SAS implementation of rank-order gap-fill (COALESCE vs sorted merge vs macro loop)

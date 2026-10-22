@@ -11,8 +11,12 @@ other 1:1 PRECEDE_STUDY_ID sources using the Phase 4 name map, apply gap-fill an
 resolution, and write `pdd.pcnr` with one row per spine patient and every PCNR_ variable.
 
 Done when: `pdd.pcnr` has exactly 41,150 rows; column count = 1,299 PCNR_ variables +
-NORM_PSID key; 0 duplicate keys; gap-fill QC and conflict QC written and reviewed; s04/s05
-assertions pass; type-conflict variables resolved and logged; wired into `99_run_all.sas`.
+NORM_PSID key; 0 duplicate keys; no CLOCK columns in `pdd.pcnr`; no blank norm_psid in
+spine; every PCNR_ variable present with resolved type and length; variable labels equal
+the representative original_header from name_map; gap-fill QC and conflict QC written
+and reviewed; `qc\pcnr_qc.xlsx` produced with KEY, GAPFILL, SPINE_COVERAGE,
+CONFLICT_SUMMARY, CONFLICT_DETAIL, TYPECHECK sheets; s04/s05 assertions pass;
+type-conflict variables resolved and logged; wired into `99_run_all.sas`.
 
 </domain>
 
@@ -28,10 +32,17 @@ source is non-missing, the highest-ranked source (lowest rank number) wins.
 once from s01→s20 order; may be edited before rerun — no code change needed to change order.
 Committed to git (no PHI — s_codes and rank only).
 
-**Conflicts (D-05):** When 2+ non-spine sources are non-missing and DISAGREE, the
-highest-ranked still wins AND the cell is written to `pdd.qc_pcnr_conflicts` with all
-candidate values and s_codes. Agreeing values (same value across multiple sources) are NOT
-conflicts and do NOT go to the conflict QC.
+**Conflicts (D-05):** Two conflict types are captured in `pdd.qc_pcnr_conflicts`:
+
+- **SPINE_VS_SOURCE:** Spine is non-missing AND a non-spine source is non-missing AND they
+  disagree. Spine still wins; cell is written to conflicts with conflict_type = SPINE_VS_SOURCE.
+- **SOURCE_VS_SOURCE:** Spine is missing, 2+ non-spine sources are non-missing and DISAGREE.
+  Highest-ranked wins; cell written with conflict_type = SOURCE_VS_SOURCE.
+
+Agreeing values (same value across multiple sources) are NOT conflicts and do NOT go to the conflict QC.
+
+`pdd.qc_pcnr_conflicts` includes a `conflict_type` column (SPINE_VS_SOURCE | SOURCE_VS_SOURCE).
+Conflict summary CSV includes conflict_type breakdown.
 
 **Per-variable override:** `docs/pcnr_source_override.csv` (pcnr_name, s_code) — empty by
 default; allows pinning a specific source for a specific PCNR_ variable. Committed to git.
@@ -53,8 +64,10 @@ Gap-fill traceability is QC-only, in two places:
 **(b) Cell-level provenance** (pdd library on P: only, no export):
 - `pdd.qc_pcnr_provenance`: one row per gap-filled cell
 - Columns: norm_psid, pcnr_name, src_s_code
-- Rows ONLY where spine was missing and another source filled the value.
+- Rows ONLY where spine was missing and another source filled the value, AND only for
+  variables with 2+ contributing sources (single-source provenance is implied by name_map).
 - Not exported to xlsx. Use for trace-to-source audits only.
+- Log its row count at end of QC section.
 
 ### D-18 (Phase 5 extension) — s04/s05 role (LOCKED 2026-10-21, Gerard)
 
@@ -62,21 +75,32 @@ s04 and s05 contribute no PCNR_ columns (D-18 locked). Phase 5 adds two assertio
 
 1. **Log assertion:** write a NOTE to the SAS log confirming `pdd.src_s04` and `pdd.src_s05`
    contribute 0 rows and 0 PCNR_ variables to `pdd.pcnr`.
-2. **Name-map assertion:** verify that no row in `pdd.name_map_vars` lists s04 or s05 among
-   its contributing s_codes. `%fail_out` if either assertion fails.
+2. **Name-map assertion:** verify that no row in `pdd.name_map` where s_code IN ('s04','s05')
+   has PCNR status. Query `pdd.name_map` (not `pdd.name_map_vars`). `%fail_out` if assertion fails.
+
+### D-19 — Spine key coverage QC (LOCKED 2026-10-21, Gerard)
+
+For each non-spine source joined to the spine (left join on norm_psid):
+- Compute `n_keys` (total norm_psid in that source) and `n_keys_not_in_spine` (norm_psid in
+  source but absent from spine).
+- Write to `exchange\pcnr_spine_coverage.csv` (s_code, n_keys, n_keys_not_in_spine).
+- Python writes this as the SPINE_COVERAGE sheet in `qc\pcnr_qc.xlsx`.
+- Emit a SAS NOTE in log: "SOURCE <s_code>: <n_keys_not_in_spine> of <n_keys> keys not in spine."
 
 ### D-16b — QC output path (LOCKED 2026-10-21, Gerard)
 
 | Output | Path | Mechanism |
 |--------|------|-----------|
-| Gap-fill summary | `exchange\pcnr_gapfill.csv` → Python → Phase 7 workbook sheet | D-22 pattern |
-| Conflict summary | `exchange\pcnr_conflicts_summary.csv` (pcnr_name, n_conflict_cells, s_codes_involved, winning_s_code) | D-22 pattern |
-| Conflict detail (capped) | `exchange\pcnr_conflicts_detail.csv` — first 5,000 rows of `pdd.qc_pcnr_conflicts` | D-22 pattern |
-| Conflict workbook | `qc\pcnr_conflicts.xlsx` — KEY sheet first, summary sheet, detail sheet; KEY notes if detail was capped and where full table lives (`pdd.qc_pcnr_conflicts` on P:) | Python writes per D-22 |
-| Full conflict table | `pdd.qc_pcnr_conflicts` on P: — all rows, all detail | pdd library only |
-| Cell-level provenance | `pdd.qc_pcnr_provenance` on P: — gap-filled cells only | pdd library only |
+| Gap-fill summary | `exchange\pcnr_gapfill.csv` → Python → GAPFILL sheet | D-22 pattern |
+| Spine coverage | `exchange\pcnr_spine_coverage.csv` → Python → SPINE_COVERAGE sheet | D-19 |
+| Conflict summary | `exchange\pcnr_conflicts_summary.csv` (pcnr_name, n_conflict_cells, conflict_type, s_codes_involved, winning_s_code) → CONFLICT_SUMMARY sheet | D-22 pattern |
+| Conflict detail (capped) | `exchange\pcnr_conflicts_detail.csv` — first 5,000 rows of `pdd.qc_pcnr_conflicts` → CONFLICT_DETAIL sheet | D-22 pattern |
+| Type-check | `exchange\pcnr_typecheck.csv` → Python → TYPECHECK sheet | D-02 |
+| **Phase 5 QC workbook** | **`qc\pcnr_qc.xlsx`** — sheets: KEY, GAPFILL, SPINE_COVERAGE, CONFLICT_SUMMARY, CONFLICT_DETAIL (capped 5,000), TYPECHECK; KEY notes cap and references `pdd.qc_pcnr_conflicts` on P: | Python writes per D-22 |
+| Full conflict table | `pdd.qc_pcnr_conflicts` on P: — all rows, all detail, conflict_type column | pdd library only |
+| Cell-level provenance | `pdd.qc_pcnr_provenance` on P: — gap-filled cells, 2+ source vars only | pdd library only |
 
-Nothing in git. All data on P:.
+Nothing in git. All data on P:. Phase 5 QC is reviewable via `qc\pcnr_qc.xlsx` — not deferred to Phase 7.
 
 ### D-02 (type resolution amendment) — Type-conflict rule (LOCKED 2026-10-21, Gerard)
 
@@ -99,7 +123,16 @@ each contributing source (`pdd.src_<s>`):
 stored as C8 where all values are numeric strings is stored as N8 in pdd.pcnr but every
 value is identical when printed. Variables with parse failures remain character exactly as-is.
 
+When a type-conflict variable resolves to **character** (any parse failure), numeric-typed
+source values must be converted to character before merge: use `strip(put(x, best32.))`.
+This conversion is documented in the TYPECHECK QC output.
+
 `pdd.qc_pcnr_typecheck` records the resolution and any failures for audit.
+
+### D-20 — Equality rule for conflict detection (LOCKED 2026-10-21, Gerard)
+
+- **Character variables:** compare using `strip(a) = strip(b)`, case-sensitive. Blank and " " are both missing.
+- **Numeric variables:** exact equality (`a = b`). No tolerance.
 
 ### D-05b — Spine-first join mechanics
 
@@ -107,8 +140,10 @@ The join follows this sequence for every PCNR_ variable:
 1. Spine value (`pdd.src_s09`) is used if non-missing.
 2. If spine is missing, walk sources in `docs/pcnr_source_priority.csv` rank order (lowest
    rank first, skipping s09). First non-missing wins.
-3. Per-variable override in `docs/pcnr_source_override.csv` pins a specific s_code, bypassing
-   rank order for that variable.
+3. Per-variable override in `docs/pcnr_source_override.csv` pins a specific s_code,
+   bypassing rank order for that variable. Spine still wins unconditionally (step 1).
+   Override replaces rank order only (step 2). If the pinned source is missing for a given
+   row, fall back to normal rank order for that row.
 4. Disagreements (step 2 cases where 2+ sources are non-missing and disagree) → `pdd.qc_pcnr_conflicts`.
 5. Agreeing values are not conflicts.
 
@@ -201,12 +236,13 @@ No external ADRs. Requirements fully captured in decisions above.
 - `pdd.qc_pcnr_typecheck` columns: pcnr_name, s_code, resolution (N8 or C), n_char_sources,
   n_parse_failures, example_failing_value.
 - `pdd.qc_pcnr_provenance` columns: norm_psid, pcnr_name, src_s_code. Rows only for gap-filled cells.
-- `pdd.qc_pcnr_conflicts` columns: norm_psid, pcnr_name, winning_s_code, winning_value,
-  all candidate s_codes and values (long or wide — implementer's discretion).
+- `pdd.qc_pcnr_conflicts` columns: norm_psid, pcnr_name, conflict_type (SPINE_VS_SOURCE |
+  SOURCE_VS_SOURCE), winning_s_code, winning_value, all candidate s_codes and values
+  (long or wide — implementer's discretion).
 - Conflict export cap: 5,000 rows for detail CSV; KEY sheet in conflicts.xlsx must note cap
   and reference `pdd.qc_pcnr_conflicts on P:` for full data.
-- s04/s05 assertion: check PROC SQL against `pdd.name_map_vars` where s_code IN ('s04','s05');
-  expect 0 rows.
+- s04/s05 assertion: check PROC SQL against `pdd.name_map` where s_code IN ('s04','s05')
+  and PCNR status; expect 0 rows.
 
 </specifics>
 
