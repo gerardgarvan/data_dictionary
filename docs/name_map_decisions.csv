@@ -1,3 +1,3 @@
 s_code_a,header_a,col_order_a,s_code_b,header_b,col_order_b,decision,new_name,note,decided_by,date
-s06,ASA_Anest_Record,94,s03,ASA (Anesth Record),36,,,,Gerard,2026-10-21
-s06,Holiday,84,s03,Holidays,24,,,,Gerard,2026-10-21
+s06,ASA_Anest_Record,94,s03,ASA (Anesth Record),36,SAME,,identical ASA 1-5 value set and counts,Gerard,2026-10-21
+s06,Holiday,84,s03,Holidays,24,SAME,,identical Y/N flag and counts,Gerard,2026-10-21
