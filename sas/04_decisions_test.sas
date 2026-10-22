@@ -3,11 +3,20 @@
   Purpose : Standalone tests for Phase 4 decision-handling logic.
             Covers: SAME chain (A=B, B=C -> one group), DIFFERENT split,
             valid RENAME, invalid RENAME (too long / duplicate) -> fail,
-            same-file merge -> fail, bad header -> fail.
+            same-file merge -> fail, bad header -> fail,
+            B7 suffix at max-length base (T8), no WARNING lines in log (T9).
   Run     : sas 04_decisions_test.sas  (no pipeline setup required)
+
+  PCM compliance:
+    C3  No open-code %if/%else outside %macro ... %mend
+    C18 No %local/%global at open-code level
 ==========================================================================*/
 
-/* ── shared fail-fast helper ──────────────────────────────────────────── */
+/* Route log to a file so T9 can scan it for WARNING lines */
+%let _test_log_path = %sysfunc(pathname(work))\04_decisions_test.log;
+proc printto log="&_test_log_path" new; run;
+
+/* ── shared helpers ───────────────────────────────────────────────────── */
 %macro _test_fail(msg=);
   %put ERROR: [04_decisions_test] &msg;
   %abort cancel;
@@ -52,8 +61,7 @@
                  from &in_pairs as s
                  inner join &out_map as mb on s.grp_b = mb.group_id
                  group by s.grp_a) as from_a
-        on m.group_id = from_a.group_id
-      group by m.group_id;
+        on m.group_id = from_a.group_id;
     quit;
     proc sql noprint;
       select count(*) into :_uf_changed trimmed
@@ -91,13 +99,15 @@ run;
 
 %_run_union_find(in_groups=work._t1_groups, in_pairs=work._t1_pairs, out_map=work._t1_uf);
 
-/* All three groups must map to the same canon_id (minimum = 1) */
-%local _t1_ndist;
-proc sql noprint;
-  select count(distinct canon_id) into :_t1_ndist trimmed from work._t1_uf;
-quit;
-%if &_t1_ndist = 1 %then %_record(case=T1_SAME_CHAIN, result=PASS);
-%else %_record(case=T1_SAME_CHAIN, result=FAIL, detail=%str(&_t1_ndist distinct canon_ids; expected 1));
+%macro _t1_check;
+  %local _t1_ndist;
+  proc sql noprint;
+    select count(distinct canon_id) into :_t1_ndist trimmed from work._t1_uf;
+  quit;
+  %if &_t1_ndist = 1 %then %_record(case=T1_SAME_CHAIN, result=PASS);
+  %else %_record(case=T1_SAME_CHAIN, result=FAIL, detail=%str(&_t1_ndist distinct canon_ids; expected 1));
+%mend _t1_check;
+%_t1_check;
 
 
 /* ================================================================
@@ -111,11 +121,13 @@ data work._t2_groups;
 ;
 run;
 
-/* After DIFFERENT: s02/col_order=1 (group 10, b-side) should get new group */
-%local _t2_max_grp;
-proc sql noprint;
-  select max(group_id) into :_t2_max_grp trimmed from work._t2_groups;
-quit;
+%macro _t2_setup;
+  %global _t2_max_grp;
+  proc sql noprint;
+    select max(group_id) into :_t2_max_grp trimmed from work._t2_groups;
+  quit;
+%mend _t2_setup;
+%_t2_setup;
 
 data work._t2_groups;
   set work._t2_groups;
@@ -123,16 +135,20 @@ data work._t2_groups;
   if s_code = 's02' and col_order = 1 then group_id = &_t2_max_grp + 1;
 run;
 
-%local _t2_ndist _t2_s01grp _t2_s02grp;
-proc sql noprint;
-  select count(distinct group_id) into :_t2_ndist trimmed from work._t2_groups;
-  select group_id into :_t2_s01grp trimmed from work._t2_groups where s_code = 's01';
-  select group_id into :_t2_s02grp trimmed from work._t2_groups where s_code = 's02';
-quit;
-%if &_t2_ndist = 2 and &_t2_s01grp ne &_t2_s02grp %then
-  %_record(case=T2_DIFFERENT_SPLIT, result=PASS);
-%else
-  %_record(case=T2_DIFFERENT_SPLIT, result=FAIL, detail=%str(ndist=&_t2_ndist s01grp=&_t2_s01grp s02grp=&_t2_s02grp));
+%macro _t2_check;
+  %local _t2_ndist _t2_s01grp _t2_s02grp;
+  proc sql noprint;
+    select count(distinct group_id) into :_t2_ndist trimmed from work._t2_groups;
+    select group_id into :_t2_s01grp trimmed from work._t2_groups where s_code = 's01';
+    select group_id into :_t2_s02grp trimmed from work._t2_groups where s_code = 's02';
+  quit;
+  %if &_t2_ndist = 2 and &_t2_s01grp ne &_t2_s02grp %then
+    %_record(case=T2_DIFFERENT_SPLIT, result=PASS);
+  %else
+    %_record(case=T2_DIFFERENT_SPLIT, result=FAIL,
+             detail=%str(ndist=&_t2_ndist s01grp=&_t2_s01grp s02grp=&_t2_s02grp));
+%mend _t2_check;
+%_t2_check;
 
 
 /* ================================================================
@@ -143,15 +159,18 @@ data work._t3_rename;
   rename_target = 'ValidName27CharsExactlyHere';  /* 27 chars */
 run;
 
-%local _t3_len _t3_v7 _t3_ok;
-proc sql noprint;
-  select length(strip(rename_target)) into :_t3_len trimmed from work._t3_rename;
-  select nvalid(cats('PCNR_', strip(rename_target)), 'v7') into :_t3_v7 trimmed from work._t3_rename;
-quit;
-%let _t3_ok = 0;
-%if &_t3_len <= 27 and &_t3_v7 = 1 %then %let _t3_ok = 1;
-%if &_t3_ok = 1 %then %_record(case=T3_VALID_RENAME, result=PASS);
-%else %_record(case=T3_VALID_RENAME, result=FAIL, detail=%str(len=&_t3_len v7=&_t3_v7));
+%macro _t3_check;
+  %local _t3_len _t3_v7 _t3_ok;
+  proc sql noprint;
+    select length(strip(rename_target)) into :_t3_len trimmed from work._t3_rename;
+    select nvalid(cats('PCNR_', strip(rename_target)), 'v7') into :_t3_v7 trimmed from work._t3_rename;
+  quit;
+  %let _t3_ok = 0;
+  %if &_t3_len <= 27 and &_t3_v7 = 1 %then %let _t3_ok = 1;
+  %if &_t3_ok = 1 %then %_record(case=T3_VALID_RENAME, result=PASS);
+  %else %_record(case=T3_VALID_RENAME, result=FAIL, detail=%str(len=&_t3_len v7=&_t3_v7));
+%mend _t3_check;
+%_t3_check;
 
 
 /* ================================================================
@@ -162,14 +181,17 @@ data work._t4_rename;
   rename_target = 'ThisNameIsWayTooLongForTheSASLimit32Chars';  /* > 27 */
 run;
 
-%local _t4_len _t4_fail;
-proc sql noprint;
-  select length(strip(rename_target)) into :_t4_len trimmed from work._t4_rename;
-quit;
-%let _t4_fail = 0;
-%if &_t4_len > 27 %then %let _t4_fail = 1;
-%if &_t4_fail = 1 %then %_record(case=T4_RENAME_TOO_LONG, result=PASS);
-%else %_record(case=T4_RENAME_TOO_LONG, result=FAIL, detail=%str(len=&_t4_len should be >27));
+%macro _t4_check;
+  %local _t4_len _t4_fail;
+  proc sql noprint;
+    select length(strip(rename_target)) into :_t4_len trimmed from work._t4_rename;
+  quit;
+  %let _t4_fail = 0;
+  %if &_t4_len > 27 %then %let _t4_fail = 1;
+  %if &_t4_fail = 1 %then %_record(case=T4_RENAME_TOO_LONG, result=PASS);
+  %else %_record(case=T4_RENAME_TOO_LONG, result=FAIL, detail=%str(len=&_t4_len should be >27));
+%mend _t4_check;
+%_t4_check;
 
 
 /* ================================================================
@@ -184,16 +206,19 @@ samename
 ;
 run;
 
-%local _t5_ndup;
-proc sql noprint;
-  select count(*) into :_t5_ndup trimmed
-  from (select upcase(strip(rename_target)) as rt, count(*) as n
-        from work._t5_rename
-        group by upcase(strip(rename_target))
-        having count(*) > 1);
-quit;
-%if &_t5_ndup > 0 %then %_record(case=T5_RENAME_DUPLICATE, result=PASS);
-%else %_record(case=T5_RENAME_DUPLICATE, result=FAIL, detail=%str(ndup=&_t5_ndup should be >0));
+%macro _t5_check;
+  %local _t5_ndup;
+  proc sql noprint;
+    select count(*) into :_t5_ndup trimmed
+    from (select upcase(strip(rename_target)) as rt, count(*) as n
+          from work._t5_rename
+          group by upcase(strip(rename_target))
+          having count(*) > 1);
+  quit;
+  %if &_t5_ndup > 0 %then %_record(case=T5_RENAME_DUPLICATE, result=PASS);
+  %else %_record(case=T5_RENAME_DUPLICATE, result=FAIL, detail=%str(ndup=&_t5_ndup should be >0));
+%mend _t5_check;
+%_t5_check;
 
 
 /* ================================================================
@@ -207,50 +232,148 @@ data work._t6_groups;
 ;
 run;
 
-/* Check that merging groups 20 and 21 would violate the same-s_code rule */
-%local _t6_sc_viol;
-proc sql noprint;
-  select count(*) into :_t6_sc_viol trimmed
-  from (
-    /* Simulate: if we merged 20 and 21, both s01 rows would be in group 20 */
-    select 20 as merged_group_id, s_code, count(*) as n
-    from work._t6_groups
-    group by s_code
-    having count(*) > 1);
-quit;
-%if &_t6_sc_viol > 0 %then %_record(case=T6_SAME_FILE_MERGE_BLOCKED, result=PASS);
-%else %_record(case=T6_SAME_FILE_MERGE_BLOCKED, result=FAIL,
-       detail=%str(no same-file violation detected; test setup may be wrong));
+%macro _t6_check;
+  %local _t6_sc_viol;
+  proc sql noprint;
+    select count(*) into :_t6_sc_viol trimmed
+    from (
+      /* Simulate: if we merged 20 and 21, both s01 rows would be in group 20 */
+      select 20 as merged_group_id, s_code, count(*) as n
+      from work._t6_groups
+      group by s_code
+      having count(*) > 1);
+  quit;
+  %if &_t6_sc_viol > 0 %then %_record(case=T6_SAME_FILE_MERGE_BLOCKED, result=PASS);
+  %else %_record(case=T6_SAME_FILE_MERGE_BLOCKED, result=FAIL,
+         detail=%str(no same-file violation detected; test setup may be wrong));
+%mend _t6_check;
+%_t6_check;
 
 
 /* ================================================================
    TEST 7: Bad decisions header detected
    ================================================================ */
-%local _t7_ok;
-%let _t7_ok = 0;
+%macro _t7_check;
+  %local _t7_ok _t7_good_ok;
+  %local _exp_hdr _bad_hdr;
+  %let _exp_hdr = s_code_a,header_a,col_order_a,s_code_b,header_b,col_order_b,decision,new_name,note,decided_by,date;
+  %let _bad_hdr = s_code_a,header_a,col_order_a,s_code_b,header_b,col_order_b,decision,note,new_name,decided_by,date;
+  %let _t7_ok = 0;
+  %let _t7_good_ok = 0;
+  /* Simulate: a bad header should NOT equal the expected header */
+  %if %lowcase(&_bad_hdr) ne %lowcase(&_exp_hdr) %then %let _t7_ok = 1;
+  /* Simulate: the correct header SHOULD equal expected */
+  %if %lowcase(&_exp_hdr) = %lowcase(&_exp_hdr) %then %let _t7_good_ok = 1;
+  %if &_t7_ok = 1 and &_t7_good_ok = 1 %then
+    %_record(case=T7_BAD_HEADER_DETECTED, result=PASS);
+  %else
+    %_record(case=T7_BAD_HEADER_DETECTED, result=FAIL,
+             detail=%str(bad_differs=&_t7_ok good_matches=&_t7_good_ok));
+%mend _t7_check;
+%_t7_check;
 
-%let _exp_hdr = s_code_a,header_a,col_order_a,s_code_b,header_b,col_order_b,decision,new_name,note,decided_by,date;
-%let _bad_hdr = s_code_a,header_a,col_order_a,s_code_b,header_b,col_order_b,decision,note,new_name,decided_by,date;
 
-/* Simulate: a bad header should NOT equal the expected header */
-%if %lowcase(&_bad_hdr) ne %lowcase(&_exp_hdr) %then %let _t7_ok = 1;
+/* ================================================================
+   TEST 8: B7 -- forced suffix at max-length base; final name <= 32,
+            distinct case-insensitively, no triple underscore.
+            Uses real %elide_middle logic via DATA step.
+   ================================================================ */
+%include "04_name_map_macros.sas";
 
-/* Simulate: the correct header SHOULD equal expected */
-%local _t7_good_ok;
-%let _t7_good_ok = 0;
-%if %lowcase(&_exp_hdr) = %lowcase(&_exp_hdr) %then %let _t7_good_ok = 1;
+/* Build two groups with the same 27-char base so stage1_suffix assigns _2 */
+data work._t8_suffix_assign;
+  length group_id 8 pcnr_name_base $200 _base_uc $200 _file_num 8 col_order 8;
+  group_id = 1; pcnr_name_base = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ_'; _base_uc = upcase(pcnr_name_base); _file_num = 1; col_order = 1; output;
+  group_id = 2; pcnr_name_base = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ_'; _base_uc = upcase(pcnr_name_base); _file_num = 2; col_order = 1; output;
+run;
 
-%if &_t7_ok = 1 and &_t7_good_ok = 1 %then
-  %_record(case=T7_BAD_HEADER_DETECTED, result=PASS);
-%else
-  %_record(case=T7_BAD_HEADER_DETECTED, result=FAIL,
-           detail=%str(bad_differs=&_t7_ok good_matches=&_t7_good_ok));
+/* Simulate stage1_suffix hash logic: group 1 gets base name, group 2 gets suffixed+elided */
+data work._t8_suffix_final;
+  if _N_ = 1 then do;
+    declare hash _used();
+    _used.defineKey('_k');
+    _used.defineDone();
+    /* pre-populate with suffix_n=1 name (group 1) */
+    _k = lowcase('ABCDEFGHIJKLMNOPQRSTUVWXYZ_');
+    _used.replace();
+  end;
+  set work._t8_suffix_assign;
+  length pcnr_name_final $200 _sfx $10 _base_trim $200 _candidate $200 _k $200
+         _elide_head $200 _elide_tail $200;
+  _elide_first = 0; _elide_last = 0;
+  if _N_ = 1 then pcnr_name_final = pcnr_name_base;
+  else do;
+    _try = 2;
+    do while (_try < 1000);
+      _sfx     = cats('_', put(_try, best.));
+      _allowed = 27 - length(_sfx);
+      _base_trim = pcnr_name_base;
+      %elide_middle(nm=_base_trim, target=_allowed);
+      _candidate = cats(_base_trim, _sfx);
+      _k = lowcase(_candidate);
+      if _used.check() ne 0 then do;
+        pcnr_name_final = _candidate;
+        _used.replace();
+        leave;
+      end;
+      _try = _try + 1;
+    end;
+  end;
+  pcnr_name_final = cats('PCNR_', pcnr_name_final);
+  keep group_id pcnr_name_base pcnr_name_final;
+run;
+
+%macro _t8_check;
+  %local _t8_len_ok _t8_distinct _t8_no_triple _t8_pass;
+  proc sql noprint;
+    select max(length(pcnr_name_final)) <= 32 into :_t8_len_ok trimmed
+    from work._t8_suffix_final;
+    select count(distinct upcase(pcnr_name_final)) = count(*) into :_t8_distinct trimmed
+    from work._t8_suffix_final;
+    select sum(prxmatch('/___/', pcnr_name_final)) = 0 into :_t8_no_triple trimmed
+    from work._t8_suffix_final;
+  quit;
+  %let _t8_pass = 0;
+  %if &_t8_len_ok = 1 and &_t8_distinct = 1 and &_t8_no_triple = 1 %then %let _t8_pass = 1;
+  %if &_t8_pass = 1 %then %_record(case=T8_B7_SUFFIX_MAX_LEN, result=PASS);
+  %else %_record(case=T8_B7_SUFFIX_MAX_LEN, result=FAIL,
+         detail=%str(len_ok=&_t8_len_ok distinct=&_t8_distinct no_triple=&_t8_no_triple));
+%mend _t8_check;
+%_t8_check;
+
+
+/* ================================================================
+   TEST 9: No WARNING lines in this test's log
+   ================================================================ */
+proc printto; run;
+
+data work._t9_warn_check;
+  length _n_warn 8;
+  retain _n_warn 0;
+  infile "&_test_log_path" lrecl=32767 end=_eof;
+  input;
+  if index(upcase(_infile_), 'WARNING:') > 0 then _n_warn + 1;
+  if _eof then do;
+    call symputx('_t9_n_warn', _n_warn);
+    output;
+  end;
+run;
+
+%macro _t9_check;
+  %if &_t9_n_warn = 0 %then %_record(case=T9_NO_WARNINGS_IN_LOG, result=PASS);
+  %else %_record(case=T9_NO_WARNINGS_IN_LOG, result=FAIL,
+         detail=%str(&_t9_n_warn WARNING lines found in test log));
+%mend _t9_check;
+%_t9_check;
 
 
 /* ================================================================
    Final summary
    ================================================================ */
-%if &_all_pass = 1 %then
-  %put NOTE: [04_decisions_test] ALL TESTS PASSED;
-%else
-  %put ERROR: [04_decisions_test] ONE OR MORE TESTS FAILED;
+%macro _final_summary;
+  %if &_all_pass = 1 %then
+    %put NOTE: [04_decisions_test] TESTRESULT SUMMARY: ALL TESTS PASSED;
+  %else
+    %put ERROR: [04_decisions_test] TESTRESULT SUMMARY: ONE OR MORE TESTS FAILED;
+%mend _final_summary;
+%_final_summary;

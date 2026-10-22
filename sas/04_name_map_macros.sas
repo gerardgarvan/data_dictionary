@@ -261,8 +261,7 @@
                  from work._same_grpids as s
                  inner join work._uf_map as mb on s.grp_b = mb.group_id
                  group by s.grp_a) as from_a
-        on m.group_id = from_a.group_id
-      group by m.group_id;
+        on m.group_id = from_a.group_id;
     quit;
     proc sql noprint;
       select count(*) into :_uf_changed trimmed
