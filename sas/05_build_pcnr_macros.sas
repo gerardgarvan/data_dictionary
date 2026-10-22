@@ -908,3 +908,311 @@
   %put NOTE: [05_build_pcnr] %p5_build_accumulator complete;
 
 %mend p5_build_accumulator;
+
+/* ============================================================
+   %p5_gapfill_source(s_code=, rank=)  (Plan 04 Task 2)
+   Gap-fill accumulator from one non-spine source via
+   write-next-verify-replace pattern; generate per-variable
+   IF blocks to logs\05_generated_gapfill_<s>.sas (no CALL
+   EXECUTE); detect SPINE_VS_SOURCE and SOURCE_VS_SOURCE
+   conflicts; record provenance for 2+-source vars; assert
+   41,150 rows on work._pcnr_next before replacing accumulator.
+   DEFINE ONLY -- called from %p5_run_gapfill.
+   ============================================================ */
+%macro p5_gapfill_source(s_code=, rank=);
+
+  /* Step 1. Collect (col_name, pcnr_name, var_idx, n_sources) for this source */
+  %local _n_src_vars;
+  proc sql noprint;
+    create table work._gf_cols_&s_code as
+    select nm.col_name,
+           nm.pcnr_name,
+           nv.var_idx,
+           nv.result_type,
+           nv.max_length,
+           nv.type_conflict,
+           nv.n_sources
+    from pdd.name_map as nm
+    inner join work._nmv as nv
+      on nm.pcnr_name = nv.pcnr_name
+    where nm.s_code = "&s_code"
+      and nm.status = 'PCNR'
+    order by nv.var_idx;
+
+    select count(*) into :_n_src_vars trimmed
+    from work._gf_cols_&s_code;
+  quit;
+
+  /* Skip sources contributing 0 PCNR_ variables */
+  %if &_n_src_vars = 0 %then %do;
+    %put NOTE: [05_build_pcnr] source &s_code contributes 0 PCNR_ variables -- skipped;
+    %return;
+  %end;
+  %put NOTE: [05_build_pcnr] source &s_code contributes &_n_src_vars PCNR_ variables (rank=&rank);
+
+  /* Step 2. Sort source to work (item 2 -- never sort pdd.src_* in place) */
+  %local _gf_keep _gf_rename _i;
+  %let _gf_keep   = norm_psid;
+  %let _gf_rename = ;
+  %do _i = 1 %to &_n_src_vars;
+    %local _gf_cn_&_i _gf_pn_&_i;
+    proc sql noprint;
+      select col_name, pcnr_name
+      into :_gf_cn_&_i trimmed, :_gf_pn_&_i trimmed
+      from work._gf_cols_&s_code (firstobs=&_i obs=&_i);
+    quit;
+    %let _gf_keep = &_gf_keep &&_gf_cn_&_i;
+    /* Rename col_name to _S<z4(var_idx)> alias for merge */
+  %end;
+
+  /* Build RENAME= mapping col_name -> _S<z4(var_idx)> */
+  data _null_;
+    set work._gf_cols_&s_code;
+    length _s_alias $10 _pair $400;
+    _s_alias = cats('_S', put(var_idx, z4.));
+    _pair    = cats(strip(col_name), '=', strip(_s_alias));
+    call symputx(cats('_gf_rn_', _n_), strip(_pair), 'L');
+    call symputx('_gf_rn_n', _n_, 'L');
+  run;
+
+  /* Rebuild rename string from symputx values */
+  %local _j _gf_rename_str;
+  %let _gf_rename_str = ;
+  %do _j = 1 %to &_gf_rn_n;
+    %let _gf_rename_str = &_gf_rename_str &&_gf_rn_&_j;
+  %end;
+
+  proc sort data=pdd.src_&s_code
+    out=work._src_&s_code (keep=&_gf_keep rename=(&_gf_rename_str));
+    by norm_psid;
+  run;
+
+  /* Step 3. Generate per-variable gap-fill/conflict IF blocks to
+     logs\05_generated_gapfill_&s_code..sas via DATA _NULL_ FILE=.
+     No CALL EXECUTE.
+     Generated code shape for one variable (type C, example):
+       if missing(PCNR_X) and not missing(_S0042) then do;
+         PCNR_X = _S0042;
+         _F0042 = "&s_code";
+         if 1 then output work._prov_&s_code;  (only for n_sources>1 vars)
+       end;
+       else if not missing(PCNR_X) and not missing(_S0042) and
+               strip(PCNR_X) ne strip(_S0042) then do;
+         ... conflict block ...
+       end;
+     NOTE: work._prov_&s_code contains ONLY 2+-source rows
+     by construction of the n_sources guard (W5 confirmation). */
+  data _null_;
+    if _n_ = 1 then do;
+      declare hash htr(dataset: 'work._type_resolution');
+      htr.definekey('pcnr_name');
+      htr.definedata('resolved_type', 'out_length');
+      htr.definedone();
+    end;
+    set work._gf_cols_&s_code;
+    length resolved_type $8 out_length 8
+           _f_alias $10 _s_alias $10 _line $500;
+    resolved_type = '';
+    out_length    = max_length;
+    if htr.find() ne 0 then do;
+      if result_type = 'N' then resolved_type = 'N8';
+      else                       resolved_type = 'C';
+    end;
+    _f_alias = cats('_F', put(var_idx, z4.));
+    _s_alias = cats('_S', put(var_idx, z4.));
+    file "&logs_path.\05_generated_gapfill_&s_code..sas" encoding='utf-8' mod;
+    /* Gap-fill block */
+    _line = cats('/* gap-fill for ', strip(pcnr_name), ' from &s_code */');
+    put _line;
+    _line = cats('if missing(', strip(pcnr_name),
+                 ') and not missing(', strip(_s_alias), ') then do;');
+    put _line;
+    if resolved_type = 'N8' and type_conflict = 'Y' then do;
+      /* Source _S alias is char (type-conflict); convert to numeric */
+      _line = cats('  ', strip(pcnr_name),
+                   ' = input(strip(', strip(_s_alias), '), ?? best32.);');
+      put _line;
+    end;
+    else if resolved_type = 'C' and result_type = 'N' then do;
+      /* Source is numeric; resolved to C: convert via PUT */
+      _line = cats('  ', strip(pcnr_name),
+                   ' = strip(put(', strip(_s_alias), ', best32.));');
+      put _line;
+    end;
+    else do;
+      _line = cats('  ', strip(pcnr_name), ' = ', strip(_s_alias), ';');
+      put _line;
+    end;
+    _line = cats('  ', strip(_f_alias), ' = "&s_code";');
+    put _line;
+    /* Provenance output: ONLY for vars with 2+ contributing sources (W5).
+       NOTE: work._prov_&s_code contains ONLY 2+-source rows
+       by construction of this n_sources guard -- no additional filter needed. */
+    if n_sources > 1 then do;
+      put '  output work._prov_&s_code;';
+    end;
+    put 'end;';
+    /* Conflict block */
+    put cats('else if not missing(', strip(pcnr_name),
+             ') and not missing(', strip(_s_alias), ') then do;');
+    /* D-20 equality: char uses strip(); numeric uses exact */
+    if resolved_type = 'N8' then do;
+      _line = cats('  if ', strip(pcnr_name), ' ne ', strip(_s_alias), ' then do;');
+    end;
+    else do;
+      _line = cats('  if strip(', strip(pcnr_name),
+                   ') ne strip(', strip(_s_alias), ') then do;');
+    end;
+    put _line;
+    /* conflict_type: SPINE_VS_SOURCE if _F alias = 's09', else SOURCE_VS_SOURCE */
+    put cats('    _conflict_type = ifc(strip(', strip(_f_alias),
+             ") = 's09', 'SPINE_VS_SOURCE', 'SOURCE_VS_SOURCE');");
+    put cats('    _winning_sc = strip(', strip(_f_alias), ');');
+    /* winning_value: convert to $200 */
+    if resolved_type = 'N8' then do;
+      put cats('    _winning_val = strip(put(', strip(pcnr_name), ', best32.));');
+      put cats('    _candidate_val = strip(put(', strip(_s_alias), ', best32.));');
+    end;
+    else do;
+      put cats('    _winning_val = strip(', strip(pcnr_name), ');');
+      put cats('    _candidate_val = strip(', strip(_s_alias), ');');
+    end;
+    put cats('    _candidate_sc = "&s_code";');
+    put cats('    _pcnr_name_c  = "', strip(pcnr_name), '";');
+    /* value_type: 'N' or 'C' */
+    if resolved_type = 'N8' then put "    _value_type = 'N';";
+    else                          put "    _value_type = 'C';";
+    put '    output work._conflicts_&s_code;';
+    put '  end;';
+    put 'end;';
+    drop resolved_type out_length _f_alias _s_alias _line;
+  run;
+
+  /* Step 4. Create empty output datasets before DATA step */
+  data work._prov_&s_code;
+    length norm_psid $64 pcnr_name $200 src_s_code $4;
+    stop;
+  run;
+
+  data work._conflicts_&s_code;
+    length norm_psid $64 pcnr_name $200 conflict_type $20
+           winning_s_code $4 winning_value $200
+           candidate_s_code $4 candidate_value $200
+           value_type $1;
+    stop;
+  run;
+
+  /* Step 4b. DATA step: MERGE accumulator with source; %include generated code;
+     OUTPUT to work._pcnr_next, with conditional side-outputs. */
+  data work._pcnr_next
+       work._conflicts_&s_code (keep=norm_psid pcnr_name conflict_type
+                                     winning_s_code winning_value
+                                     candidate_s_code candidate_value
+                                     value_type)
+       work._prov_&s_code      (keep=norm_psid pcnr_name src_s_code);
+    length _conflict_type $20 _winning_sc $4 _winning_val $200
+           _candidate_sc $4 _candidate_val $200 _value_type $1
+           _pcnr_name_c $200 conflict_type $20 winning_s_code $4
+           winning_value $200 candidate_s_code $4 candidate_value $200
+           value_type $1 pcnr_name $200 src_s_code $4;
+    merge work._pcnr_accum (in=_a)
+          work._src_&s_code (in=_b);
+    by norm_psid;
+    if _a; /* keep all 41,150 spine rows */
+    /* Reset side-output vars */
+    _conflict_type = ''; _winning_sc = ''; _winning_val = '';
+    _candidate_sc  = ''; _candidate_val = ''; _value_type = '';
+    _pcnr_name_c   = '';
+    %include "&logs_path.\05_generated_gapfill_&s_code..sas";
+    /* Map internal vars to output column names */
+    conflict_type    = _conflict_type;
+    winning_s_code   = _winning_sc;
+    winning_value    = _winning_val;
+    candidate_s_code = _candidate_sc;
+    candidate_value  = _candidate_val;
+    value_type       = _value_type;
+    pcnr_name        = _pcnr_name_c;
+    src_s_code       = "&s_code";
+    output work._pcnr_next;
+    drop _conflict_type _winning_sc _winning_val _candidate_sc
+         _candidate_val _value_type _pcnr_name_c;
+  run;
+
+  /* Step 5. Assert 41,150 rows on work._pcnr_next */
+  %assert_rowcount(ds=work._pcnr_next, expected=41150,
+                   label=pcnr_next after &s_code);
+
+  /* Step 6. Replace accumulator (write-next-verify-replace) */
+  data work._pcnr_accum;
+    set work._pcnr_next;
+  run;
+
+  proc datasets lib=work nolist;
+    delete _pcnr_next;
+  quit;
+
+  /* Step 7. Gap-fill counts for %p5_write_qc via work._prov_&s_code */
+  %local _n_prov;
+  proc sql noprint;
+    select count(*) into :_n_prov trimmed from work._prov_&s_code;
+  quit;
+  %put NOTE: [05_build_pcnr] source &s_code: prov rows=&_n_prov;
+
+  /* Clean up source sort */
+  proc datasets lib=work nolist;
+    delete _src_&s_code _gf_cols_&s_code;
+  quit;
+
+  %put NOTE: [05_build_pcnr] %p5_gapfill_source(&s_code) complete;
+
+%mend p5_gapfill_source;
+
+/* ============================================================
+   %p5_run_gapfill  (Plan 04 Task 2)
+   Three-pass precedence: spine pass (done in %p5_build_accumulator),
+   pinned-source pass (work._override), rank-order loop (work._priority
+   excluding s09 and already-pinned sources).
+   DEFINE ONLY -- called from Section 2 of 05_build_pcnr.sas.
+   ============================================================ */
+%macro p5_run_gapfill;
+
+  /* Pass 2 -- pinned sources from work._override */
+  %local _n_ov _oi _ov_pn _ov_sc;
+  proc sql noprint;
+    select count(*) into :_n_ov trimmed from work._override;
+  quit;
+  %if &_n_ov > 0 %then %do _oi = 1 %to &_n_ov;
+    %let _ov_pn = ;
+    %let _ov_sc = ;
+    proc sql noprint;
+      select pcnr_name, s_code
+      into :_ov_pn trimmed, :_ov_sc trimmed
+      from work._override (firstobs=&_oi obs=&_oi);
+    quit;
+    %put NOTE: [05_build_pcnr] Pass 2: pinned override pcnr_name=&_ov_pn s_code=&_ov_sc;
+    /* Call gapfill for the pinned source (it handles skip-if-0 internally).
+       rank=0 indicates this is a pinned override call. */
+    %p5_gapfill_source(s_code=&_ov_sc, rank=0);
+  %end;
+
+  /* Pass 3 -- rank-order loop; skip spine (s09) */
+  %local _n_prio _i _sc _rk;
+  proc sql noprint;
+    select count(*) into :_n_prio trimmed from work._priority;
+  quit;
+  %do _i = 1 %to &_n_prio;
+    %let _sc = ;
+    %let _rk = ;
+    proc sql noprint;
+      select s_code, rank
+      into :_sc trimmed, :_rk trimmed
+      from work._priority (firstobs=&_i obs=&_i);
+    quit;
+    %if %upcase("&_sc") ne "S09" %then %do;
+      %p5_gapfill_source(s_code=&_sc, rank=&_rk);
+    %end;
+  %end;
+
+  %put NOTE: [05_build_pcnr] gap-fill loop complete across all non-spine sources;
+
+%mend p5_run_gapfill;
