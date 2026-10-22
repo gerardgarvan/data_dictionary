@@ -1,0 +1,225 @@
+"""
+Core logic for the PCNR QC workbook (D-16b, D-22).
+
+Reads:   exchange/pcnr_gapfill.csv
+         exchange/pcnr_spine_coverage.csv
+         exchange/pcnr_conflicts_summary.csv
+         exchange/pcnr_conflicts_detail.csv
+         exchange/pcnr_typecheck.csv
+Writes:  qc/pcnr_qc.xlsx
+Sheets:  KEY | GAPFILL | SPINE_COVERAGE | CONFLICT_SUMMARY | CONFLICT_DETAIL | TYPECHECK
+"""
+
+from __future__ import annotations
+
+import csv
+import logging
+import re
+from pathlib import Path
+
+from openpyxl import Workbook, load_workbook
+
+from pdd.xlsx_style import style_sheet, write_table
+
+CONFLICT_DETAIL_CAP = 5000
+
+SHEET_ORDER = [
+    "KEY",
+    "GAPFILL",
+    "SPINE_COVERAGE",
+    "CONFLICT_SUMMARY",
+    "CONFLICT_DETAIL",
+    "TYPECHECK",
+]
+
+# Required columns per non-KEY sheet (item 18).
+REQUIRED_COLUMNS: dict[str, list[str]] = {
+    "GAPFILL": ["pcnr_name", "n_spine", "n_gapfilled", "n_missing"],
+    "SPINE_COVERAGE": ["s_code", "n_keys", "n_keys_not_in_spine", "n_blank_keys", "n_dup_keys"],
+    "CONFLICT_SUMMARY": ["pcnr_name", "conflict_type", "n_conflict_events", "n_conflict_cells"],
+    "CONFLICT_DETAIL": [
+        "norm_psid", "pcnr_name", "conflict_type", "winning_s_code", "winning_value",
+        "candidate_s_code", "candidate_value", "value_type",
+    ],
+    "TYPECHECK": ["pcnr_name", "s_code", "raw_value", "n"],
+}
+
+# Fixed integer column names (item 18).
+_NUMERIC_INT_COLS: frozenset[str] = frozenset([
+    "n_conflict_cells",
+    "n_conflict_events",
+    "n_keys",
+    "n_keys_not_in_spine",
+    "n_blank_keys",
+    "n_dup_keys",
+    "n_char_sources",
+    "n_parse_failures",
+    "n_spine",
+    "n_gapfilled",
+    "n_missing",
+    "n",
+])
+
+_N_FILLED_RE = re.compile(r"^n_filled_")
+
+
+def read_csv(path: Path) -> tuple[list[str], list[dict[str, str]]]:
+    """Return (fieldnames, rows).  fieldnames is non-empty even for header-only files."""
+    with path.open(encoding="utf-8-sig", newline="") as fh:
+        reader = csv.DictReader(fh)
+        rows = list(reader)
+        headers = list(reader.fieldnames or [])
+    return headers, rows
+
+
+def _int_col_indices(headers: list[str]) -> frozenset[int]:
+    """Return 0-based indices of integer columns: fixed set OR matching n_filled_* (item 18)."""
+    return frozenset(
+        i
+        for i, h in enumerate(headers)
+        if h in _NUMERIC_INT_COLS or _N_FILLED_RE.match(h)
+    )
+
+
+def _key_rows() -> list[list[str]]:
+    """Documentation rows for the KEY sheet."""
+    return [
+        ["Rule", "Item", "Description"],
+        # Sheet purposes
+        ["Sheet", "GAPFILL",
+         "One row per PCNR_ variable. Counts: n_spine (from spine), n_gapfilled (filled "
+         "from non-spine source), n_missing (still missing after gap-fill). "
+         "One n_filled_<s_code> column per contributing source."],
+        ["Sheet", "SPINE_COVERAGE",
+         "One row per source file (s_code). Key matching counts: n_keys (total NORM_PSID "
+         "values), n_keys_not_in_spine, n_blank_keys, n_dup_keys."],
+        ["Sheet", "CONFLICT_SUMMARY",
+         "One row per (pcnr_name, conflict_type) combination. Shows n_conflict_events "
+         "(number of patients) and n_conflict_cells (number of affected cells)."],
+        ["Sheet", "CONFLICT_DETAIL",
+         f"One row per conflicting cell. Capped at {CONFLICT_DETAIL_CAP} rows in this workbook. "
+         f"Full table is pdd.qc_pcnr_conflicts on P:. "
+         "Each row shows the winning value and the losing candidate value."],
+        ["Sheet", "TYPECHECK",
+         "One row per (pcnr_name, s_code, raw_value) combination for values that failed "
+         "type resolution. Shows n (count of occurrences)."],
+        # Conflict types (D-15)
+        ["conflict_type", "SPINE_VS_SOURCE",
+         "Spine is non-missing AND a non-spine source is non-missing AND they disagree. "
+         "Spine value wins. Recorded for audit."],
+        ["conflict_type", "SOURCE_VS_SOURCE",
+         "Spine is missing AND 2+ non-spine sources are non-missing AND they disagree. "
+         "Highest-ranked source (lowest rank in docs/pcnr_source_priority.csv) wins."],
+        # Provenance scope (item 14, D-16)
+        ["Provenance", "pdd.qc_pcnr_provenance",
+         "Cell-level provenance table on P: (not exported to xlsx). "
+         "Contains one row per gap-filled cell ONLY for variables with 2+ contributing sources. "
+         "Spine-origin cells are NOT listed in pdd.qc_pcnr_provenance — they are the default. "
+         "Only gap-filled cells for 2+-source variables appear there."],
+        ["Provenance", "pdd.pcnr",
+         "Final analytic dataset: 41,150 rows (one per spine patient), "
+         "1,299 PCNR_ columns + NORM_PSID. No PCNR_<var>_SRC columns (D-16)."],
+        # Type resolution
+        ["Type", "N8 vs C",
+         "When a variable appears as numeric (N8) in some sources and character (C) in others, "
+         "the type conflict is noted in TYPECHECK. "
+         "Current resolution (Phase 4): keep as character in PCNR_."],
+        # Row cap note
+        ["Cap", "CONFLICT_DETAIL",
+         f"CONFLICT_DETAIL is capped at {CONFLICT_DETAIL_CAP} data rows in this workbook. "
+         "The SAS step caps the export at that limit before writing the CSV. "
+         "If the input CSV exceeds this cap, write_pcnr_qc.py raises an error (not silent truncation)."],
+    ]
+
+
+def assert_input(
+    sheet_name: str,
+    headers: list[str],
+    rows: list,
+) -> None:
+    """Validate required columns and (for CONFLICT_DETAIL) row cap.
+
+    Raises ValueError listing missing columns, or if CONFLICT_DETAIL exceeds cap (item 18).
+    """
+    if sheet_name in REQUIRED_COLUMNS:
+        missing = [c for c in REQUIRED_COLUMNS[sheet_name] if c not in headers]
+        if missing:
+            raise ValueError(
+                f"{sheet_name} missing required columns: {', '.join(missing)}"
+            )
+    if sheet_name == "CONFLICT_DETAIL" and len(rows) > CONFLICT_DETAIL_CAP:
+        raise ValueError(
+            f"CONFLICT_DETAIL has {len(rows)} rows, max {CONFLICT_DETAIL_CAP}"
+        )
+
+
+def write_workbook(
+    sheets: dict[str, tuple[list[str], list[list]]],
+    out_path: Path,
+) -> None:
+    """Write the PCNR QC workbook.
+
+    Parameters
+    ----------
+    sheets:
+        Mapping of sheet name to (headers, data_rows). KEY is always written
+        from the hard-coded _key_rows(); any KEY entry in sheets is ignored.
+    out_path:
+        Destination path for the xlsx file. Parent directories are created.
+    """
+    wb = Workbook()
+    wb.remove(wb.active)  # type: ignore[arg-type]
+
+    for sheet_name in SHEET_ORDER:
+        ws = wb.create_sheet(sheet_name)
+        if sheet_name == "KEY":
+            key_data = _key_rows()
+            headers = key_data[0]
+            data = key_data[1:]
+            write_table(ws, headers, data)
+        else:
+            headers, data_rows = sheets.get(sheet_name, ([], []))
+            assert_input(sheet_name, headers, data_rows)
+            if not headers:
+                ws.append(["(no data)"])
+            else:
+                write_table(ws, headers, data_rows, int_cols=_int_col_indices(headers))
+        style_sheet(ws)
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(out_path)
+    logging.info("Saved %s", out_path)
+
+
+def verify_workbook(path: Path, expected_data_rows: dict[str, int]) -> None:
+    """Re-open and confirm expected sheets, order, and row counts.
+
+    Raises ValueError on any mismatch.
+    """
+    wb = load_workbook(path, read_only=True)
+    try:
+        actual_names = wb.sheetnames
+        if actual_names != SHEET_ORDER:
+            raise ValueError(
+                f"sheet order mismatch: {actual_names} != {SHEET_ORDER}"
+            )
+        # Check CONFLICT_DETAIL cap
+        if "CONFLICT_DETAIL" in wb.sheetnames:
+            ws_cd = wb["CONFLICT_DETAIL"]
+            cd_rows = ws_cd.max_row - 1  # subtract header
+            if cd_rows > CONFLICT_DETAIL_CAP:
+                raise ValueError(
+                    f"CONFLICT_DETAIL has {cd_rows} data rows, max {CONFLICT_DETAIL_CAP}"
+                )
+        for sheet_name, exp in expected_data_rows.items():
+            if sheet_name not in wb.sheetnames:
+                raise ValueError(f"sheet '{sheet_name}' not found in workbook")
+            ws = wb[sheet_name]
+            actual = ws.max_row - 1  # subtract header
+            if actual != exp:
+                raise ValueError(
+                    f"sheet {sheet_name}: {actual} data rows != expected {exp}"
+                )
+    finally:
+        wb.close()
+    logging.info("Workbook verified: %s", path)

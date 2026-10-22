@@ -3,11 +3,11 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: PCNR_ raw layer and dictionary framework
 status: Executing Phase 05
-last_updated: "2026-10-22T02:55:00Z"
+last_updated: "2026-10-22T03:00:00.000Z"
 progress:
   total_phases: 7
   completed_phases: 4
-  total_plans: 18
+  total_plans: 12
   completed_plans: 13
 ---
 
@@ -16,15 +16,15 @@ progress:
 ## Current position
 
 Phase: 05 (build-pcnr-on-the-spine) — EXECUTING
-Plan: 1 of 6 complete (05-01 done; 05-02 through 05-06 pending)
-Next: Phase 05 Plan 02 — Wave 1 spine merge and gap-fill
+Plan: 2 of 6 complete
+Next: Phase 05 Plan 03 — SAS build_pcnr.sas
 | Field | Value |
 |-------|-------|
 | Milestone | v1.0 — PCNR_ raw layer and dictionary framework |
 | Phase | 05 — Build PCNR_ on the spine |
-| Status | Plan 01 complete — docs CSVs, .gitignore exceptions, SAS stub |
+| Status | Plan 02 complete — pcnr_qc_workbook.py, write_pcnr_qc.py, test_write_pcnr_qc.py |
 | Last updated | 2026-10-22 |
-| Stopped at | Completed 05-01-PLAN.md |
+| Stopped at | Completed 05-02-PLAN.md |
 
 ## Milestone v1.0 phase checklist
 
@@ -33,8 +33,8 @@ Next: Phase 05 Plan 02 — Wave 1 spine merge and gap-fill
 | 1 | Repo and config scaffold | âœ… Complete |
 | 2 | Source guard and header inventory | âœ… Complete â€” live run passed 2026-10-19 14:15 |
 | 3 | Direct import of the 20 sources | ✅ Complete — live run 2026-10-20 20:58 passed all criteria (0 MISMATCH, n_pairs=9001 ndis=0, exit=1 warnings only) |
-| 4 | Name map | ✅ Complete — VERIFIED 2026-10-21; 4795→1299 PCNR_, 0 collisions, 31 elided, 0 undecided; merged 93f1d09 |
-| 5 | Build PCNR_ on the spine | 🔄 Executing — Plan 01 complete (scaffold), Plans 02-06 pending |
+| 4 | Name map | ✅ Complete — VERIFIED 2026-10-21; exit=0, warnings=0; 4795→1299 PCNR_, 0 collisions, 31 elided, 0 undecided; merged 93f1d09 |
+| 5 | Build PCNR_ on the spine | 🔄 In progress — Plan 02 complete (pcnr_qc_workbook.py, write_pcnr_qc.py) |
 | 6 | Distribution engine | â¬œ Not started |
 | 7 | Dictionary workbook writer | â¬œ Not started |
 
@@ -61,8 +61,8 @@ SAS/Python split locked. SAS owns data; Python owns xlsx output. Phase 3 unchang
 | PDD-D-12 | PCND_ definitions | Phase 13 |
 | PDD-D-13 | CLK_ source. **Note (2026-10-20):** s06 clock columns (COM*/COPY* + clock token) identified as candidate CLK_ source; pending confirmation this is the authoritative source. | Phase 9 |
 | PDD-D-14 | LAB_/MED_/INTRA_ paths | Phases 10â€“12 |
-| PDD-D-15 | **LOCKED (2026-10-21).** Gap-fill rank s01=1..s20=20; s09 note=spine (skipped in gap-fill loop); order in docs/pcnr_source_priority.csv | — |
-| PDD-D-16 | **LOCKED (2026-10-21).** No PCNR_<var>_SRC columns; gap-fill traceability QC-only via exchange/pcnr_gapfill.csv and pdd.qc_pcnr_conflicts | — |
+| PDD-D-15 | Gap-fill tie-break order | Phase 5 |
+| PDD-D-16 | Per-cell source flag | Phase 5 |
 | PDD-D-17 | **FULLY CLOSED (discuss-3).** All 20 files are 1:1 per PRECEDE_STUDY_ID. s01 (41,423 distinct) and s08 (3,456 distinct) are NOT multi-row -- Phase 2 counts confirm 1:1 grain. 274 s01 IDs not in spine are a QC item. s18 has 2 dup/blank key rows (qc_s18_dup) for Phase 3 review | Phase 3 (s01, s08), Phase 5 (s01, s08) |
 | PDD-D-18 | s04/s05 appear to be linkage/QC files (same encryption, 100% match) â€” not dictionary variables. Pending Gerard confirmation | Phase 3 (s04, s05), Phase 5 (s04, s05) |
 | PDD-D-19 | **LOCKED (2026-10-19).** `cats('Precede', put(input(strip(id),??8.),z5.))` â€” 9,001 pairs, ndis=0 (run 19:21). `%pdd_norm_psid` in `00_config.sas`. Phase 3 QC: s01 274 not in spine (1 spine case no PACU row); s18 269 not in spine, 2 dup/blank rows (`pdd.qc_s18_dup`); s06 29 and s11 1 not in spine; s04/s05 4 not in spine | â€” |
@@ -73,9 +73,11 @@ SAS/Python split locked. SAS owns data; Python owns xlsx output. Phase 3 unchang
 
 | Date | Decision |
 |------|----------|
-| 2026-10-22 | D-15 LOCKED: gap-fill rank order s01=1..s20=20, s09 note=spine; order stored in docs/pcnr_source_priority.csv (editable before rerun) |
-| 2026-10-22 | D-05b: per-variable source override via docs/pcnr_source_override.csv (header-only, empty by default) |
-| 2026-10-22 | D-16 LOCKED: no per-cell source columns in pdd.pcnr; gap-fill traceability in exchange/pcnr_gapfill.csv and pdd.qc_pcnr_conflicts only |
+| 2026-10-22 | CONFLICT_DETAIL raises ValueError on >5,000 rows (error, not silent truncation) |
+| 2026-10-22 | All sheets always written with headers even when 0 data rows (item 18) |
+| 2026-10-22 | n_filled_* columns treated as integers via regex pattern (item 18) |
+| 2026-10-22 | assert_input validates required columns per CSV before write (item 18) |
+| 2026-10-22 | _key_rows() documents provenance scope: spine-origin cells NOT in pdd.qc_pcnr_provenance (item 14) |
 
 ## Decisions (Phase 03)
 
