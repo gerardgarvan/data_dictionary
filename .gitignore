@@ -13,6 +13,9 @@
 # Exception: name map seed files, no PHI -- committed per plan 04-01
 !docs/name_abbrev.csv
 !docs/name_map_decisions.csv
+# Exception: PCNR_ source priority and override files, no PHI -- committed per plan 05-01
+!docs/pcnr_source_priority.csv
+!docs/pcnr_source_override.csv
 
 # SAS logs and output
 *.log
