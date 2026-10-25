@@ -571,7 +571,7 @@
 
   data work._typecheck_sources;
     length pcnr_name $200 s_code $4 n_char_sources 8 n_parse_failures 8
-           example_failing_value $200;
+           n_null_as_missing 8 example_failing_value $200;
     stop;
   run;
 
@@ -618,11 +618,12 @@
     %end;
 
     /* Step 3. For each contributing source, test parse of character values */
-    %local _n_tc_src _sc_j _col_j _src_type _n_fail _ex_fail _n_char_src_total
-           _n_fail_total _n_numlen_max;
+    %local _n_tc_src _sc_j _col_j _src_type _n_fail _n_null_mis _ex_fail
+           _n_char_src_total _n_fail_total _n_numlen_max _n_null_total;
     %let _n_char_src_total = 0;
     %let _n_fail_total     = 0;
     %let _n_numlen_max     = 0;
+    %let _n_null_total     = 0;
 
     proc sql noprint;
       select count(*) into :_n_tc_src trimmed from work._tc_sources_&_tc_i;
@@ -669,9 +670,11 @@
       %end;
 
       /* Column is character: run parse test.
+         D-02b: upcase(strip(val))='NULL' is treated as missing (not a parse failure).
          ?? in DATA step INPUT is permitted (C1 bans ?? only in PROC SQL). */
-      %let _n_fail    = 0;
-      %let _ex_fail   = ;
+      %let _n_fail         = 0;
+      %let _n_null_mis     = 0;
+      %let _ex_fail        = ;
 
       data work._tc_scan;
         set &srclib..src_&_sc_j (keep=&_col_j);
@@ -679,35 +682,50 @@
         val = strip(&_col_j);
         /* Skip blank and '.' -- treated as missing in parse check */
         if val = '' or val = '.' then delete;
+        /* D-02b: 'NULL' (any case) treated as numeric missing -- not a parse failure */
+        _is_null = (upcase(val) = 'NULL');
         _n   = input(val, ?? best32.);
-        _fail = (missing(_n) and val not in ('', '.'));
+        _fail = (not _is_null and missing(_n) and val not in ('', '.'));
         if _fail then _ex_fail = val;
         else _ex_fail = '';
-        keep val _fail _ex_fail;
+        keep val _fail _ex_fail _is_null;
       run;
 
+      %local _n_fail_this _n_null_this;
+      %let _n_fail_this = 0;
+      %let _n_null_this = 0;
       proc sql noprint;
-        select count(*) into :_n_fail trimmed
+        select count(*) into :_n_fail_this trimmed
         from work._tc_scan
         where _fail = 1;
+
+        select count(*) into :_n_null_this trimmed
+        from work._tc_scan
+        where _is_null = 1;
 
         select _ex_fail into :_ex_fail trimmed
         from work._tc_scan (obs=1)
         where _fail = 1;
       quit;
+      %let _n_fail     = &_n_fail_this;
+      %let _n_null_mis = &_n_null_this;
 
       %let _n_char_src_total = %eval(&_n_char_src_total + 1);
       %let _n_fail_total     = %eval(&_n_fail_total + &_n_fail);
+      %let _n_null_total     = %eval(&_n_null_total + &_n_null_mis);
+
+      %put NOTE: [05_build_pcnr] &_tc_name &_sc_j: parse_fails=&_n_fail null_as_missing=&_n_null_mis;
 
       /* Accumulate per-source row into typecheck_sources.
          n_char_sources = 1 (this source has the column as char); per-row indicator. */
       data work._tcs_row;
         length pcnr_name $200 s_code $4 n_char_sources 8 n_parse_failures 8
-               example_failing_value $200;
+               n_null_as_missing 8 example_failing_value $200;
         pcnr_name             = "&_tc_name";
         s_code                = "&_sc_j";
         n_char_sources        = 1;
         n_parse_failures      = &_n_fail;
+        n_null_as_missing     = &_n_null_mis;
         example_failing_value = symget('_ex_fail');
       run;
       proc append base=work._typecheck_sources data=work._tcs_row force; run;
@@ -744,14 +762,14 @@
       %let _resolved_type = N8;
       %let _out_length    = 8;
       /* Step 7. Pre-scan passed -- N8 conversion will be lossless */
-      %put NOTE: [05_build_pcnr] &_tc_name resolved to N8 (0 parse failures across &_n_char_src_total char sources);
+      %put NOTE: [05_build_pcnr] &_tc_name resolved to N8 (0 parse failures, null_as_missing=&_n_null_total across &_n_char_src_total char sources);
     %end;
     %else %do;
       %let _resolved_type = C;
       /* Step 4 / item 11. out_length = max(name_map_vars max_length, numeric source best32 max) */
       %let _out_length = &_tc_maxlen;
       %if &_n_numlen_max > &_out_length %then %let _out_length = &_n_numlen_max;
-      %put NOTE: [05_build_pcnr] &_tc_name resolved to C (length=&_out_length, &_n_fail_total parse failures);
+      %put NOTE: [05_build_pcnr] &_tc_name resolved to C (length=&_out_length, parse_failures=&_n_fail_total, null_as_missing=&_n_null_total);
     %end;
 
     /* Step 5. Append to work._type_resolution */
@@ -799,10 +817,14 @@
   %if &p5_fail = 1 %then %return;
   %put NOTE: [05_build_pcnr] work._typecheck_sources key uniqueness OK (rows=&_n_tcs);
 
-  /* Step 8. Export &outlib..qc_pcnr_typefail */
-  proc export data=&outlib..qc_pcnr_typefail
+  /* Step 8. Export typecheck summary (per pcnr_name+s_code, includes n_null_as_missing) */
+  proc export data=work._typecheck_sources
     outfile="&export_dir.\pcnr_typecheck.csv"
     dbms=csv replace;
+  run;
+  /* Also persist to outlib for audit */
+  data &outlib..qc_pcnr_typecheck_src;
+    set work._typecheck_sources;
   run;
 
   /* Step 9. Summary note */
@@ -982,7 +1004,31 @@
     order by nv.var_idx;
   quit;
 
-  /* Build KEEP= and RENAME= macro variables for spine DATA step */
+  /* Step 4b. Collect actual source column types from dictionary.columns for spine.
+     This is needed to generate correct ATTRIB _S#### and type-safe assignments.
+     dictionary.columns is queried AFTER proc sort (so src_s09 is in WORK). */
+
+  /* Sort spine to work FIRST (item 2 -- never sort &srclib..src_* in place).
+     Query dictionary.columns on work._src_s09 for actual column types. */
+  proc sort data=&srclib..src_s09 out=work._src_s09;
+    by norm_psid;
+  run;
+
+  /* Build spine column-type lookup table from dictionary.columns (on work._src_s09) */
+  proc sql noprint;
+    create table work._s09_dict as
+    select upcase(name) as col_name_uc length=200,
+           type         as src_type    length=4,
+           length       as src_length
+    from dictionary.columns
+    where libname = 'WORK'
+      and memname = '_SRC_S09';
+  quit;
+
+  /* Build KEEP= and RENAME= (sas_name -> _S####) macro variables for spine DATA step.
+     Never rename a source column directly onto a PCNR_ name -- the ATTRIB declares the
+     resolved type; renaming a char source column onto a numeric PDV causes type conflict.
+     Instead: rename to _S#### (actual source type), assign PCNR_ with conversion. */
   %local _n_s09 _s09_keep _s09_rename _i;
   proc sql noprint;
     select count(*) into :_n_s09 trimmed from work._s09_cols;
@@ -990,32 +1036,40 @@
   %let _s09_keep   = norm_psid;
   %let _s09_rename = ;
   %do _i = 1 %to &_n_s09;
-    %local _cn_&_i _pn_&_i;
+    %local _cn_&_i _pn_&_i _vi_&_i;
     proc sql noprint;
-      select sas_name, pcnr_name
-      into :_cn_&_i trimmed, :_pn_&_i trimmed
+      select sas_name, pcnr_name, var_idx
+      into :_cn_&_i trimmed, :_pn_&_i trimmed, :_vi_&_i trimmed
       from work._s09_cols (firstobs=&_i obs=&_i);
     quit;
     %let _s09_keep   = &_s09_keep &&_cn_&_i;
-    %if "&&_cn_&_i" ne "&&_pn_&_i" %then
-      %let _s09_rename = &_s09_rename &&_cn_&_i = &&_pn_&_i;
+    /* Rename sas_name to _S#### alias to avoid PDV type conflict */
+    %local _s09_sa_&_i;
+    %let _s09_sa_&_i = _S%sysfunc(putn(&&_vi_&_i, z4.));
+    %let _s09_rename = &_s09_rename &&_cn_&_i = &&_s09_sa_&_i;
   %end;
 
-  /* Step 5. Generate spine fill-origin assignment code.
-     For each s09-contributed var: set _F<z4(i)>='s09' when non-missing.
-     For type-conflict vars resolved to N8 where s09 col was character:
-     the rename already maps to the pcnr_name; the PDV type is N8 from ATTRIB;
-     SAS will auto-convert a character incoming value when the PDV declares N8,
-     but we use explicit INPUT to be explicit and safe. */
+  /* Step 5. Generate spine fill code.
+     Pattern mirrors p5_gapfill_source: read source col as _S#### (actual type);
+     ATTRIB _S#### with actual source type from dictionary.columns; assign PCNR_
+     with type conversion if needed; set _F####='s09' when non-missing; drop _S####.
+     Never rename source col onto PCNR_ name. */
   data _null_;
     if _n_ = 1 then do;
       declare hash htr(dataset: 'work._type_resolution');
       htr.definekey('pcnr_name');
       htr.definedata('resolved_type', 'out_length');
       htr.definedone();
+      /* Source column types from dictionary.columns on work._src_s09 */
+      declare hash hdict(dataset: 'work._s09_dict');
+      hdict.definekey('col_name_uc');
+      hdict.definedata('src_type', 'src_length');
+      hdict.definedone();
     end;
     set work._s09_cols;
-    length resolved_type $8 out_length 8 _f_alias $10 _line $300;
+    length resolved_type $8 out_length 8
+           _f_alias $10 _s_alias $10 _line $500
+           col_name_uc $200 src_type $4 src_length 8;
     resolved_type = '';
     out_length    = max_length;
     if htr.find() ne 0 then do;
@@ -1023,37 +1077,71 @@
       else                       resolved_type = 'C';
     end;
     _f_alias = cats('_F', put(var_idx, z4.));
+    _s_alias = cats('_S', put(var_idx, z4.));
+    /* Look up actual source column type from dictionary.columns on _src_s09 */
+    src_type   = 'char';  /* default if not found */
+    src_length = max_length;
+    col_name_uc = upcase(strip(sas_name));
+    if hdict.find() = 0 then do; /* found */ end;
     file "&gen_dir.\05_generated_spine_fill.sas" encoding='utf-8';
-    /* type_conflict='Y' and resolved to N8: spine col is char in &srclib..src_s09;
-       ATTRIB declares it N8; SAS coerces on read, but explicitly INPUT for clarity */
-    if type_conflict = 'Y' and resolved_type = 'N8' then do;
-      _line = cat('/* type-conflict N8: ', strip(pcnr_name), ' */');
+    /* ATTRIB _S#### with actual source type */
+    if src_type = 'num' then do;
+      _line = cat('ATTRIB ', strip(_s_alias), ' LENGTH=8;');
+    end;
+    else do;
+      _line = cat('ATTRIB ', strip(_s_alias),
+                  ' LENGTH=$', strip(put(src_length, best32.)), ';');
+    end;
+    put _line;
+    /* Type-safe assignment: PCNR_ = f(_S####) with resolved-type conversion */
+    if resolved_type = 'N8' and src_type = 'char' then do;
+      /* Source char, resolved numeric: INPUT with NULL-as-missing (D-02b) */
+      _line = cat('/* spine type-conflict N8: ', strip(pcnr_name), ' from char _S#### */');
       put _line;
-      _line = cat('if not missing(', strip(pcnr_name), ') then do;');
+      _line = cat('if not missing(', strip(_s_alias), ')',
+                  ' and upcase(strip(', strip(_s_alias), ")) ne 'NULL'",
+                  ' then do;');
       put _line;
       _line = cat('  ', strip(pcnr_name),
-                  ' = input(strip(put(', strip(pcnr_name),
-                  ', best32.)), ?? best32.);');
+                  ' = input(strip(', strip(_s_alias), '), ?? best32.);');
+      put _line;
+      _line = cat('  if not missing(', strip(pcnr_name), ') then ',
+                  strip(_f_alias), " = 's09';");
+      put _line;
+      put 'end;';
+    end;
+    else if resolved_type = 'C' and src_type = 'num' then do;
+      /* Source numeric, resolved char: PUT with best32. */
+      _line = cat('/* spine type-conflict C: ', strip(pcnr_name), ' from num _S#### */');
+      put _line;
+      _line = cat('if not missing(', strip(_s_alias), ') then do;');
+      put _line;
+      _line = cat('  ', strip(pcnr_name),
+                  ' = strip(put(', strip(_s_alias), ', best32.));');
       put _line;
       _line = cat('  ', strip(_f_alias), " = 's09';");
       put _line;
       put 'end;';
     end;
     else do;
-      _line = cat('if not missing(', strip(pcnr_name),
-                  ') then ', strip(_f_alias), " = 's09';"
-                 );
+      /* Same type (no conversion needed) */
+      _line = cat('if not missing(', strip(_s_alias), ') then do;');
       put _line;
+      _line = cat('  ', strip(pcnr_name), ' = ', strip(_s_alias), ';');
+      put _line;
+      _line = cat('  ', strip(_f_alias), " = 's09';");
+      put _line;
+      put 'end;';
     end;
-    drop resolved_type out_length _f_alias _line;
+    /* Drop the _S#### alias after use */
+    _line = cat('drop ', strip(_s_alias), ';');
+    put _line;
+    drop resolved_type out_length _f_alias _s_alias _line col_name_uc src_type src_length;
   run;
 
-  /* Sort spine to work (item 2 -- never sort &srclib..src_* in place) */
-  proc sort data=&srclib..src_s09 out=work._src_s09;
-    by norm_psid;
-  run;
-
-  /* Step 6. DATA work._pcnr_accum: set spine; apply ATTRIBs and fill-origin */
+  /* Step 6. DATA work._pcnr_accum: set spine with _S#### aliases; apply ATTRIBs and
+     fill-origin; _S#### dropped by generated code.  ATTRIB for PCNR_ / _F#### from
+     05_generated_attrib.sas comes FIRST so PDV types are set before data rows arrive. */
   data work._pcnr_accum;
     %include "&gen_dir.\05_generated_attrib.sas";
     set work._src_s09 (keep=&_s09_keep

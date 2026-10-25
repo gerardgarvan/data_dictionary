@@ -102,6 +102,28 @@ For each non-spine source joined to the spine (left join on norm_psid):
 
 Nothing in git. All data on P:. Phase 5 QC is reviewable via `qc\pcnr_qc.xlsx` — not deferred to Phase 7.
 
+### D-02b — NULL-as-missing in parse check (LOCKED 2026-10-25, Gerard)
+
+For type-conflict variables only: a character value where `upcase(strip(x)) = 'NULL'`
+is treated as SAS missing in the parse check (not a parse failure).
+
+**Rationale:** s19 stores 8 variables as character with literal 'NULL' representing
+missing. Treating 'NULL' as a failure would force those variables to C type when all
+other values are numeric strings. With D-02b, the 8 s19 variables resolve to N8.
+
+**Implementation:**
+- In `_tc_scan` DATA step: `_is_null = (upcase(val) = 'NULL'); _fail = (not _is_null and missing(_n) ...)`
+- `n_null_as_missing` counted per (pcnr_name, s_code) in `work._typecheck_sources`
+- Exported to `exchange\pcnr_typecheck.csv` alongside `n_parse_failures`
+- NOTE logged per variable: `resolved type, n_parse_failures=N, null_as_missing=N`
+- In spine fill generator (char→num path): `upcase(strip(_s_alias)) ne 'NULL'` guard
+  before converting to numeric
+
+**Expected outcome:** 8 s19 variables → N8; PCNR_YEAR stays C (non-NULL non-numeric
+'2018_2019' value forces character).
+
+**Note:** Price to be informed at naming sign-off.
+
 ### D-02 (type resolution amendment) — Type-conflict rule (LOCKED 2026-10-21, Gerard)
 
 For the 9 PCNR_ variables that have mixed character/numeric sources (including s19 numerics

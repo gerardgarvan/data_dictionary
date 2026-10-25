@@ -1244,6 +1244,196 @@ run;
 %_tc19_run;
 
 /*==========================================================================
-  SECTION 20 -- Summary
+  SECTION 20 -- TC-20: D-02b NULL-as-missing: 'NULL' + numbers -> N8,
+  n_null_as_missing counted, n_parse_failures=0
+==========================================================================*/
+
+data work.name_map;
+  length s_code $4 col_order 8 sas_name $200 original_header $200
+         status $20 pcnr_name $200;
+  s_code='s01'; sas_name='yr'; pcnr_name='PCNR_YEAR'; status='PCNR';
+  original_header='Year'; col_order=1; output;
+  s_code='s02'; sas_name='yr_c'; pcnr_name='PCNR_YEAR'; status='PCNR';
+  original_header='Year Char'; col_order=1; output;
+run;
+data work.name_map_vars;
+  length pcnr_name $200 var_idx 8 result_type $1 max_length 8
+         type_conflict $1 s_codes_contributing $200 n_sources 8;
+  pcnr_name='PCNR_YEAR'; var_idx=1; result_type='N'; max_length=8;
+  type_conflict='Y'; s_codes_contributing='s01 s02'; n_sources=2; output;
+run;
+data work._nmv;
+  set work.name_map_vars;
+run;
+data work._type_resolution;
+  length pcnr_name $200 resolved_type $8 out_length 8;
+  stop;
+run;
+/* s01: numeric source */
+data work.src_s01;
+  length norm_psid $64 yr 8;
+  norm_psid='P001'; yr=2018; output;
+  norm_psid='P002'; yr=2019; output;
+  norm_psid='P003'; yr=.; output;
+run;
+/* s02: character source -- 'NULL' plus numeric strings */
+data work.src_s02;
+  length norm_psid $64 yr_c $10;
+  norm_psid='P001'; yr_c='2018'; output;
+  norm_psid='P002'; yr_c='NULL'; output;
+  norm_psid='P003'; yr_c='2020'; output;
+run;
+
+%macro _tc20_run;
+  %_tc_start(n=20, desc=D02b-NULL-as-missing-resolves-N8);
+  %p5_resolve_types(srclib=work, nmlib=work, outlib=work,
+                    export_dir=%sysfunc(getoption(work)));
+  %_assert_pass(label=no-macro-fail);
+  %if &p5_fail = 0 %then %do;
+    %local _rt20 _nfail20 _nnull20;
+    proc sql noprint;
+      select strip(resolved_type) into :_rt20 trimmed
+      from work._type_resolution where pcnr_name='PCNR_YEAR';
+      select n_parse_failures, n_null_as_missing
+      into :_nfail20 trimmed, :_nnull20 trimmed
+      from work._typecheck_sources where pcnr_name='PCNR_YEAR' and s_code='s02';
+    quit;
+    %_assert(cond=(%bquote(&_rt20)=%bquote(N8)), label=resolved-N8);
+    %_assert(cond=(&_nfail20=0), label=null-not-a-fail);
+    %_assert(cond=(&_nnull20=1), label=null-counted-as-missing);
+  %end;
+%mend _tc20_run;
+%_tc20_run;
+
+/*==========================================================================
+  SECTION 21 -- TC-21: '2018_2019' in char source -> type stays C
+==========================================================================*/
+
+data work.name_map;
+  length s_code $4 col_order 8 sas_name $200 original_header $200
+         status $20 pcnr_name $200;
+  s_code='s01'; sas_name='yr_n'; pcnr_name='PCNR_YEAR2'; status='PCNR';
+  original_header='Year2'; col_order=1; output;
+  s_code='s02'; sas_name='yr2'; pcnr_name='PCNR_YEAR2'; status='PCNR';
+  original_header='Year2 Char'; col_order=1; output;
+run;
+data work.name_map_vars;
+  length pcnr_name $200 var_idx 8 result_type $1 max_length 8
+         type_conflict $1 s_codes_contributing $200 n_sources 8;
+  pcnr_name='PCNR_YEAR2'; var_idx=1; result_type='C'; max_length=20;
+  type_conflict='Y'; s_codes_contributing='s01 s02'; n_sources=2; output;
+run;
+data work._nmv;
+  set work.name_map_vars;
+run;
+data work._type_resolution;
+  length pcnr_name $200 resolved_type $8 out_length 8;
+  stop;
+run;
+data work.src_s01;
+  length norm_psid $64 yr_n 8;
+  norm_psid='P001'; yr_n=2018; output;
+  norm_psid='P002'; yr_n=2019; output;
+run;
+/* s02: '2018_2019' cannot parse as numeric -> forces C */
+data work.src_s02;
+  length norm_psid $64 yr2 $20;
+  norm_psid='P001'; yr2='2018'; output;
+  norm_psid='P002'; yr2='2018_2019'; output;
+run;
+
+%macro _tc21_run;
+  %_tc_start(n=21, desc=non-numeric-char-resolves-C);
+  %p5_resolve_types(srclib=work, nmlib=work, outlib=work,
+                    export_dir=%sysfunc(getoption(work)));
+  %_assert_pass(label=no-macro-fail);
+  %if &p5_fail = 0 %then %do;
+    %local _rt21 _nfail21;
+    proc sql noprint;
+      select strip(resolved_type) into :_rt21 trimmed
+      from work._type_resolution where pcnr_name='PCNR_YEAR2';
+      select n_parse_failures into :_nfail21 trimmed
+      from work._typecheck_sources where pcnr_name='PCNR_YEAR2' and s_code='s02';
+    quit;
+    %_assert(cond=(%bquote(&_rt21)=%bquote(C)), label=resolved-C);
+    %_assert(cond=(&_nfail21>0), label=parse-fail-counted);
+  %end;
+%mend _tc21_run;
+%_tc21_run;
+
+/*==========================================================================
+  SECTION 22 -- TC-22: spine supplies type-conflict var (numeric), resolved C
+  from char source with '2018_2019'; spine value lands as best32 string
+==========================================================================*/
+
+data work.name_map;
+  length s_code $4 col_order 8 sas_name $200 original_header $200
+         status $20 pcnr_name $200;
+  s_code='s09'; sas_name='PCNR_YR3'; pcnr_name='PCNR_YR3'; status='PCNR';
+  original_header='Year3'; col_order=1; output;
+  s_code='s02'; sas_name='yr3'; pcnr_name='PCNR_YR3'; status='PCNR';
+  original_header='Year3 Char'; col_order=1; output;
+run;
+data work.name_map_vars;
+  length pcnr_name $200 var_idx 8 result_type $1 max_length 8
+         type_conflict $1 s_codes_contributing $200 n_sources 8;
+  pcnr_name='PCNR_YR3'; var_idx=1; result_type='C'; max_length=20;
+  type_conflict='Y'; s_codes_contributing='s09 s02'; n_sources=2; output;
+run;
+data work._nmv;
+  set work.name_map_vars;
+run;
+/* type_resolution: PCNR_YR3 resolves to C (forced by '2018_2019' in TC-21 pattern) */
+data work._type_resolution;
+  length pcnr_name $200 resolved_type $8 out_length 8;
+  pcnr_name='PCNR_YR3'; resolved_type='C'; out_length=20; output;
+run;
+/* Spine source: PCNR_YR3 is numeric in s09 */
+data work.src_s09;
+  length norm_psid $64 PCNR_YR3 8;
+  norm_psid='P001'; PCNR_YR3=2018; output;
+  norm_psid='P002'; PCNR_YR3=.; output;
+run;
+/* s02: char source with non-parseable value (already resolved to C) */
+data work.src_s02;
+  length norm_psid $64 yr3 $20;
+  norm_psid='P001'; yr3='2018'; output;
+  norm_psid='P002'; yr3='2018_2019'; output;
+run;
+/* Build accumulator with C-typed PCNR_YR3 */
+proc sort data=work.src_s09 out=work._src_s09; by norm_psid; run;
+data work._pcnr_accum;
+  attrib norm_psid length=$64
+         PCNR_YR3  length=$20  _F0001 length=$4;
+  set work._src_s09;
+  _F0001='';
+  PCNR_YR3='';
+run;
+
+%macro _tc22_run;
+  %_tc_start(n=22, desc=spine-typeconflict-num-resolved-C);
+  %p5_build_accumulator(srclib=work, nmlib=work, outlib=work,
+                        spine_n=2, nvars=1,
+                        gen_dir=%sysfunc(getoption(work)),
+                        exp_dir=%sysfunc(getoption(work)));
+  %_assert_pass(label=no-macro-fail);
+  %if &p5_fail = 0 %then %do;
+    %local _yr3_p001 _yr3_p002;
+    proc sql noprint;
+      select strip(PCNR_YR3) into :_yr3_p001 trimmed
+      from work._pcnr_accum where norm_psid='P001';
+      select strip(PCNR_YR3) into :_yr3_p002 trimmed
+      from work._pcnr_accum where norm_psid='P002';
+    quit;
+    /* Spine numeric 2018 -> put(2018, best32.) -> '2018' */
+    %_assert(cond=(%bquote(&_yr3_p001)=%bquote(2018)), label=spine-num-to-char);
+    /* Spine missing -> PCNR_YR3 stays blank */
+    %_assert(cond=(%bquote(&_yr3_p002)=%bquote()), label=spine-missing-stays-blank);
+  %end;
+%mend _tc22_run;
+%_tc22_run;
+
+/*==========================================================================
+  SECTION 23 -- Summary
 ==========================================================================*/
 %_tc_summary;
