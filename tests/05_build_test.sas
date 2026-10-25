@@ -678,21 +678,50 @@ run;
   SECTION 11 -- TC-11: final schema -- no helper columns
 ==========================================================================*/
 
+/* TC-11 calls %p5_finalize_pcnr (not inline DROP) so the dynamic drop list
+   from dictionary.columns is exercised -- proves 0 "never been referenced" WARNINGs. */
+data work.name_map;
+  length pcnr_name $200 s_code $4 col_name $200 status $20
+         original_header $200 col_order 8 n_sources 8
+         type_conflict $1 result_type $1 max_length 8;
+  s_code='s09'; col_name='PCNR_AGE';  pcnr_name='PCNR_AGE';  status='PCNR';
+  original_header='Age';  col_order=1; n_sources=1;
+  type_conflict='N'; result_type='N'; max_length=8; output;
+  s_code='s09'; col_name='PCNR_CODE'; pcnr_name='PCNR_CODE'; status='PCNR';
+  original_header='Code'; col_order=2; n_sources=1;
+  type_conflict='N'; result_type='C'; max_length=8; output;
+run;
+data work.name_map_vars;
+  length pcnr_name $200 var_idx 8 result_type $1 max_length 8
+         type_conflict $1 s_codes_contributing $200 n_sources 8;
+  pcnr_name='PCNR_AGE';  var_idx=1; result_type='N'; max_length=8;
+  type_conflict='N'; s_codes_contributing='s09'; n_sources=1; output;
+  pcnr_name='PCNR_CODE'; var_idx=2; result_type='C'; max_length=8;
+  type_conflict='N'; s_codes_contributing='s09'; n_sources=1; output;
+run;
+data work._nmv;
+  set work.name_map_vars;
+run;
+/* Accumulator: spine-only, _F cols present -- finalize will drop them */
 data work._pcnr_accum;
   attrib norm_psid length=$64
          PCNR_AGE  length=8  _F0001 length=$4
          PCNR_CODE length=$8 _F0002 length=$4;
   norm_psid='P001'; PCNR_AGE=30; PCNR_CODE='X'; _F0001='s09'; _F0002='s09'; output;
 run;
+/* src_s09 needed for reconciliation inner join */
+data work.src_s09;
+  length norm_psid $64 PCNR_AGE 8 PCNR_CODE $8;
+  norm_psid='P001'; PCNR_AGE=30; PCNR_CODE='X'; output;
+run;
 
 %macro _tc11_run;
   %_tc_start(n=11, desc=final-schema-clean);
-  data work.pcnr;
-    set work._pcnr_accum;
-    drop _F: _S:
-         pcnr_name conflict_type winning_s_code winning_value
-         candidate_s_code candidate_value value_type src_s_code;
-  run;
+  %local _wdir;
+  %let _wdir = %sysfunc(getoption(work));
+  %_write_s06class_csv(path=&_wdir.\cls_tc11.csv);
+  %p5_finalize_pcnr(outlib=work, nmlib=work, srclib=work,
+                    spine_n=1, nvars=2, s06class_csv=&_wdir.\cls_tc11.csv);
   %_assert_pass(label=no-macro-fail);
   %if &p5_fail = 0 %then %do;
     proc contents data=work.pcnr out=work._pcnr_cols noprint; run;

@@ -36,6 +36,28 @@ Hits "\[03_import\]" 250
 Sec "PHASE 4 NOTES"
 Hits "\[04_name_map\]" 250
 
+Sec "PHASE 5 NOTES"
+Hits "\[05_build_pcnr\]" 500
+
+Sec "ERRORS AND WARNINGS AFTER PHASE 4"
+$p4end = 0
+$p4m = $lines | Select-String -Pattern "\[04_name_map\].*complete" | Select-Object -Last 1
+if ($p4m) { $p4end = $p4m.LineNumber }
+$errsAfterP4 = @($lines | Select-String -Pattern "^ERROR|^WARNING" | Where-Object { $_.LineNumber -gt $p4end })
+if ($errsAfterP4.Count -eq 0) { $r.Add("no ERROR or WARNING after Phase 4") }
+else {
+  $errsAfterP4 | Select-Object -First 60 | ForEach-Object { $r.Add(("{0,6}: {1}" -f $_.LineNumber, $_.Line)) }
+  if ($errsAfterP4.Count -gt 60) { $r.Add("  ... $($errsAfterP4.Count - 60) more not shown") }
+}
+
+Sec "PHASE 5 PYTHON LOG (last 50 lines)"
+$qcLog = Join-Path $logs "write_pcnr_qc_console.txt"
+if (Test-Path $qcLog) {
+  $qcLines = Get-Content $qcLog
+  $start = [Math]::Max(0, $qcLines.Count - 50)
+  Num $qcLines[$start..($qcLines.Count - 1)] ($start + 1)
+} else { $r.Add("not found: $qcLog") }
+
 Sec "PDD DATASETS WRITTEN"
 Hits "The data set PDD\.\S+ has" 80
 
