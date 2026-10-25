@@ -2,16 +2,17 @@
   Program : tests/05_orchestrator_smoke.sas
   Project : PeCAN Data Dictionary (PDD)
   Purpose : Smoke test -- run sas/05_build_pcnr.sas end-to-end against
-            synthetic WORK data.  Validates the orchestrator wiring
+            synthetic WORK data.  Validates orchestrator wiring
             (%route_log, %p5_preflight, ... %restore_log) without P: paths.
 
-  Strategy:
-    1. Build minimal WORK tables that satisfy all phase macros.
-    2. Assign LIBNAME pdd pointing to WORK temp dir (same physical dir).
-    3. Set macro variables (sas_path, logs_path, exchange_path, pdd_path,
-       in_pipeline) so 05_build_pcnr.sas runs fully standalone.
-    4. %include sas/05_build_pcnr.sas -- exercises every section.
-    5. Verify pdd.pcnr exists and has the expected row count.
+  Safety guarantee (p5_smoke=1 switch):
+    - 00_config.sas and %pdd_lib are NOT called: LIBNAME pdd stays pointed
+      at WORK; real pdd.pcnr and P: exchange/log paths are never touched.
+    - All macros receive srclib/nmlib/outlib=work and the synthetic
+      spine_n/nvars counts (3/2) rather than the production defaults
+      (41150/1299).  Assertions on row counts use those same synthetic values.
+
+  NOTE: NOT YET RUN -- awaiting live SAS execution.
 
   PCM compliance:
     C3  No open-code %if/%do outside %macro/%mend
@@ -22,21 +23,31 @@
 options nosyntaxcheck nomlogic nomprint nosymbolgen;
 
 /*==========================================================================
-  SECTION 0 -- Paths and LIBNAME
+  SECTION 0 -- Smoke switch and path globals
+  Set these BEFORE %include of 05_build_pcnr.sas so Section 0 of that
+  program reads them and skips config / %pdd_lib.
 ==========================================================================*/
 
-/* Resolve WORK directory and point all pipeline paths there */
-%let _work = %sysfunc(getoption(work));
-%let sas_path      = C:\data_dictionary\sas;
-%let logs_path     = &_work;
-%let exchange_path = &_work;
-%let pdd_path      = &_work;
-%let in_pipeline   = 1;   /* skip proc printto log routing */
+%let p5_smoke         = 1;
+%let p5_smoke_srclib  = work;
+%let p5_smoke_outlib  = work;
+%let p5_smoke_spine_n = 3;        /* 3 synthetic subjects */
+%let p5_smoke_nvars   = 2;        /* PCNR_AGE + PCNR_SEX */
+%let p5_smoke_gen_dir = %sysfunc(getoption(work));
+%let p5_smoke_exp_dir = %sysfunc(getoption(work));
 
+/* in_pipeline=1: skip proc printto log routing inside %route_log */
+%let in_pipeline = 1;
+
+/* Point pdd libref to WORK so any residual reference resolves to WORK */
+%let _work = %sysfunc(getoption(work));
 libname pdd "&_work";
 
+/* sas_path needed by the %include statement inside 05_build_pcnr.sas */
+%let sas_path = C:\data_dictionary\sas;
+
 /*==========================================================================
-  SECTION 1 -- Helper macros (defined before %include, C13)
+  SECTION 1 -- Helper macros (C13: defined before %include, which calls them)
 ==========================================================================*/
 
 /* Write 20-row priority CSV */
@@ -66,37 +77,49 @@ libname pdd "&_work";
   run;
 %mend _write_s06class_csv;
 
-/* Write CSVs to WORK dir so phase macros can read them */
+/* Write CSVs to WORK dir; set globals for orchestrator */
 %_write_priority_csv(path=&_work.\pcnr_source_priority.csv);
 %_write_override_csv(path=&_work.\pcnr_source_override.csv);
 %_write_s06class_csv(path=&_work.\s06class.csv);
 
+%let priority_csv = &_work.\pcnr_source_priority.csv;
+%let override_csv = &_work.\pcnr_source_override.csv;
+%let s06class_csv = &_work.\s06class.csv;
+
+/* Dummy macro _mk_empty -- used in data setup below */
+%macro _mk_empty(n=);
+  data work.src_s&n;
+    length norm_psid $64;
+    stop;
+  run;
+%mend _mk_empty;
+
 /*==========================================================================
   SECTION 2 -- Synthetic source data
-  Two PCNR_ variables: PCNR_AGE (numeric) and PCNR_SEX (char).
+  Two PCNR_ variables: PCNR_AGE (numeric, var_idx=1) and PCNR_SEX (char, var_idx=2).
   Two sources: s01 (has both), s09 (spine, has PCNR_SEX only).
-  All other src_sNN tables created empty so %p5_build_accumulator
-  loop does not error on missing members.
+  All other src_sNN tables created empty so loop in %p5_build_accumulator
+  does not error on missing members.
 ==========================================================================*/
 
 /* name_map: one row per (source, pcnr_name) pairing */
-data pdd.name_map;
+data work.name_map;
   length pcnr_name $200 s_code $4 col_name $200 status $20
          original_header $200 col_order 8 n_sources 8
          type_conflict $1 result_type $1 max_length 8;
-  s_code='s01'; col_name='age';    pcnr_name='PCNR_AGE'; status='PCNR';
+  s_code='s01'; col_name='age';  pcnr_name='PCNR_AGE'; status='PCNR';
     original_header='Age'; col_order=1; n_sources=1;
     type_conflict='N'; result_type='N'; max_length=8; output;
-  s_code='s01'; col_name='sex';    pcnr_name='PCNR_SEX'; status='PCNR';
+  s_code='s01'; col_name='sex';  pcnr_name='PCNR_SEX'; status='PCNR';
     original_header='Sex'; col_order=2; n_sources=2;
     type_conflict='N'; result_type='C'; max_length=20; output;
-  s_code='s09'; col_name='sex';    pcnr_name='PCNR_SEX'; status='PCNR';
+  s_code='s09'; col_name='sex';  pcnr_name='PCNR_SEX'; status='PCNR';
     original_header='Sex'; col_order=2; n_sources=2;
     type_conflict='N'; result_type='C'; max_length=20; output;
 run;
 
-/* name_map_vars: one row per PCNR_ variable */
-data pdd.name_map_vars;
+/* name_map_vars: one row per PCNR_ variable (var_idx pre-assigned) */
+data work.name_map_vars;
   length pcnr_name $200 var_idx 8 result_type $1 max_length 8
          type_conflict $1 s_codes_contributing $200 n_sources 8;
   pcnr_name='PCNR_AGE'; var_idx=1; result_type='N'; max_length=8;
@@ -106,28 +129,21 @@ data pdd.name_map_vars;
 run;
 
 /* Spine: src_s09 -- 3 subjects */
-data pdd.src_s09;
+data work.src_s09;
   length norm_psid $64 sex $20;
   norm_psid='P001'; sex='M'; output;
   norm_psid='P002'; sex='F'; output;
   norm_psid='P003'; sex='M'; output;
 run;
 
-/* s01: has age and sex for P001/P002; P003 age missing (gap-fill test) */
-data pdd.src_s01;
+/* s01: age and sex for P001/P002; P003 age missing to test gap-fill */
+data work.src_s01;
   length norm_psid $64 age 8 sex $20;
   norm_psid='P001'; age=30; sex='M'; output;
   norm_psid='P002'; age=45; sex='F'; output;
 run;
 
 /* Empty tables for s02..s08, s10..s20 */
-%macro _mk_empty(n=);
-  data pdd.src_s&n;
-    length norm_psid $64;
-    stop;
-  run;
-%mend _mk_empty;
-
 %_mk_empty(n=02) %_mk_empty(n=03) %_mk_empty(n=04) %_mk_empty(n=05)
 %_mk_empty(n=06) %_mk_empty(n=07) %_mk_empty(n=08) %_mk_empty(n=10)
 %_mk_empty(n=11) %_mk_empty(n=12) %_mk_empty(n=13) %_mk_empty(n=14)
@@ -135,24 +151,18 @@ run;
 %_mk_empty(n=19) %_mk_empty(n=20)
 
 /*==========================================================================
-  SECTION 3 -- Override macro globals so 05_build_pcnr.sas uses WORK paths
-  The orchestrator macros default to srclib=pdd, nmlib=pdd, outlib=pdd.
-  Since we assigned LIBNAME pdd to WORK above, all I/O lands in WORK.
-  CSV paths used by macros are resolved via &exchange_path (set above).
-==========================================================================*/
-
-%let priority_csv = &_work.\pcnr_source_priority.csv;
-%let override_csv = &_work.\pcnr_source_override.csv;
-%let s06class_csv = &_work.\s06class.csv;
-
-/*==========================================================================
-  SECTION 4 -- Run the orchestrator end-to-end
+  SECTION 3 -- Run the orchestrator end-to-end
+  p5_smoke=1 causes 05_build_pcnr.sas to:
+    - skip %include 00_config.sas and %pdd_lib (P: paths never touched)
+    - pass srclib=work nmlib=work outlib=work to every macro call
+    - pass spine_n=3 nvars=2 to every macro call
 ==========================================================================*/
 
 %include "C:\data_dictionary\sas\05_build_pcnr.sas";
 
 /*==========================================================================
-  SECTION 5 -- Assertions
+  SECTION 4 -- Assertions
+  NOTE: NOT YET RUN -- awaiting live SAS execution.
 ==========================================================================*/
 
 %macro _smoke_assert(label=, cond=);
@@ -162,35 +172,35 @@ run;
     %put SMOKE-FAIL: &label;
 %mend _smoke_assert;
 
-/* pdd.pcnr must exist and have 3 rows (one per spine subject) */
+/* work.pcnr must exist and have 3 rows (one per spine subject) */
 %let _pcnr_n = 0;
 proc sql noprint;
-  select count(*) into :_pcnr_n trimmed from pdd.pcnr;
+  select count(*) into :_pcnr_n trimmed from work.pcnr;
 quit;
 
-%_smoke_assert(label=pdd.pcnr exists with 3 rows,
+%_smoke_assert(label=work.pcnr exists with 3 rows,
                cond=(%bquote(&_pcnr_n) = 3));
 
-/* PCNR_AGE should be populated for P001 and P002 (P003 remains missing) */
+/* PCNR_AGE populated for P001 and P002; P003 has no age source */
 %let _age_n = 0;
 proc sql noprint;
   select count(*) into :_age_n trimmed
-  from pdd.pcnr
+  from work.pcnr
   where PCNR_AGE is not missing;
 quit;
 
 %_smoke_assert(label=PCNR_AGE populated for 2 subjects,
                cond=(%bquote(&_age_n) = 2));
 
-/* PCNR_SEX should be populated for all 3 spine rows (gap-filled from s09) */
+/* PCNR_SEX populated for all 3 spine rows (s09 spine source covers P003) */
 %let _sex_n = 0;
 proc sql noprint;
   select count(*) into :_sex_n trimmed
-  from pdd.pcnr
+  from work.pcnr
   where PCNR_SEX ne '';
 quit;
 
 %_smoke_assert(label=PCNR_SEX populated for all 3 subjects,
                cond=(%bquote(&_sex_n) = 3));
 
-%put NOTE: [05_orchestrator_smoke] Smoke test complete.;
+%put NOTE: [05_orchestrator_smoke] Smoke test complete. NOT YET RUN -- awaiting live SAS execution.;

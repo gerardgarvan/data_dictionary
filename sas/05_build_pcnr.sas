@@ -15,6 +15,21 @@
             pdd.qc_pcnr_conflicts
             exchange\pcnr_gapfill.csv
 
+  Smoke-test switch:
+    Set %let p5_smoke = 1 and supply:
+      %let p5_smoke_srclib  = work;
+      %let p5_smoke_outlib  = work;
+      %let p5_smoke_spine_n = <n>;
+      %let p5_smoke_nvars   = <n>;
+      %let p5_smoke_gen_dir = <path>;
+      %let p5_smoke_exp_dir = <path>;
+      %let priority_csv     = <path>;
+      %let override_csv     = <path>;
+      %let s06class_csv     = <path>;
+    Then %include this file.  When p5_smoke=1 the config include and
+    %pdd_lib call are skipped; all macros use the supplied WORK libs and
+    synthetic counts.  Real pdd.pcnr and P: paths are never touched.
+
   PCM compliance:
     C1  No ?? in PROC SQL
     C2  No ANSI SQL (OFFSET/FETCH/LIMIT/ROW_NUMBER OVER/WITH AS)
@@ -30,14 +45,52 @@
 
 /* ============================================================
    SECTION 0 -- %include config, %pdd_lib, macro library
+
+   When p5_smoke=1: skip config / %pdd_lib so the caller's LIBNAME
+   assignments (work libs) and path macros stay in effect.
+
    Macros defined here (before first call, PCM C13):
-     %route_log    -- redirect log to per-program file when standalone
-     %restore_log  -- restore log after standalone run
+     %p5_init_paths  -- set path/lib globals based on p5_smoke flag
+     %route_log      -- redirect log to per-program file when standalone
+     %restore_log    -- restore log after standalone run
    All other macros brought in by 05_build_pcnr_macros.sas.
    ============================================================ */
 
-%include "&sas_path.\00_config.sas";
-%pdd_lib;
+/* Initialise p5_smoke default if caller did not set it */
+%macro _p5_set_smoke_default;
+  %global p5_smoke;
+  %if %symexist(p5_smoke) = 0 %then %let p5_smoke = 0;
+  %if %bquote(&p5_smoke) = %bquote() %then %let p5_smoke = 0;
+%mend _p5_set_smoke_default;
+%_p5_set_smoke_default;
+
+%macro _p5_init_paths;
+  %global _p5_srclib _p5_nmlib _p5_outlib _p5_spine_n _p5_nvars
+          _p5_gen_dir _p5_exp_dir;
+  %if &p5_smoke = 1 %then %do;
+    /* Smoke mode: use caller-supplied WORK libs and synthetic counts */
+    %let _p5_srclib  = &p5_smoke_srclib;
+    %let _p5_nmlib   = &p5_smoke_srclib;   /* name_map tables live in same lib */
+    %let _p5_outlib  = &p5_smoke_outlib;
+    %let _p5_spine_n = &p5_smoke_spine_n;
+    %let _p5_nvars   = &p5_smoke_nvars;
+    %let _p5_gen_dir = &p5_smoke_gen_dir;
+    %let _p5_exp_dir = &p5_smoke_exp_dir;
+  %end;
+  %else %do;
+    /* Normal pipeline mode: real pdd lib and production counts */
+    %include "&sas_path.\00_config.sas";
+    %pdd_lib;
+    %let _p5_srclib  = pdd;
+    %let _p5_nmlib   = pdd;
+    %let _p5_outlib  = pdd;
+    %let _p5_spine_n = 41150;
+    %let _p5_nvars   = 1299;
+    %let _p5_gen_dir = &exchange_path;
+    %let _p5_exp_dir = &exchange_path;
+  %end;
+%mend _p5_init_paths;
+%_p5_init_paths;
 
 /* Route log to per-program file when running standalone (in_pipeline=0).
    Mirrors the pattern used in 04_name_map.sas. */
@@ -62,49 +115,61 @@
 %route_log;
 
 %_p5_ok(section=1);
-%p5_preflight;
+%p5_preflight(srclib=&_p5_srclib, nmlib=&_p5_nmlib, outlib=&_p5_outlib,
+              spine_n=&_p5_spine_n, nvars=&_p5_nvars,
+              priority_csv=&priority_csv, override_csv=&override_csv,
+              s06class_csv=&s06class_csv,
+              gen_dir=&_p5_gen_dir, export_dir=&_p5_exp_dir);
 
 
 /* ============================================================
    SECTION 2 -- Spine coverage QC (D-19 extended)
    ============================================================ */
 %_p5_ok(section=2);
-%p5_spine_coverage;
+%p5_spine_coverage(srclib=&_p5_srclib, spine_n=&_p5_spine_n,
+                   export_dir=&_p5_exp_dir);
 
 
 /* ============================================================
    SECTION 3 -- Type-conflict resolution (D-02)
    ============================================================ */
 %_p5_ok(section=3);
-%p5_resolve_types;
+%p5_resolve_types(srclib=&_p5_srclib, nmlib=&_p5_nmlib, outlib=&_p5_outlib,
+                  export_dir=&_p5_exp_dir);
 
 
 /* ============================================================
    SECTION 4 -- Build accumulator (left-join all sources)
    ============================================================ */
 %_p5_ok(section=4);
-%p5_build_accumulator;
+%p5_build_accumulator(srclib=&_p5_srclib, nmlib=&_p5_nmlib,
+                      spine_n=&_p5_spine_n,
+                      gen_dir=&_p5_gen_dir, export_dir=&_p5_exp_dir);
 
 
 /* ============================================================
    SECTION 5 -- Gap-fill (D-15 priority order)
    ============================================================ */
 %_p5_ok(section=5);
-%p5_run_gapfill;
+%p5_run_gapfill(srclib=&_p5_srclib, nmlib=&_p5_nmlib,
+                spine_n=&_p5_spine_n, gen_dir=&_p5_gen_dir);
 
 
 /* ============================================================
    SECTION 6 -- Finalize pdd.pcnr
    ============================================================ */
 %_p5_ok(section=6);
-%p5_finalize_pcnr;
+%p5_finalize_pcnr(outlib=&_p5_outlib, nmlib=&_p5_nmlib, srclib=&_p5_srclib,
+                  spine_n=&_p5_spine_n, nvars=&_p5_nvars,
+                  s06class_csv=&s06class_csv);
 
 
 /* ============================================================
    SECTION 7 -- Write QC datasets / exchange CSV
    ============================================================ */
 %_p5_ok(section=7);
-%p5_write_qc;
+%p5_write_qc(outlib=&_p5_outlib, spine_n=&_p5_spine_n,
+             export_dir=&_p5_exp_dir);
 
 
 /* ============================================================
