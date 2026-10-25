@@ -140,3 +140,114 @@ def test_no_free_globals_in_phase5():
         messages.append(f"  05_build_pcnr.sas:{line_no}: undeclared &{vname}")
 
     assert not messages, "Free global references found:\n" + "\n".join(messages)
+
+
+# ---------------------------------------------------------------------------
+# Schema fixture check: test name_map / name_map_vars fixtures must contain
+# all columns listed in docs/name_map_schema.csv.
+# ---------------------------------------------------------------------------
+
+def _parse_schema_csv():
+    """Return dict {table: set_of_column_names} from docs/name_map_schema.csv."""
+    schema_path = ROOT / "docs" / "name_map_schema.csv"
+    schema = {}
+    with open(schema_path, encoding="utf-8") as fh:
+        next(fh)  # skip header
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split(",")
+            table, col = parts[0].strip(), parts[1].strip()
+            schema.setdefault(table, set()).add(col.lower())
+    return schema
+
+
+def _extract_fixture_columns(sas_text, table_name):
+    """Extract declared column names from 'data work.<table>;' blocks in SAS text.
+
+    Parses the LENGTH statement to find column names.
+    Returns set of lowercase column names found across all blocks for that table.
+    """
+    # Strip block comments
+    clean = sas_lint.strip_block_comments(sas_text)
+    cols = set()
+    # Find data work.<table>; ... run; blocks
+    block_pat = re.compile(
+        r'data\s+(?:work\.)?'
+        + re.escape(table_name)
+        + r'\s*;(.*?)(?=\brun\s*;)',
+        re.IGNORECASE | re.DOTALL,
+    )
+    length_pat = re.compile(r'\blength\b(.*?);', re.IGNORECASE | re.DOTALL)
+    type_kw = re.compile(r'^\$?\d', re.IGNORECASE)  # skip $200, 8, etc.
+    skip = {'length', 'set', 'keep', 'drop', 'rename', 'stop', 'retain'}
+    for bm in block_pat.finditer(clean):
+        body = bm.group(1)
+        for lm in length_pat.finditer(body):
+            tokens = lm.group(1).split()
+            for tok in tokens:
+                tok_clean = tok.strip(';').strip()
+                if not tok_clean:
+                    continue
+                if type_kw.match(tok_clean):
+                    continue  # $200, 8, $4 etc.
+                if tok_clean.lower() in skip:
+                    continue
+                if re.match(r'^[A-Za-z_]\w*$', tok_clean):
+                    cols.add(tok_clean.lower())
+    return cols
+
+
+def _check_fixture_schema(sas_path, schema, required_tables):
+    """Assert fixture SAS file contains all schema columns for each required table."""
+    text = sas_path.read_text(encoding="utf-8", errors="replace")
+    messages = []
+    for table in required_tables:
+        required_cols = schema.get(table, set())
+        fixture_cols = _extract_fixture_columns(text, table)
+        missing = required_cols - fixture_cols
+        if missing:
+            messages.append(
+                f"  {sas_path.name}: {table} fixture missing columns: "
+                + ", ".join(sorted(missing))
+            )
+    return messages
+
+
+def test_fixture_schema_build_test():
+    # Tests use only the subset of columns that the macros actually read;
+    # trunc_flag/group_id/sas_type/length are not read by any macro, so not required.
+    required_nm = {'s_code', 'sas_name', 'pcnr_name', 'status', 'original_header', 'col_order'}
+    required_nmv = {'pcnr_name', 'result_type', 'max_length', 'type_conflict',
+                    'n_sources', 's_codes_contributing'}
+    sas_path = ROOT / "tests" / "05_build_test.sas"
+    text = sas_path.read_text(encoding="utf-8", errors="replace")
+    messages = []
+    for table, required in [('name_map', required_nm), ('name_map_vars', required_nmv)]:
+        fixture_cols = _extract_fixture_columns(text, table)
+        missing = required - fixture_cols
+        if missing:
+            messages.append(
+                f"  05_build_test.sas: {table} fixture missing columns: "
+                + ", ".join(sorted(missing))
+            )
+    assert not messages, "Fixture schema gaps:\n" + "\n".join(messages)
+
+
+def test_fixture_schema_smoke_test():
+    sas_path = ROOT / "tests" / "05_orchestrator_smoke.sas"
+    text = sas_path.read_text(encoding="utf-8", errors="replace")
+    required_nm = {'s_code', 'sas_name', 'pcnr_name', 'status', 'original_header', 'col_order'}
+    required_nmv = {'pcnr_name', 'result_type', 'max_length', 'type_conflict',
+                    'n_sources', 's_codes_contributing'}
+    messages = []
+    for table, required in [('name_map', required_nm), ('name_map_vars', required_nmv)]:
+        fixture_cols = _extract_fixture_columns(text, table)
+        missing = required - fixture_cols
+        if missing:
+            messages.append(
+                f"  05_orchestrator_smoke.sas: {table} fixture missing columns: "
+                + ", ".join(sorted(missing))
+            )
+    assert not messages, "Fixture schema gaps:\n" + "\n".join(messages)

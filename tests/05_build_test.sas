@@ -95,15 +95,12 @@ options nosyntaxcheck nomlogic nomprint nosymbolgen;
 
 /* Data setup in open code (C22: no datalines inside macros) */
 data work.name_map;
-  length pcnr_name $200 s_code $4 col_name $200 status $20
-         original_header $200 col_order 8 n_sources 8
-         type_conflict $1 result_type $1 max_length 8;
-  s_code='s01'; col_name='age'; pcnr_name='PCNR_AGE'; status='PCNR';
-  original_header='Age'; col_order=1; n_sources=2;
-  type_conflict='Y'; result_type='N'; max_length=8; output;
-  s_code='s02'; col_name='age_c'; pcnr_name='PCNR_AGE'; status='PCNR';
-  original_header='Age Char'; col_order=1; n_sources=2;
-  type_conflict='Y'; result_type='C'; max_length=8; output;
+  length s_code $4 col_order 8 sas_name $200 original_header $200
+         status $20 pcnr_name $200;
+  s_code='s01'; sas_name='age'; pcnr_name='PCNR_AGE'; status='PCNR';
+  original_header='Age'; col_order=1; output;
+  s_code='s02'; sas_name='age_c'; pcnr_name='PCNR_AGE'; status='PCNR';
+  original_header='Age Char'; col_order=1; output;
 run;
 data work.name_map_vars;
   length pcnr_name $200 var_idx 8 result_type $1 max_length 8
@@ -152,15 +149,12 @@ run;
 ==========================================================================*/
 
 data work.name_map;
-  length pcnr_name $200 s_code $4 col_name $200 status $20
-         original_header $200 col_order 8 n_sources 8
-         type_conflict $1 result_type $1 max_length 8;
-  s_code='s01'; col_name='code_n'; pcnr_name='PCNR_CODE'; status='PCNR';
-  original_header='Code'; col_order=2; n_sources=2;
-  type_conflict='Y'; result_type='N'; max_length=8; output;
-  s_code='s02'; col_name='code_c'; pcnr_name='PCNR_CODE'; status='PCNR';
-  original_header='Code Char'; col_order=2; n_sources=2;
-  type_conflict='Y'; result_type='C'; max_length=8; output;
+  length s_code $4 col_order 8 sas_name $200 original_header $200
+         status $20 pcnr_name $200;
+  s_code='s01'; sas_name='code_n'; pcnr_name='PCNR_CODE'; status='PCNR';
+  original_header='Code'; col_order=2; output;
+  s_code='s02'; sas_name='code_c'; pcnr_name='PCNR_CODE'; status='PCNR';
+  original_header='Code Char'; col_order=2; output;
 run;
 data work.name_map_vars;
   length pcnr_name $200 var_idx 8 result_type $1 max_length 8
@@ -207,15 +201,12 @@ run;
 ==========================================================================*/
 
 data work.name_map;
-  length pcnr_name $200 s_code $4 col_name $200 status $20
-         original_header $200 col_order 8 n_sources 8
-         type_conflict $1 result_type $1 max_length 8;
-  s_code='s09'; col_name='PCNR_AGE'; pcnr_name='PCNR_AGE'; status='PCNR';
-  original_header='Age'; col_order=1; n_sources=2;
-  type_conflict='N'; result_type='N'; max_length=8; output;
-  s_code='s01'; col_name='age'; pcnr_name='PCNR_AGE'; status='PCNR';
-  original_header='Age'; col_order=1; n_sources=2;
-  type_conflict='N'; result_type='N'; max_length=8; output;
+  length s_code $4 col_order 8 sas_name $200 original_header $200
+         status $20 pcnr_name $200;
+  s_code='s09'; sas_name='PCNR_AGE'; pcnr_name='PCNR_AGE'; status='PCNR';
+  original_header='Age'; col_order=1; output;
+  s_code='s01'; sas_name='age'; pcnr_name='PCNR_AGE'; status='PCNR';
+  original_header='Age'; col_order=1; output;
 run;
 data work.name_map_vars;
   length pcnr_name $200 var_idx 8 result_type $1 max_length 8
@@ -281,18 +272,14 @@ run;
 ==========================================================================*/
 
 data work.name_map;
-  length pcnr_name $200 s_code $4 col_name $200 status $20
-         original_header $200 col_order 8 n_sources 8
-         type_conflict $1 result_type $1 max_length 8;
-  s_code='s09'; col_name='PCNR_AGE'; pcnr_name='PCNR_AGE'; status='PCNR';
-  original_header='Age'; col_order=1; n_sources=3;
-  type_conflict='N'; result_type='N'; max_length=8; output;
-  s_code='s01'; col_name='age'; pcnr_name='PCNR_AGE'; status='PCNR';
-  original_header='Age'; col_order=1; n_sources=3;
-  type_conflict='N'; result_type='N'; max_length=8; output;
-  s_code='s02'; col_name='age2'; pcnr_name='PCNR_AGE'; status='PCNR';
-  original_header='Age'; col_order=1; n_sources=3;
-  type_conflict='N'; result_type='N'; max_length=8; output;
+  length s_code $4 col_order 8 sas_name $200 original_header $200
+         status $20 pcnr_name $200;
+  s_code='s09'; sas_name='PCNR_AGE'; pcnr_name='PCNR_AGE'; status='PCNR';
+  original_header='Age'; col_order=1; output;
+  s_code='s01'; sas_name='age'; pcnr_name='PCNR_AGE'; status='PCNR';
+  original_header='Age'; col_order=1; output;
+  s_code='s02'; sas_name='age2'; pcnr_name='PCNR_AGE'; status='PCNR';
+  original_header='Age'; col_order=1; output;
 run;
 data work.name_map_vars;
   length pcnr_name $200 var_idx 8 result_type $1 max_length 8
@@ -541,21 +528,16 @@ run;
 ==========================================================================*/
 
 data work.name_map;
-  length pcnr_name $200 s_code $4 col_name $200 status $20
-         original_header $200 col_order 8 n_sources 8
-         type_conflict $1 result_type $1 max_length 8;
-  s_code='s09'; col_name='PCNR_AGE'; pcnr_name='PCNR_AGE'; status='PCNR';
-  original_header='Age'; col_order=1; n_sources=3;
-  type_conflict='N'; result_type='N'; max_length=8; output;
-  s_code='s01'; col_name='age'; pcnr_name='PCNR_AGE'; status='PCNR';
-  original_header='Age'; col_order=1; n_sources=3;
-  type_conflict='N'; result_type='N'; max_length=8; output;
-  s_code='s02'; col_name='age2'; pcnr_name='PCNR_AGE'; status='PCNR';
-  original_header='Age'; col_order=1; n_sources=3;
-  type_conflict='N'; result_type='N'; max_length=8; output;
-  s_code='s01'; col_name='code'; pcnr_name='PCNR_CODE'; status='PCNR';
-  original_header='Code'; col_order=2; n_sources=1;
-  type_conflict='N'; result_type='C'; max_length=8; output;
+  length s_code $4 col_order 8 sas_name $200 original_header $200
+         status $20 pcnr_name $200;
+  s_code='s09'; sas_name='PCNR_AGE'; pcnr_name='PCNR_AGE'; status='PCNR';
+  original_header='Age'; col_order=1; output;
+  s_code='s01'; sas_name='age'; pcnr_name='PCNR_AGE'; status='PCNR';
+  original_header='Age'; col_order=1; output;
+  s_code='s02'; sas_name='age2'; pcnr_name='PCNR_AGE'; status='PCNR';
+  original_header='Age'; col_order=1; output;
+  s_code='s01'; sas_name='code'; pcnr_name='PCNR_CODE'; status='PCNR';
+  original_header='Code'; col_order=2; output;
 run;
 data work.name_map_vars;
   length pcnr_name $200 var_idx 8 result_type $1 max_length 8
@@ -683,15 +665,12 @@ run;
 /* TC-11 calls %p5_finalize_pcnr (not inline DROP) so the dynamic drop list
    from dictionary.columns is exercised -- proves 0 "never been referenced" WARNINGs. */
 data work.name_map;
-  length pcnr_name $200 s_code $4 col_name $200 status $20
-         original_header $200 col_order 8 n_sources 8
-         type_conflict $1 result_type $1 max_length 8;
-  s_code='s09'; col_name='PCNR_AGE';  pcnr_name='PCNR_AGE';  status='PCNR';
-  original_header='Age';  col_order=1; n_sources=1;
-  type_conflict='N'; result_type='N'; max_length=8; output;
-  s_code='s09'; col_name='PCNR_CODE'; pcnr_name='PCNR_CODE'; status='PCNR';
-  original_header='Code'; col_order=2; n_sources=1;
-  type_conflict='N'; result_type='C'; max_length=8; output;
+  length s_code $4 col_order 8 sas_name $200 original_header $200
+         status $20 pcnr_name $200;
+  s_code='s09'; sas_name='PCNR_AGE';  pcnr_name='PCNR_AGE';  status='PCNR';
+  original_header='Age';  col_order=1; output;
+  s_code='s09'; sas_name='PCNR_CODE'; pcnr_name='PCNR_CODE'; status='PCNR';
+  original_header='Code'; col_order=2; output;
 run;
 data work.name_map_vars;
   length pcnr_name $200 var_idx 8 result_type $1 max_length 8
@@ -804,12 +783,10 @@ run;
 ==========================================================================*/
 
 data work.name_map;
-  length pcnr_name $200 s_code $4 col_name $200 status $20
-         original_header $200 col_order 8 n_sources 8
-         type_conflict $1 result_type $1 max_length 8;
-  s_code='s01'; col_name='longcol'; pcnr_name='PCNR_ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-  status='PCNR'; original_header='Long'; col_order=1; n_sources=1;
-  type_conflict='N'; result_type='N'; max_length=8; output;
+  length s_code $4 col_order 8 sas_name $200 original_header $200
+         status $20 pcnr_name $200;
+  s_code='s01'; sas_name='longcol'; pcnr_name='PCNR_ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  status='PCNR'; original_header='Long'; col_order=1; output;
 run;
 data work.name_map_vars;
   length pcnr_name $200 var_idx 8 result_type $1 max_length 8
@@ -909,15 +886,12 @@ quit;
 
 /* Shared name_map and name_map_vars for TC-15 */
 data work.name_map;
-  length pcnr_name $200 s_code $4 col_name $200 status $20
-         original_header $200 col_order 8 n_sources 8
-         type_conflict $1 result_type $1 max_length 8;
-  s_code='s01'; col_name='age'; pcnr_name='PCNR_AGE'; status='PCNR';
-  original_header='Age'; col_order=1; n_sources=1;
-  type_conflict='N'; result_type='N'; max_length=8; output;
-  s_code='s01'; col_name='code'; pcnr_name='PCNR_CODE'; status='PCNR';
-  original_header='Code'; col_order=2; n_sources=1;
-  type_conflict='N'; result_type='C'; max_length=8; output;
+  length s_code $4 col_order 8 sas_name $200 original_header $200
+         status $20 pcnr_name $200;
+  s_code='s01'; sas_name='age'; pcnr_name='PCNR_AGE'; status='PCNR';
+  original_header='Age'; col_order=1; output;
+  s_code='s01'; sas_name='code'; pcnr_name='PCNR_CODE'; status='PCNR';
+  original_header='Code'; col_order=2; output;
 run;
 data work.name_map_vars;
   length pcnr_name $200 var_idx 8 result_type $1 max_length 8
@@ -1003,15 +977,12 @@ run;
 ==========================================================================*/
 
 data work.name_map;
-  length pcnr_name $200 s_code $4 col_name $200 status $20
-         original_header $200 col_order 8 n_sources 8
-         type_conflict $1 result_type $1 max_length 8;
-  s_code='s09'; col_name='PCNR_AGE'; pcnr_name='PCNR_AGE'; status='PCNR';
-  original_header='Age'; col_order=1; n_sources=2;
-  type_conflict='N'; result_type='N'; max_length=8; output;
-  s_code='s01'; col_name='age'; pcnr_name='PCNR_AGE'; status='PCNR';
-  original_header='Age'; col_order=1; n_sources=2;
-  type_conflict='N'; result_type='N'; max_length=8; output;
+  length s_code $4 col_order 8 sas_name $200 original_header $200
+         status $20 pcnr_name $200;
+  s_code='s09'; sas_name='PCNR_AGE'; pcnr_name='PCNR_AGE'; status='PCNR';
+  original_header='Age'; col_order=1; output;
+  s_code='s01'; sas_name='age'; pcnr_name='PCNR_AGE'; status='PCNR';
+  original_header='Age'; col_order=1; output;
 run;
 data work.name_map_vars;
   length pcnr_name $200 var_idx 8 result_type $1 max_length 8
@@ -1091,15 +1062,12 @@ run;
 
 /* Fresh name_map: s09 spine col + s01 non-spine col, 1 var, no type conflict */
 data work.name_map;
-  length pcnr_name $200 s_code $4 col_name $200 status $20
-         original_header $200 col_order 8 n_sources 8
-         type_conflict $1 result_type $1 max_length 8;
-  s_code='s09'; col_name='PCNR_SCORE'; pcnr_name='PCNR_SCORE'; status='PCNR';
-  original_header='Score'; col_order=1; n_sources=2;
-  type_conflict='N'; result_type='N'; max_length=8; output;
-  s_code='s01'; col_name='score'; pcnr_name='PCNR_SCORE'; status='PCNR';
-  original_header='Score'; col_order=1; n_sources=2;
-  type_conflict='N'; result_type='N'; max_length=8; output;
+  length s_code $4 col_order 8 sas_name $200 original_header $200
+         status $20 pcnr_name $200;
+  s_code='s09'; sas_name='PCNR_SCORE'; pcnr_name='PCNR_SCORE'; status='PCNR';
+  original_header='Score'; col_order=1; output;
+  s_code='s01'; sas_name='score'; pcnr_name='PCNR_SCORE'; status='PCNR';
+  original_header='Score'; col_order=1; output;
 run;
 /* name_map_vars WITHOUT var_idx -- %p5_build_accumulator owns var_idx now */
 data work.name_map_vars;
@@ -1204,12 +1172,10 @@ run;
 ==========================================================================*/
 
 data work.name_map;
-  length pcnr_name $200 s_code $4 col_name $200 status $20
-         original_header $200 col_order 8 n_sources 8
-         type_conflict $1 result_type $1 max_length 8;
-  s_code='s01'; col_name='age'; pcnr_name='PCNR_AGE'; status='PCNR';
-  original_header='Age'; col_order=1; n_sources=1;
-  type_conflict='N'; result_type='N'; max_length=8; output;
+  length s_code $4 col_order 8 sas_name $200 original_header $200
+         status $20 pcnr_name $200;
+  s_code='s01'; sas_name='age'; pcnr_name='PCNR_AGE'; status='PCNR';
+  original_header='Age'; col_order=1; output;
 run;
 data work.name_map_vars;
   length pcnr_name $200 result_type $1 max_length 8

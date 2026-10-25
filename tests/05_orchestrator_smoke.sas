@@ -107,20 +107,16 @@ libname pdd "&_work";
   does not error on missing members.
 ==========================================================================*/
 
-/* name_map: one row per (source, pcnr_name) pairing */
+/* name_map: one row per (source, pcnr_name) pairing -- real schema */
 data work.name_map;
-  length pcnr_name $200 s_code $4 col_name $200 status $20
-         original_header $200 col_order 8 n_sources 8
-         type_conflict $1 result_type $1 max_length 8;
-  s_code='s01'; col_name='age';  pcnr_name='PCNR_AGE'; status='PCNR';
-    original_header='Age'; col_order=1; n_sources=1;
-    type_conflict='N'; result_type='N'; max_length=8; output;
-  s_code='s01'; col_name='sex';  pcnr_name='PCNR_SEX'; status='PCNR';
-    original_header='Sex'; col_order=2; n_sources=2;
-    type_conflict='N'; result_type='C'; max_length=20; output;
-  s_code='s09'; col_name='sex';  pcnr_name='PCNR_SEX'; status='PCNR';
-    original_header='Sex'; col_order=2; n_sources=2;
-    type_conflict='N'; result_type='C'; max_length=20; output;
+  length s_code $4 col_order 8 sas_name $200 original_header $200
+         status $20 pcnr_name $200;
+  s_code='s01'; sas_name='age';  pcnr_name='PCNR_AGE'; status='PCNR';
+    original_header='Age'; col_order=1; output;
+  s_code='s01'; sas_name='sex';  pcnr_name='PCNR_SEX'; status='PCNR';
+    original_header='Sex'; col_order=2; output;
+  s_code='s09'; sas_name='sex';  pcnr_name='PCNR_SEX'; status='PCNR';
+    original_header='Sex'; col_order=2; output;
 run;
 
 /* name_map_vars: one row per PCNR_ variable (var_idx pre-assigned) */

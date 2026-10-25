@@ -99,6 +99,46 @@
 
   /* ---- A. name_map assertions ---- */
 
+  /* A0. Assert required columns exist in &nmlib..name_map and &nmlib..name_map_vars.
+         %fail_out listing any missing before any other step (item 2). */
+  %local _miss_nm _miss_nmv _col_exists;
+  %let _miss_nm  = ;
+  %let _miss_nmv = ;
+  %macro _chk_col(lib, ds, col);
+    %local _cc_n;
+    proc sql noprint;
+      select count(*) into :_cc_n trimmed
+      from dictionary.columns
+      where libname = upcase("&lib")
+        and memname = upcase("&ds")
+        and upcase(name) = upcase("&col");
+    quit;
+    %if &_cc_n = 0 %then %let _miss_&ds = &&&_miss_&ds &col;
+  %mend _chk_col;
+  /* name_map required columns */
+  %_chk_col(&nmlib, name_map, s_code)
+  %_chk_col(&nmlib, name_map, sas_name)
+  %_chk_col(&nmlib, name_map, original_header)
+  %_chk_col(&nmlib, name_map, status)
+  %_chk_col(&nmlib, name_map, pcnr_name)
+  %_chk_col(&nmlib, name_map, col_order)
+  /* name_map_vars required columns */
+  %_chk_col(&nmlib, name_map_vars, pcnr_name)
+  %_chk_col(&nmlib, name_map_vars, result_type)
+  %_chk_col(&nmlib, name_map_vars, max_length)
+  %_chk_col(&nmlib, name_map_vars, type_conflict)
+  %_chk_col(&nmlib, name_map_vars, n_sources)
+  %_chk_col(&nmlib, name_map_vars, s_codes_contributing)
+  %if %bquote(&_miss_nm) ne %bquote() %then %do;
+    %fail_out(msg=%str(name_map missing required columns:&_miss_nm));
+  %end;
+  %if &p5_fail = 1 %then %return;
+  %if %bquote(&_miss_nmv) ne %bquote() %then %do;
+    %fail_out(msg=%str(name_map_vars missing required columns:&_miss_nmv));
+  %end;
+  %if &p5_fail = 1 %then %return;
+  %put NOTE: [05_build_pcnr] schema check passed: all required columns present in name_map and name_map_vars;
+
   /* A1. Exact row count of name_map_vars */
   %assert_rowcount(ds=&nmlib..name_map_vars, expected=&nvars, label=name_map_vars);
 
@@ -559,19 +599,23 @@
       from work._tc_vars (firstobs=&_tc_i obs=&_tc_i);
     quit;
 
-    /* Step 2. Find contributing (s_code, col_name) pairs from &nmlib..name_map */
+    /* Step 2. Find contributing (s_code, sas_name) pairs from &nmlib..name_map */
     data work._tc_sources_&_tc_i;
-      length pcnr_name $200 s_code $4 col_name $200;
+      length pcnr_name $200 s_code $4 sas_name $200;
       stop;
     run;
 
     proc sql noprint;
-      insert into work._tc_sources_&_tc_i (pcnr_name, s_code, col_name)
-      select pcnr_name, s_code, col_name
+      insert into work._tc_sources_&_tc_i (pcnr_name, s_code, sas_name)
+      select pcnr_name, s_code, sas_name
       from &nmlib..name_map
       where pcnr_name = "&_tc_name"
         and status    = 'PCNR';
     quit;
+    %if &sqlrc > 4 %then %do;
+      %fail_out(msg=%str(p5_resolve_types INSERT failed for &_tc_name (sqlrc=&sqlrc)));
+      %if &p5_fail = 1 %then %return;
+    %end;
 
     /* Step 3. For each contributing source, test parse of character values */
     %local _n_tc_src _sc_j _col_j _src_type _n_fail _ex_fail _n_char_src_total
@@ -590,7 +634,7 @@
       %let _sc_j  = ;
       %let _col_j = ;
       proc sql noprint;
-        select s_code, col_name
+        select s_code, sas_name
         into :_sc_j trimmed, :_col_j trimmed
         from work._tc_sources_&_tc_i (firstobs=&_k obs=&_k);
       quit;
@@ -681,6 +725,18 @@
 
       %next_tc_src:
     %end; /* _k loop over sources */
+
+    /* Step 3b. Guard: a type conflict requires contributing sources to exist. */
+    %if &_n_tc_src = 0 %then %do;
+      %fail_out(msg=%str(p5_resolve_types: &_tc_name is type_conflict=Y but 0 contributing sources found in name_map (status=PCNR) -- data integrity error));
+      %if &p5_fail = 1 %then %return;
+    %end;
+    /* Guard: a type conflict by definition has >=1 char source and >=1 num source.
+       Resolving to N8 with 0 char sources examined means the conflict never existed. */
+    %if &_n_char_src_total = 0 %then %do;
+      %fail_out(msg=%str(p5_resolve_types: &_tc_name is type_conflict=Y but 0 character sources were found in &srclib -- all sources numeric or missing; cannot resolve));
+      %if &p5_fail = 1 %then %return;
+    %end;
 
     /* Step 4. Resolution rule */
     %local _resolved_type _out_length;
@@ -912,7 +968,7 @@
   /* Step 4. Collect s09-contributed columns from &nmlib..name_map */
   proc sql noprint;
     create table work._s09_cols as
-    select nm.col_name,
+    select nm.sas_name,
            nm.pcnr_name,
            nv.var_idx,
            nv.result_type,
@@ -936,7 +992,7 @@
   %do _i = 1 %to &_n_s09;
     %local _cn_&_i _pn_&_i;
     proc sql noprint;
-      select col_name, pcnr_name
+      select sas_name, pcnr_name
       into :_cn_&_i trimmed, :_pn_&_i trimmed
       from work._s09_cols (firstobs=&_i obs=&_i);
     quit;
@@ -1028,7 +1084,7 @@
    e.g. %str('PCNR_AGE' 'PCNR_CODE'). Leave blank for all vars (rank-order pass). */
 %macro p5_gapfill_source(s_code=, rank=, pcnr_filter=, srclib=pdd, nmlib=pdd, spine_n=41150, gen_dir=);
 
-  /* Step 1. Collect (col_name, pcnr_name, var_idx, n_sources) for this source.
+  /* Step 1. Collect (sas_name, pcnr_name, var_idx, n_sources) for this source.
      If pcnr_filter is specified (pinned pass), restrict to those pcnr_names. */
   %local _n_src_vars;
   %local _pf_clause;
@@ -1050,7 +1106,7 @@
 
   proc sql noprint;
     create table work._gf_cols_&s_code as
-    select nm.col_name,
+    select nm.sas_name,
            nm.pcnr_name,
            nv.var_idx,
            nv.result_type,
@@ -1088,20 +1144,20 @@
   %do _i = 1 %to &_n_src_vars;
     %local _gf_cn_&_i _gf_pn_&_i;
     proc sql noprint;
-      select col_name, pcnr_name
+      select sas_name, pcnr_name
       into :_gf_cn_&_i trimmed, :_gf_pn_&_i trimmed
       from work._gf_cols_&s_code (firstobs=&_i obs=&_i);
     quit;
     %let _gf_keep = &_gf_keep &&_gf_cn_&_i;
-    /* Rename col_name to _S<z4(var_idx)> alias for merge */
+    /* Rename sas_name to _S<z4(var_idx)> alias for merge */
   %end;
 
-  /* Build RENAME= mapping col_name -> _S<z4(var_idx)> */
+  /* Build RENAME= mapping sas_name -> _S<z4(var_idx)> */
   data _null_;
     set work._gf_cols_&s_code;
     length _s_alias $10 _pair $400;
     _s_alias = cats('_S', put(var_idx, z4.));
-    _pair    = cats(strip(col_name), '=', strip(_s_alias));
+    _pair    = cats(strip(sas_name), '=', strip(_s_alias));
     call symputx(cats('_gf_rn_', _n_), strip(_pair), 'L');
     call symputx('_gf_rn_n', _n_, 'L');
   run;
@@ -1119,7 +1175,7 @@
   run;
 
   /* Step 3. Collect source column types from dictionary.columns for _S#### ATTRIB.
-     Stores: col_name, src_type ($4: 'num'/'char'), src_length (8) */
+     Stores: sas_name (as col_name_uc key), src_type ($4: 'num'/'char'), src_length (8) */
   proc sql noprint;
     create table work._gf_dict_&s_code as
     select upcase(d.name) as col_name_uc length=200,
@@ -1172,7 +1228,7 @@
     /* Look up actual source column type/length */
     src_type   = 'char';
     src_length = max_length;
-    col_name_uc = upcase(strip(col_name));
+    col_name_uc = upcase(strip(sas_name));
     if hdict.find() = 0 then do;
       /* found */
     end;
@@ -1625,7 +1681,8 @@
     if col_name = '' then delete;
   run;
 
-  /* For each CLOCK col_name, check status=EXCLUDED_CLK in name_map where s_code='s06' */
+  /* For each CLOCK col_name in s06class CSV, check status=EXCLUDED_CLK in name_map
+     where s_code='s06'.  The CSV column is named col_name; name_map column is sas_name. */
   %local _n_clk_not_excluded;
   proc sql noprint;
     select count(*) into :_n_clk_not_excluded trimmed
@@ -1633,7 +1690,7 @@
     where upcase(c.class) = 'CLOCK'
       and not exists (
         select 1 from &nmlib..name_map as nm
-        where upcase(nm.col_name) = upcase(c.col_name)
+        where upcase(nm.sas_name) = upcase(c.col_name)
           and nm.s_code  = 's06'
           and nm.status  = 'EXCLUDED_CLK'
       );
@@ -1725,7 +1782,7 @@
     /* For each variable contributed by this source, check sample rows */
     proc sql noprint;
       create table work._rs_vars as
-      select nm.col_name,
+      select nm.sas_name,
              nm.pcnr_name,
              nv.var_idx,
              nv.result_type,
@@ -1766,7 +1823,7 @@
       %let _rs_rt = ;
       %let _rs_tc = ;
       proc sql noprint;
-        select pcnr_name, var_idx, col_name, result_type, type_conflict
+        select pcnr_name, var_idx, sas_name, result_type, type_conflict
         into :_rs_pn trimmed, :_rs_vi trimmed, :_rs_cn trimmed,
              :_rs_rt trimmed, :_rs_tc trimmed
         from work._rs_vars (firstobs=&_rs_vi_i obs=&_rs_vi_i);
