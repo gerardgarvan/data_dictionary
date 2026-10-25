@@ -133,12 +133,15 @@ run;
   %_tc_start(n=01, desc=type-conflict-N8-resolve);
   %p5_resolve_types(srclib=work, nmlib=work, outlib=work,
                     export_dir=%sysfunc(getoption(work)));
-  %local _rt;
-  proc sql noprint;
-    select strip(resolved_type) into :_rt trimmed
-    from work._type_resolution where pcnr_name='PCNR_AGE';
-  quit;
-  %_assert(cond=(%bquote(&_rt)=%bquote(N8)), label=resolved-type-N8);
+  %_assert_pass(label=no-macro-fail);
+  %if &p5_fail = 0 %then %do;
+    %local _rt;
+    proc sql noprint;
+      select strip(resolved_type) into :_rt trimmed
+      from work._type_resolution where pcnr_name='PCNR_AGE';
+    quit;
+    %_assert(cond=(%bquote(&_rt)=%bquote(N8)), label=resolved-type-N8);
+  %end;
 %mend _tc01_run;
 %_tc01_run;
 
@@ -183,14 +186,17 @@ run;
   %_tc_start(n=02, desc=type-conflict-C-length);
   %p5_resolve_types(srclib=work, nmlib=work, outlib=work,
                     export_dir=%sysfunc(getoption(work)));
-  %local _rt _ol;
-  proc sql noprint;
-    select strip(resolved_type), out_length
-    into :_rt trimmed, :_ol trimmed
-    from work._type_resolution where pcnr_name='PCNR_CODE';
-  quit;
-  %_assert(cond=(%bquote(&_rt)=%bquote(C)), label=resolved-type-C);
-  %_assert(cond=(%eval(&_ol >= 8)), label=out-length-ge-8);
+  %_assert_pass(label=no-macro-fail);
+  %if &p5_fail = 0 %then %do;
+    %local _rt _ol;
+    proc sql noprint;
+      select strip(resolved_type), out_length
+      into :_rt trimmed, :_ol trimmed
+      from work._type_resolution where pcnr_name='PCNR_CODE';
+    quit;
+    %_assert(cond=(%bquote(&_rt)=%bquote(C)), label=resolved-type-C);
+    %_assert(cond=(%eval(&_ol >= 8)), label=out-length-ge-8);
+  %end;
 %mend _tc02_run;
 %_tc02_run;
 
@@ -247,22 +253,25 @@ run;
   %_tc_start(n=03, desc=spine-wins-conflict-row);
   %p5_gapfill_source(s_code=s01, rank=1, srclib=work, nmlib=work,
                      spine_n=3, gen_dir=%sysfunc(getoption(work)));
-  %local _nc _ctype _wsc _wv _csc _cv _vt;
-  proc sql noprint;
-    select count(*) into :_nc trimmed from work._conflicts_s01;
-    select strip(conflict_type), strip(winning_s_code), strip(winning_value),
-           strip(candidate_s_code), strip(candidate_value), strip(value_type)
-    into :_ctype trimmed, :_wsc trimmed, :_wv trimmed,
-         :_csc trimmed, :_cv trimmed, :_vt trimmed
-    from work._conflicts_s01 (obs=1);
-  quit;
-  %_assert(cond=(%eval(&_nc >= 1)), label=conflict-row-exists);
-  %_assert(cond=(%bquote(&_ctype)=%bquote(SPINE_VS_SOURCE)), label=conflict-type);
-  %_assert(cond=(%bquote(&_wsc)=%bquote(s09)), label=winning-s-code);
-  %_assert(cond=(%bquote(&_wv) ne %bquote()), label=winning-value-nonempty);
-  %_assert(cond=(%bquote(&_csc) ne %bquote()), label=candidate-s-code-nonempty);
-  %_assert(cond=(%bquote(&_cv) ne %bquote()), label=candidate-value-nonempty);
-  %_assert(cond=(%bquote(&_vt) ne %bquote()), label=value-type-nonempty);
+  %_assert_pass(label=no-macro-fail);
+  %if &p5_fail = 0 %then %do;
+    %local _nc _ctype _wsc _wv _csc _cv _vt;
+    proc sql noprint;
+      select count(*) into :_nc trimmed from work._conflicts_s01;
+      select strip(conflict_type), strip(winning_s_code), strip(winning_value),
+             strip(candidate_s_code), strip(candidate_value), strip(value_type)
+      into :_ctype trimmed, :_wsc trimmed, :_wv trimmed,
+           :_csc trimmed, :_cv trimmed, :_vt trimmed
+      from work._conflicts_s01 (obs=1);
+    quit;
+    %_assert(cond=(%eval(&_nc >= 1)), label=conflict-row-exists);
+    %_assert(cond=(%bquote(&_ctype)=%bquote(SPINE_VS_SOURCE)), label=conflict-type);
+    %_assert(cond=(%bquote(&_wsc)=%bquote(s09)), label=winning-s-code);
+    %_assert(cond=(%bquote(&_wv) ne %bquote()), label=winning-value-nonempty);
+    %_assert(cond=(%bquote(&_csc) ne %bquote()), label=candidate-s-code-nonempty);
+    %_assert(cond=(%bquote(&_cv) ne %bquote()), label=candidate-value-nonempty);
+    %_assert(cond=(%bquote(&_vt) ne %bquote()), label=value-type-nonempty);
+  %end;
 %mend _tc03_run;
 %_tc03_run;
 
@@ -329,17 +338,20 @@ run;
                      spine_n=3, gen_dir=%sysfunc(getoption(work)));
   %p5_gapfill_source(s_code=s02, rank=2, srclib=work, nmlib=work,
                      spine_n=3, gen_dir=%sysfunc(getoption(work)));
-  %local _nc _ctype _wsc _csc;
-  proc sql noprint;
-    select count(*) into :_nc trimmed from work._conflicts_s02;
-    select strip(conflict_type), strip(winning_s_code), strip(candidate_s_code)
-    into :_ctype trimmed, :_wsc trimmed, :_csc trimmed
-    from work._conflicts_s02 (obs=1);
-  quit;
-  %_assert(cond=(%eval(&_nc >= 1)), label=sos-conflict-exists);
-  %_assert(cond=(%bquote(&_ctype)=%bquote(SOURCE_VS_SOURCE)), label=sos-type);
-  %_assert(cond=(%bquote(&_wsc)=%bquote(s01)), label=winning-s01);
-  %_assert(cond=(%bquote(&_csc) ne %bquote()), label=candidate-s-code-nonempty);
+  %_assert_pass(label=no-macro-fail);
+  %if &p5_fail = 0 %then %do;
+    %local _nc _ctype _wsc _csc;
+    proc sql noprint;
+      select count(*) into :_nc trimmed from work._conflicts_s02;
+      select strip(conflict_type), strip(winning_s_code), strip(candidate_s_code)
+      into :_ctype trimmed, :_wsc trimmed, :_csc trimmed
+      from work._conflicts_s02 (obs=1);
+    quit;
+    %_assert(cond=(%eval(&_nc >= 1)), label=sos-conflict-exists);
+    %_assert(cond=(%bquote(&_ctype)=%bquote(SOURCE_VS_SOURCE)), label=sos-type);
+    %_assert(cond=(%bquote(&_wsc)=%bquote(s01)), label=winning-s01);
+    %_assert(cond=(%bquote(&_csc) ne %bquote()), label=candidate-s-code-nonempty);
+  %end;
 %mend _tc04_run;
 %_tc04_run;
 
@@ -372,13 +384,16 @@ run;
                      spine_n=1, gen_dir=%sysfunc(getoption(work)));
   %p5_gapfill_source(s_code=s02, rank=2, srclib=work, nmlib=work,
                      spine_n=1, gen_dir=%sysfunc(getoption(work)));
-  %local _nc1 _nc2;
-  proc sql noprint;
-    select count(*) into :_nc1 trimmed from work._conflicts_s01;
-    select count(*) into :_nc2 trimmed from work._conflicts_s02;
-  quit;
-  %_assert(cond=(%eval(&_nc1 = 0)), label=s01-no-conflict);
-  %_assert(cond=(%eval(&_nc2 = 0)), label=s02-no-conflict);
+  %_assert_pass(label=no-macro-fail);
+  %if &p5_fail = 0 %then %do;
+    %local _nc1 _nc2;
+    proc sql noprint;
+      select count(*) into :_nc1 trimmed from work._conflicts_s01;
+      select count(*) into :_nc2 trimmed from work._conflicts_s02;
+    quit;
+    %_assert(cond=(%eval(&_nc1 = 0)), label=s01-no-conflict);
+    %_assert(cond=(%eval(&_nc2 = 0)), label=s02-no-conflict);
+  %end;
 %mend _tc05_run;
 %_tc05_run;
 
@@ -414,12 +429,15 @@ run;
                      spine_n=2, gen_dir=%sysfunc(getoption(work)));
   %p5_gapfill_source(s_code=s02, rank=2, srclib=work, nmlib=work,
                      spine_n=2, gen_dir=%sysfunc(getoption(work)));
-  %local _nc_p002;
-  proc sql noprint;
-    select count(*) into :_nc_p002 trimmed
-    from work._conflicts_s02 where norm_psid='P002';
-  quit;
-  %_assert(cond=(%eval(&_nc_p002 = 0)), label=s02-no-conflict-for-P002);
+  %_assert_pass(label=no-macro-fail);
+  %if &p5_fail = 0 %then %do;
+    %local _nc_p002;
+    proc sql noprint;
+      select count(*) into :_nc_p002 trimmed
+      from work._conflicts_s02 where norm_psid='P002';
+    quit;
+    %_assert(cond=(%eval(&_nc_p002 = 0)), label=s02-no-conflict-for-P002);
+  %end;
 %mend _tc06_run;
 %_tc06_run;
 
@@ -461,11 +479,14 @@ run;
   %_tc_start(n=07, desc=conflict-consolidation);
   %p5_write_qc(outlib=work, spine_n=1,
                export_dir=%sysfunc(getoption(work)));
-  %local _nc;
-  proc sql noprint;
-    select count(*) into :_nc trimmed from work.qc_pcnr_conflicts;
-  quit;
-  %_assert(cond=(%eval(&_nc >= 2)), label=conflicts-ge-2-rows);
+  %_assert_pass(label=no-macro-fail);
+  %if &p5_fail = 0 %then %do;
+    %local _nc;
+    proc sql noprint;
+      select count(*) into :_nc trimmed from work.qc_pcnr_conflicts;
+    quit;
+    %_assert(cond=(%eval(&_nc >= 2)), label=conflicts-ge-2-rows);
+  %end;
 %mend _tc07_run;
 %_tc07_run;
 
@@ -499,16 +520,19 @@ run;
   %_tc_start(n=08, desc=provenance-2plus-source-only);
   %p5_write_qc(outlib=work, spine_n=1,
                export_dir=%sysfunc(getoption(work)));
-  %local _nage _ncode;
-  proc sql noprint;
-    select count(*) into :_nage trimmed
-    from work.qc_pcnr_provenance
-    where pcnr_name='PCNR_AGE' and src_s_code ne '';
-    select count(*) into :_ncode trimmed
-    from work.qc_pcnr_provenance where pcnr_name='PCNR_CODE';
-  quit;
-  %_assert(cond=(%eval(&_nage >= 1)), label=prov-age-present);
-  %_assert(cond=(%eval(&_ncode = 0)), label=prov-code-absent);
+  %_assert_pass(label=no-macro-fail);
+  %if &p5_fail = 0 %then %do;
+    %local _nage _ncode;
+    proc sql noprint;
+      select count(*) into :_nage trimmed
+      from work.qc_pcnr_provenance
+      where pcnr_name='PCNR_AGE' and src_s_code ne '';
+      select count(*) into :_ncode trimmed
+      from work.qc_pcnr_provenance where pcnr_name='PCNR_CODE';
+    quit;
+    %_assert(cond=(%eval(&_nage >= 1)), label=prov-age-present);
+    %_assert(cond=(%eval(&_ncode = 0)), label=prov-code-absent);
+  %end;
 %mend _tc08_run;
 %_tc08_run;
 
@@ -592,18 +616,21 @@ run;
                      pcnr_filter=%bquote(%')PCNR_AGE%bquote(%'),
                      srclib=work, nmlib=work, spine_n=2,
                      gen_dir=%sysfunc(getoption(work)));
-  %local _f1_p001 _f1_p002 _f2_p001;
-  proc sql noprint;
-    select strip(_F0001) into :_f1_p001 trimmed
-    from work._pcnr_accum where norm_psid='P001';
-    select strip(_F0001) into :_f1_p002 trimmed
-    from work._pcnr_accum where norm_psid='P002';
-    select strip(_F0002) into :_f2_p001 trimmed
-    from work._pcnr_accum where norm_psid='P001';
-  quit;
-  %_assert(cond=(%bquote(&_f1_p001)=%bquote(s02)), label=P001-age-pinned-s02);
-  %_assert(cond=(%bquote(&_f1_p002)=%bquote(s01)), label=P002-age-fallback-s01);
-  %_assert(cond=(%bquote(&_f2_p001)=%bquote(s01)), label=P001-code-s01-unaffected);
+  %_assert_pass(label=no-macro-fail);
+  %if &p5_fail = 0 %then %do;
+    %local _f1_p001 _f1_p002 _f2_p001;
+    proc sql noprint;
+      select strip(_F0001) into :_f1_p001 trimmed
+      from work._pcnr_accum where norm_psid='P001';
+      select strip(_F0001) into :_f1_p002 trimmed
+      from work._pcnr_accum where norm_psid='P002';
+      select strip(_F0002) into :_f2_p001 trimmed
+      from work._pcnr_accum where norm_psid='P001';
+    quit;
+    %_assert(cond=(%bquote(&_f1_p001)=%bquote(s02)), label=P001-age-pinned-s02);
+    %_assert(cond=(%bquote(&_f1_p002)=%bquote(s01)), label=P002-age-fallback-s01);
+    %_assert(cond=(%bquote(&_f2_p001)=%bquote(s01)), label=P001-code-s01-unaffected);
+  %end;
 %mend _tc09_run;
 %_tc09_run;
 
@@ -633,14 +660,19 @@ run;
   %_tc_start(n=10, desc=gapfill-identity);
   %p5_write_qc(outlib=work, spine_n=5,
                export_dir=%sysfunc(getoption(work)));
-  %local _ns _ng _nm _tot;
-  proc sql noprint;
-    select n_spine, n_gapfilled, n_missing
-    into :_ns trimmed, :_ng trimmed, :_nm trimmed
-    from work._gapfill_counts where var_idx=1;
-  quit;
-  %let _tot = %eval(&_ns + &_ng + &_nm);
-  %_assert(cond=(%eval(&_tot = 5)), label=identity-holds);
+  %_assert_pass(label=no-macro-fail);
+  %if &p5_fail = 0 %then %do;
+    %local _ns _ng _nm _tot;
+    proc sql noprint;
+      select n_spine, n_gapfilled, n_missing
+      into :_ns trimmed, :_ng trimmed, :_nm trimmed
+      from work._gapfill_counts where var_idx=1;
+    quit;
+    %let _tot = %eval(&_ns + &_ng + &_nm);
+    /* Check >= 1 gap-filled cell exists */
+    %_assert(cond=(%eval(&_ng >= 1)), label=gapfill-ge-1-cell);
+    %_assert(cond=(%eval(&_tot = 5)), label=identity-holds);
+  %end;
 %mend _tc10_run;
 %_tc10_run;
 
@@ -663,18 +695,21 @@ run;
          pcnr_name conflict_type winning_s_code winning_value
          candidate_s_code candidate_value value_type src_s_code;
   run;
-  proc contents data=work.pcnr out=work._pcnr_cols noprint; run;
-  %local _nextra _has_helper;
-  proc sql noprint;
-    select count(*) into :_nextra trimmed
-    from work._pcnr_cols
-    where upcase(name) not in ('NORM_PSID','PCNR_AGE','PCNR_CODE');
-    select count(*) into :_has_helper trimmed
-    from work._pcnr_cols
-    where upcase(name) in ('PCNR_NAME','CONFLICT_TYPE','_F0001','_S0001','SRC_S_CODE');
-  quit;
-  %_assert(cond=(%eval(&_nextra = 0)), label=no-extra-cols);
-  %_assert(cond=(%eval(&_has_helper = 0)), label=no-helper-cols);
+  %_assert_pass(label=no-macro-fail);
+  %if &p5_fail = 0 %then %do;
+    proc contents data=work.pcnr out=work._pcnr_cols noprint; run;
+    %local _nextra _has_helper;
+    proc sql noprint;
+      select count(*) into :_nextra trimmed
+      from work._pcnr_cols
+      where upcase(name) not in ('NORM_PSID','PCNR_AGE','PCNR_CODE');
+      select count(*) into :_has_helper trimmed
+      from work._pcnr_cols
+      where upcase(name) in ('PCNR_NAME','CONFLICT_TYPE','_F0001','_S0001','SRC_S_CODE');
+    quit;
+    %_assert(cond=(%eval(&_nextra = 0)), label=no-extra-cols);
+    %_assert(cond=(%eval(&_has_helper = 0)), label=no-helper-cols);
+  %end;
 %mend _tc11_run;
 %_tc11_run;
 
@@ -706,25 +741,32 @@ run;
   %_tc_start(n=12, desc=rerun-idempotence);
   %p5_write_qc(outlib=work, spine_n=3,
                export_dir=%sysfunc(getoption(work)));
-  %local _nc1 _np1;
-  proc sql noprint;
-    select count(*) into :_nc1 trimmed from work.qc_pcnr_conflicts;
-    select count(*) into :_np1 trimmed from work.qc_pcnr_provenance;
-  quit;
-  /* Rebuild prov for second run */
-  data work._prov_s01;
-    length norm_psid $64 pcnr_name $200 src_s_code $4;
-    norm_psid='P002'; pcnr_name='PCNR_AGE'; src_s_code='s01'; output;
-  run;
-  %p5_write_qc(outlib=work, spine_n=3,
-               export_dir=%sysfunc(getoption(work)));
-  %local _nc2 _np2;
-  proc sql noprint;
-    select count(*) into :_nc2 trimmed from work.qc_pcnr_conflicts;
-    select count(*) into :_np2 trimmed from work.qc_pcnr_provenance;
-  quit;
-  %_assert(cond=(%eval(&_nc1 = &_nc2)), label=conflict-count-match);
-  %_assert(cond=(%eval(&_np1 = &_np2)), label=prov-count-match);
+  %_assert_pass(label=no-macro-fail-run1);
+  %if &p5_fail = 0 %then %do;
+    %local _nc1 _np1;
+    proc sql noprint;
+      select count(*) into :_nc1 trimmed from work.qc_pcnr_conflicts;
+      select count(*) into :_np1 trimmed from work.qc_pcnr_provenance;
+    quit;
+    /* Rebuild prov for second run */
+    data work._prov_s01;
+      length norm_psid $64 pcnr_name $200 src_s_code $4;
+      norm_psid='P002'; pcnr_name='PCNR_AGE'; src_s_code='s01'; output;
+    run;
+    %let p5_fail = 0;
+    %p5_write_qc(outlib=work, spine_n=3,
+                 export_dir=%sysfunc(getoption(work)));
+    %_assert_pass(label=no-macro-fail-run2);
+    %if &p5_fail = 0 %then %do;
+      %local _nc2 _np2;
+      proc sql noprint;
+        select count(*) into :_nc2 trimmed from work.qc_pcnr_conflicts;
+        select count(*) into :_np2 trimmed from work.qc_pcnr_provenance;
+      quit;
+      %_assert(cond=(%eval(&_nc1 = &_nc2)), label=conflict-count-match);
+      %_assert(cond=(%eval(&_np1 = &_np2)), label=prov-count-match);
+    %end;
+  %end;
 %mend _tc12_run;
 %_tc12_run;
 
@@ -772,14 +814,17 @@ run;
   %_tc_start(n=13, desc=32char-pcnr-name);
   %p5_gapfill_source(s_code=s01, rank=1, srclib=work, nmlib=work,
                      spine_n=1, gen_dir=%sysfunc(getoption(work)));
-  proc contents data=work._pcnr_accum out=work._tc13_cols noprint; run;
-  %local _found;
-  proc sql noprint;
-    select count(*) into :_found trimmed
-    from work._tc13_cols
-    where upcase(name)=upcase('PCNR_ABCDEFGHIJKLMNOPQRSTUVWXYZ');
-  quit;
-  %_assert(cond=(%eval(&_found = 1)), label=32char-col-exists);
+  %_assert_pass(label=no-macro-fail);
+  %if &p5_fail = 0 %then %do;
+    proc contents data=work._pcnr_accum out=work._tc13_cols noprint; run;
+    %local _found;
+    proc sql noprint;
+      select count(*) into :_found trimmed
+      from work._tc13_cols
+      where upcase(name)=upcase('PCNR_ABCDEFGHIJKLMNOPQRSTUVWXYZ');
+    quit;
+    %_assert(cond=(%eval(&_found = 1)), label=32char-col-exists);
+  %end;
 %mend _tc13_run;
 %_tc13_run;
 
@@ -805,13 +850,16 @@ run;
   %_tc_start(n=14, desc=empty-conflict-run);
   %p5_write_qc(outlib=work, spine_n=1,
                export_dir=%sysfunc(getoption(work)));
-  %local _nc _fex;
-  proc sql noprint;
-    select count(*) into :_nc trimmed from work.qc_pcnr_conflicts;
-  quit;
-  %let _fex = %sysfunc(fileexist(%sysfunc(getoption(work))\pcnr_conflicts_detail.csv));
-  %_assert(cond=(%eval(&_nc = 0)), label=zero-conflict-rows);
-  %_assert(cond=(%eval(&_fex = 1)), label=csv-file-exists);
+  %_assert_pass(label=no-macro-fail);
+  %if &p5_fail = 0 %then %do;
+    %local _nc _fex;
+    proc sql noprint;
+      select count(*) into :_nc trimmed from work.qc_pcnr_conflicts;
+    quit;
+    %let _fex = %sysfunc(fileexist(%sysfunc(getoption(work))\pcnr_conflicts_detail.csv));
+    %_assert(cond=(%eval(&_nc = 0)), label=zero-conflict-rows);
+    %_assert(cond=(%eval(&_fex = 1)), label=csv-file-exists);
+  %end;
 %mend _tc14_run;
 %_tc14_run;
 
@@ -964,32 +1012,35 @@ run;
   %_write_s06class_csv(path=&_wdir.\cls_tc16.csv);
   %p5_gapfill_source(s_code=s01, rank=1, srclib=work, nmlib=work,
                      spine_n=3, gen_dir=&_wdir);
-  /* Corrupt P001 PCNR_AGE: 30 -> 999 without changing _F0001 */
-  data work._pcnr_accum;
-    set work._pcnr_accum;
-    if norm_psid='P001' then PCNR_AGE=999;
-  run;
-  data work.pcnr;
-    set work._pcnr_accum;
-    drop _F:;
-  run;
-  %let p5_fail = 0;
-  %p5_finalize_pcnr(outlib=work, nmlib=work, srclib=work,
-                    spine_n=3, nvars=1, s06class_csv=&_wdir.\cls_tc16.csv);
-  %_assert_fail(label=corrupted-cell-detected);
-  /* Restore correct value */
-  %let p5_fail = 0;
-  data work._pcnr_accum;
-    set work._pcnr_accum;
-    if norm_psid='P001' then PCNR_AGE=30;
-  run;
-  data work.pcnr;
-    set work._pcnr_accum;
-    drop _F:;
-  run;
-  %p5_finalize_pcnr(outlib=work, nmlib=work, srclib=work,
-                    spine_n=3, nvars=1, s06class_csv=&_wdir.\cls_tc16.csv);
-  %_assert_pass(label=clean-run-passes);
+  %_assert_pass(label=gapfill-preflight-ok);
+  %if &p5_fail = 0 %then %do;
+    /* Corrupt P001 PCNR_AGE: 30 -> 999 without changing _F0001 */
+    data work._pcnr_accum;
+      set work._pcnr_accum;
+      if norm_psid='P001' then PCNR_AGE=999;
+    run;
+    data work.pcnr;
+      set work._pcnr_accum;
+      drop _F:;
+    run;
+    %let p5_fail = 0;
+    %p5_finalize_pcnr(outlib=work, nmlib=work, srclib=work,
+                      spine_n=3, nvars=1, s06class_csv=&_wdir.\cls_tc16.csv);
+    %_assert_fail(label=corrupted-cell-detected);
+    /* Restore correct value */
+    %let p5_fail = 0;
+    data work._pcnr_accum;
+      set work._pcnr_accum;
+      if norm_psid='P001' then PCNR_AGE=30;
+    run;
+    data work.pcnr;
+      set work._pcnr_accum;
+      drop _F:;
+    run;
+    %p5_finalize_pcnr(outlib=work, nmlib=work, srclib=work,
+                      spine_n=3, nvars=1, s06class_csv=&_wdir.\cls_tc16.csv);
+    %_assert_pass(label=clean-run-passes);
+  %end;
 %mend _tc16_run;
 %_tc16_run;
 

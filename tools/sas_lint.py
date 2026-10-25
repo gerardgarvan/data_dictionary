@@ -450,6 +450,32 @@ def check_macro_in_put(path, lines):
     return hits
 
 
+# ── C11b: %macroname( invocation inside %put or put statement text ───────────
+#
+# A %macroname() call inside a %put text string (e.g. %put NOTE: %mymacro();)
+# will be executed by the macro processor, not printed as text.  This is almost
+# always unintentional in a logging %put.  For DATA step put statements, a
+# %macroname() call inside quoted text would be interpreted at compile time and
+# produce unexpected results.
+# Correct pattern: remove the % prefix so it prints as literal text.
+
+_MACRO_INVOKE_IN_PUT = re.compile(
+    r'\b(%put|put)\b'
+    r'[^;]*'
+    r'%[A-Za-z_]\w*\s*\(',
+    CI,
+)
+
+def check_macro_invoke_in_put(path, lines):
+    hits = []
+    for i, raw in enumerate(lines, 1):
+        if re.search(_MACRO_INVOKE_IN_PUT, raw):
+            hits.append((path, i, 'C11b',
+                'macro invocation %name( appears inside a %put or put statement -- '
+                'the macro WILL execute; if text-only intent, remove the % prefix'))
+    return hits
+
+
 # ── C13: macro called before definition (same file) ──────────────────────────
 #
 # Only flags macros whose %macro definition appears later in the same file.
@@ -834,6 +860,7 @@ CHECKS = [
     check_libname_engine_after_path,
     check_array_special_before_set,
     check_macro_in_put,
+    check_macro_invoke_in_put,
     check_call_before_define,
     check_bare_data_set,
     check_assert_query_columns,

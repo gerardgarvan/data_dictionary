@@ -351,12 +351,13 @@
     %put NOTE: [05_build_pcnr] override file is empty (header-only) -- no override pins active;
   %end;
 
-  /* ---- E. Load work._nmv ---- */
+  /* ---- E. Load work._nmv with sequential var_idx ---- */
   data work._nmv;
     set &nmlib..name_map_vars;
+    var_idx + 1;
   run;
 
-  %put NOTE: [05_build_pcnr] %p5_preflight complete;
+  %put NOTE: [05_build_pcnr] p5_preflight complete;
 
 %mend p5_preflight;
 
@@ -437,7 +438,7 @@
       where norm_psid ne '';
     quit;
 
-    %put NOTE: [05_build_pcnr] SOURCE &_sc: &_nnis of &_nk keys not in spine; n_blank=&_nb; n_dup=&_nd;
+    %put NOTE: [05_build_pcnr] SOURCE &_sc: &_nnis of &_nk keys not in spine, n_blank=&_nb, n_dup=&_nd;
 
     /* Append to accumulator */
     data work._cov_row;
@@ -667,7 +668,7 @@
       /* Step 4 / item 11. out_length = max(name_map_vars max_length, numeric source best32 max) */
       %let _out_length = &_tc_maxlen;
       %if &_n_numlen_max > &_out_length %then %let _out_length = &_n_numlen_max;
-      %put NOTE: [05_build_pcnr] &_tc_name resolved to C (length=&_out_length; &_n_fail_total parse failures);
+      %put NOTE: [05_build_pcnr] &_tc_name resolved to C (length=&_out_length, &_n_fail_total parse failures);
     %end;
 
     /* Step 5. Append to work._type_resolution */
@@ -940,7 +941,7 @@
   %assert_rowcount(ds=work._pcnr_accum, expected=&spine_n,
                    label=spine-loaded accumulator);
 
-  %put NOTE: [05_build_pcnr] %p5_build_accumulator complete;
+  %put NOTE: [05_build_pcnr] p5_build_accumulator complete;
 
 %mend p5_build_accumulator;
 
@@ -1131,8 +1132,9 @@
     end;
     put 'end;';
     /* Conflict block -- all output columns set BEFORE output statement (Blocker 2) */
-    put cats('else if not missing(', strip(pcnr_name),
+    _line = cats('else if not missing(', strip(pcnr_name),
              ') and not missing(', strip(_s_alias), ') then do;');
+    put _line;
     /* D-20 equality: char uses strip(); numeric uses exact */
     if resolved_type = 'N8' then do;
       _line = cats('  if ', strip(pcnr_name), ' ne ', strip(_s_alias), ' then do;');
@@ -1143,19 +1145,26 @@
     end;
     put _line;
     /* conflict_type: SPINE_VS_SOURCE if _F alias = 's09', else SOURCE_VS_SOURCE */
-    put cats('    _conflict_type = ifc(strip(', strip(_f_alias),
+    _line = cats('    _conflict_type = ifc(strip(', strip(_f_alias),
              ") = 's09', 'SPINE_VS_SOURCE', 'SOURCE_VS_SOURCE');");
-    put cats('    _winning_sc = strip(', strip(_f_alias), ');');
+    put _line;
+    _line = cats('    _winning_sc = strip(', strip(_f_alias), ');');
+    put _line;
     /* winning_value: convert to $200 */
     if resolved_type = 'N8' then do;
-      put cats('    _winning_val = strip(put(', strip(pcnr_name), ', best32.));');
-      put cats('    _candidate_val = strip(put(', strip(_s_alias), ', best32.));');
+      _line = cats('    _winning_val = strip(put(', strip(pcnr_name), ', best32.));');
+      put _line;
+      _line = cats('    _candidate_val = strip(put(', strip(_s_alias), ', best32.));');
+      put _line;
     end;
     else do;
-      put cats('    _winning_val = strip(', strip(pcnr_name), ');');
-      put cats('    _candidate_val = strip(', strip(_s_alias), ');');
+      _line = cats('    _winning_val = strip(', strip(pcnr_name), ');');
+      put _line;
+      _line = cats('    _candidate_val = strip(', strip(_s_alias), ');');
+      put _line;
     end;
-    put cats('    _candidate_sc = "', "&s_code", '";');
+    _line = cats('    _candidate_sc = "', "&s_code", '";');
+    put _line;
     _line = cats('    _pcnr_name_c  = "', strip(pcnr_name), '";');
     put _line;
     /* value_type: 'N' or 'C' -- set before output */
@@ -1253,7 +1262,7 @@
     delete _src_&s_code _gf_cols_&s_code;
   quit;
 
-  %put NOTE: [05_build_pcnr] %p5_gapfill_source(&s_code) complete;
+  %put NOTE: [05_build_pcnr] p5_gapfill_source(&s_code) complete;
 
 %mend p5_gapfill_source;
 
@@ -1680,7 +1689,7 @@
            _recon_mismatches;
   quit;
 
-  %put NOTE: [05_build_pcnr] %p5_finalize_pcnr complete;
+  %put NOTE: [05_build_pcnr] p5_finalize_pcnr complete;
 
 %mend p5_finalize_pcnr;
 
@@ -1869,10 +1878,10 @@
   run;
 
   %if &_n_total_conflicts > 5000 %then %do;
-    %put NOTE: [05_build_pcnr] conflicts detail capped at 5000 rows; full table in &outlib..qc_pcnr_conflicts (total=&_n_total_conflicts);
+    %put NOTE: [05_build_pcnr] conflicts detail capped at 5000 rows, full table in &outlib..qc_pcnr_conflicts (total=&_n_total_conflicts);
   %end;
   %put NOTE: [05_build_pcnr] pcnr_conflicts_detail.csv written to export_dir;
 
-  %put NOTE: [05_build_pcnr] %p5_write_qc complete;
+  %put NOTE: [05_build_pcnr] p5_write_qc complete;
 
 %mend p5_write_qc;
