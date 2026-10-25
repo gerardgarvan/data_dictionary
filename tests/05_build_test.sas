@@ -223,7 +223,6 @@ data work.name_map_vars;
 run;
 data work._nmv;
   set work.name_map_vars;
-  var_idx + 1;
 run;
 data work._type_resolution;
   length pcnr_name $200 resolved_type $8 out_length 8;
@@ -301,7 +300,6 @@ data work.name_map_vars;
 run;
 data work._nmv;
   set work.name_map_vars;
-  var_idx + 1;
 run;
 data work._type_resolution;
   length pcnr_name $200 resolved_type $8 out_length 8;
@@ -1079,10 +1077,9 @@ data work.name_map_vars;
   pcnr_name='PCNR_SCORE'; result_type='N'; max_length=8;
   type_conflict='N'; s_codes_contributing='s09 s01'; n_sources=2; output;
 run;
-/* _nmv with var_idx assigned here (simulating what preflight would do) */
+/* _nmv carries var_idx from name_map_vars (set directly, no re-increment) */
 data work._nmv;
   set work.name_map_vars;
-  var_idx + 1;
 run;
 data work._type_resolution;
   length pcnr_name $200 resolved_type $8 out_length 8;
@@ -1221,6 +1218,35 @@ run;
 %_tc18_run;
 
 /*==========================================================================
-  SECTION 19 -- Summary
+  SECTION 19 -- TC-19: SQL error inside p5_gapfill_source -> p5_fail=1
+  Force error by passing nmlib= pointing to a libname that has no name_map.
+==========================================================================*/
+
+/* Minimal setup -- _nmv and _pcnr_accum already exist from TC-18 */
+data work._pcnr_accum;
+  attrib norm_psid length=$64 PCNR_AGE length=8 _F0001 length=$4;
+  norm_psid='P001'; PCNR_AGE=.; _F0001=''; output;
+run;
+
+%macro _tc19_run;
+  %_tc_start(n=19, desc=sql-error-gapfill-propagates);
+  /* nmlib=work is fine but work.name_map exists with PCNR_AGE/s01 from TC-18 setup.
+     Override: delete work.name_map so the inner join finds 0 rows -> _gf_cols empty
+     -> %return (not a SQL error). Instead, force sqlrc>4 by referencing nonexistent
+     libname. Assign a libname that points to a non-existent path to induce SQL error. */
+  %local _wdir;
+  %let _wdir = %sysfunc(getoption(work));
+  libname _fake_ "&_wdir.\nonexistent_does_not_exist_path";
+  /* _fake_ assignment will succeed (SAS lazy-binds), but querying it will error.
+     Instead, simply delete work._nmv so the inner join produces ERROR "table not found". */
+  proc datasets library=work nolist; delete _nmv; quit;
+  %p5_gapfill_source(s_code=s01, rank=1, srclib=work, nmlib=work,
+                     spine_n=1, gen_dir=&_wdir);
+  %_assert_fail(label=sql-error-detected-p5-fail-1);
+%mend _tc19_run;
+%_tc19_run;
+
+/*==========================================================================
+  SECTION 20 -- Summary
 ==========================================================================*/
 %_tc_summary;

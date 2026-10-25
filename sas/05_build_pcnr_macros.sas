@@ -791,8 +791,23 @@
     %end;
   %end;
 
-  /* Step 1. var_idx is assigned by %p5_preflight (or by the test harness).
-     %p5_build_accumulator does NOT re-assign it -- single assignment point. */
+  /* Step 1. Assign var_idx if not already present in work._nmv.
+     %p5_preflight assigns it; if called without preflight (e.g. test harness),
+     assign it here as a sequential counter. Single-source: only add when missing. */
+  %local _nmv_has_varidx;
+  %let _nmv_has_varidx = 0;
+  proc sql noprint;
+    select count(*) into :_nmv_has_varidx trimmed
+    from dictionary.columns
+    where libname = 'WORK' and memname = '_NMV'
+      and upcase(name) = 'VAR_IDX';
+  quit;
+  %if &_nmv_has_varidx = 0 %then %do;
+    data work._nmv;
+      set work._nmv;
+      var_idx + 1;
+    run;
+  %end;
 
   /* Step 2. Build representative-label lookup (work._pcnr_labels).
      For each pcnr_name select the original_header from the row with
@@ -1040,6 +1055,10 @@
     select count(*) into :_n_src_vars trimmed
     from work._gf_cols_&s_code;
   quit;
+  %if &sqlrc > 4 %then %do;
+    %fail_out(msg=%str(p5_gapfill_source SQL failed building _gf_cols_&s_code (sqlrc=&sqlrc)));
+    %if &p5_fail = 1 %then %return;
+  %end;
 
   /* Skip sources contributing 0 PCNR_ variables */
   %if &_n_src_vars = 0 %then %do;
@@ -1242,6 +1261,14 @@
     if _eof then put 'drop _S:;';
     drop col_name_uc resolved_type out_length _f_alias _s_alias _line src_type src_length;
   run;
+  %if &syserr > 4 %then %do;
+    %fail_out(msg=%str(gapfill generator DATA step failed for source &s_code (syserr=&syserr)));
+    %if &p5_fail = 1 %then %return;
+  %end;
+  %if not %sysfunc(fileexist("&gen_dir.\05_generated_gapfill_&s_code..sas")) %then %do;
+    %fail_out(msg=%str(generated gapfill file not found after generator step: &gen_dir.\05_generated_gapfill_&s_code..sas));
+    %if &p5_fail = 1 %then %return;
+  %end;
 
   /* Clean up dictionary lookup */
   proc datasets library=work nolist;
@@ -1292,6 +1319,10 @@
     drop _conflict_type _winning_sc _winning_val _candidate_sc
          _candidate_val _value_type _pcnr_name_c _S:;
   run;
+  %if &syserr > 4 %then %do;
+    %fail_out(msg=%str(merge/gapfill DATA step failed for source &s_code (syserr=&syserr)));
+    %if &p5_fail = 1 %then %return;
+  %end;
 
   /* Step 5. Assert spine_n rows on work._pcnr_next */
   %assert_rowcount(ds=work._pcnr_next, expected=&spine_n,
@@ -1411,7 +1442,7 @@
       %if &_n_p3_vars > 0 %then %do;
         /* Pass pcnr_filter as the non-pinned pcnr_name list */
         proc sql noprint;
-          select distinct quote(strip(pcnr_name))
+          select distinct strip(pcnr_name)
           into :_p3_filter separated by ' '
           from &nmlib..name_map
           where s_code = "&_sc"
@@ -1476,21 +1507,19 @@
     %let _hi = %eval(&_hi + 1);
     %let _hword = %scan(&_hnames, &_hi, %str( ));
   %end;
-  /* Check whether any _F* or _S* columns exist */
-  %let _has_f = 0;
-  %let _has_s = 0;
+  /* Enumerate actual _F* and _S* column names to avoid wildcard "never been referenced"
+     warnings when no such columns exist (e.g. in test harnesses). */
+  %local _fs_names;
+  %let _fs_names = ;
   proc sql noprint;
-    select count(*) into :_has_f trimmed
+    select name into :_fs_names separated by ' '
     from dictionary.columns
     where libname = 'WORK' and memname = '_PCNR_ACCUM'
-      and upcase(substr(name, 1, 2)) = '_F';
-    select count(*) into :_has_s trimmed
-    from dictionary.columns
-    where libname = 'WORK' and memname = '_PCNR_ACCUM'
-      and upcase(substr(name, 1, 2)) = '_S';
+      and (upcase(substr(name, 1, 2)) = '_F'
+        or upcase(substr(name, 1, 2)) = '_S');
   quit;
-  %if &_has_f > 0 %then %let _helper_drop = &_helper_drop _F:;
-  %if &_has_s > 0 %then %let _helper_drop = &_helper_drop _S:;
+  %if %bquote(&_fs_names) ne %bquote() %then
+    %let _helper_drop = &_helper_drop &_fs_names;
 
   data &outlib..pcnr;
     set work._pcnr_accum;
@@ -1646,7 +1675,7 @@
      Write mismatches to work._recon_mismatches. */
   data work._recon_mismatches;
     length norm_psid $64 pcnr_name $200 s_code $4
-           accum_value $200 source_value $200 var_idx 8;
+           accum_value $200 source_value $200 var_idx 8 n_mismatches 8;
     stop;
   run;
 
