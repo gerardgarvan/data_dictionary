@@ -876,6 +876,40 @@ def check_cats_space_args(path, lines):
     return hits
 
 
+# ── C17: self-referencing macro parameter default ────────────────────────────
+#
+# Flag `%macro foo(bar=&bar)` -- the default resolves &bar at macro-compile time,
+# which triggers "Apparent symbolic reference BAR not resolved" (or a recursive
+# reference warning) when the global is undefined.  Real defaults must be literal
+# paths or empty; the caller must supply the value explicitly.
+
+_C17_SELF_REF = re.compile(
+    r'%macro\s+\w+\s*\(([^)]*)\)',
+    re.IGNORECASE | re.DOTALL,
+)
+_C17_PARAM = re.compile(
+    r'\b(\w+)\s*=\s*&(\w+)',
+    re.IGNORECASE,
+)
+
+def check_self_ref_param_default(path, lines):
+    """Flag macro parameters whose default is &<same_name> (C17)."""
+    hits = []
+    text = '\n'.join(lines)
+    for mm in _C17_SELF_REF.finditer(text):
+        param_block = mm.group(1)
+        # Map the position back to a line number
+        line_no = text[:mm.start()].count('\n') + 1
+        for pm in _C17_PARAM.finditer(param_block):
+            pname, vname = pm.group(1).lower(), pm.group(2).lower()
+            if pname == vname:
+                hits.append((path, line_no, 'C17',
+                    f'macro parameter {pname}=&{vname} -- default references '
+                    f'itself; use a literal default or leave empty and pass '
+                    f'the value explicitly at every call site'))
+    return hits
+
+
 # ── C16: unresolved macro call (cross-file) ──────────────────────────────────
 #
 # For a program file that %includes other files, collect all %macro definitions
@@ -978,6 +1012,7 @@ CHECKS = [
     check_hash_guard_no_ok,
     check_prxchange_anchor_no_strip,
     check_cats_space_args,
+    check_self_ref_param_default,
 ]
 
 

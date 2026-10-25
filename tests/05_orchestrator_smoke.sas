@@ -35,6 +35,10 @@ options nosyntaxcheck nomlogic nomprint nosymbolgen;
 %let p5_smoke_nvars   = 2;        /* PCNR_AGE + PCNR_SEX */
 %let p5_smoke_gen_dir = %sysfunc(getoption(work));
 %let p5_smoke_exp_dir = %sysfunc(getoption(work));
+/* CSV paths resolved after _work is set below -- overwritten at Section 1 */
+%let p5_smoke_pri_csv = ;
+%let p5_smoke_ov_csv  = ;
+%let p5_smoke_cls_csv = ;
 
 /* in_pipeline=1: skip proc printto log routing inside %route_log */
 %let in_pipeline = 1;
@@ -82,9 +86,10 @@ libname pdd "&_work";
 %_write_override_csv(path=&_work.\pcnr_source_override.csv);
 %_write_s06class_csv(path=&_work.\s06class.csv);
 
-%let priority_csv = &_work.\pcnr_source_priority.csv;
-%let override_csv = &_work.\pcnr_source_override.csv;
-%let s06class_csv = &_work.\s06class.csv;
+/* Tell the orchestrator's _p5_init_paths where the synthetic CSVs live */
+%let p5_smoke_pri_csv = &_work.\pcnr_source_priority.csv;
+%let p5_smoke_ov_csv  = &_work.\pcnr_source_override.csv;
+%let p5_smoke_cls_csv = &_work.\s06class.csv;
 
 /* Dummy macro _mk_empty -- used in data setup below */
 %macro _mk_empty(n=);
