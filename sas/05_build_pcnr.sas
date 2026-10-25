@@ -30,13 +30,28 @@
 
 /* ============================================================
    SECTION 0 -- %include config, %pdd_lib, macro library
-   %include of 05_build_pcnr_macros.sas brings in %fail_out,
-   %_p5_ok, %route_log, %restore_log, and all entry-point macros
-   before any call (PCM C13).
+   Macros defined here (before first call, PCM C13):
+     %route_log    -- redirect log to per-program file when standalone
+     %restore_log  -- restore log after standalone run
+   All other macros brought in by 05_build_pcnr_macros.sas.
    ============================================================ */
 
 %include "&sas_path.\00_config.sas";
 %pdd_lib;
+
+/* Route log to per-program file when running standalone (in_pipeline=0).
+   Mirrors the pattern used in 04_name_map.sas. */
+%macro route_log;
+  %if &in_pipeline = 0 %then %do;
+    proc printto log="&logs_path.\05_build_pcnr.log" new; run;
+  %end;
+%mend route_log;
+
+%macro restore_log;
+  %if &in_pipeline = 0 %then %do;
+    proc printto; run;
+  %end;
+%mend restore_log;
 
 %include "&sas_path.\05_build_pcnr_macros.sas";
 

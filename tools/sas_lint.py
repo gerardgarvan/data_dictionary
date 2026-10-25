@@ -33,6 +33,7 @@ Exit codes
     1  one or more hits found
 """
 
+import os
 import re
 import sys
 import glob as _glob
@@ -875,6 +876,77 @@ def check_cats_space_args(path, lines):
     return hits
 
 
+# ── C16: unresolved macro call (cross-file) ──────────────────────────────────
+#
+# For a program file that %includes other files, collect all %macro definitions
+# from the program itself AND from each directly %included file, then flag any
+# %name / %name( call that is not in that combined set or in the SAS built-in list.
+#
+# This check is NOT in CHECKS (it requires multi-file context).
+# Call check_unresolved_macros(path, include_paths) directly, or use
+# the --check-includes CLI flag: sas_lint.py --check-includes <program> <inc1> <inc2> ...
+
+_C16_BUILTIN = frozenset("""
+abort bquote copy display do else end eval global goto if include input left
+length let local lowcase macro mend nrbquote nrquote nrstr put qscan qsubstr
+qsysfunc qupcase quote resolve return run scan str substr superq syscall
+sysevalf sysfunc sysget sysmacdelete sysmacexist sysmaclist trim unquote
+upcase verify while window
+abort_rerun call check_pdd_lib pdd_lib
+""".split())
+
+def _collect_defined_macros(path):
+    """Return frozenset of macro names defined in path (lowercased)."""
+    try:
+        with open(path, encoding='utf-8', errors='replace') as fh:
+            text = fh.read()
+    except FileNotFoundError:
+        return frozenset()
+    clean = strip_block_comments(text)
+    return frozenset(m.group(1).lower()
+                     for m in re.finditer(r'%macro\s+(\w+)', clean, CI))
+
+_INCLUDE_BASENAME = re.compile(r'%include\s+["\'].*?([^/\\]+\.sas)["\']', re.IGNORECASE)
+
+def check_unresolved_macros(program_path, include_paths=()):
+    """Flag %name calls in program_path not defined in the program or include_paths.
+
+    Also auto-discovers %include statements and tries to resolve the included
+    file relative to the same directory as program_path.
+    """
+    try:
+        with open(program_path, encoding='utf-8', errors='replace') as fh:
+            raw = fh.read()
+    except FileNotFoundError:
+        return []
+    clean = strip_block_comments(raw)
+    lines = clean.split('\n')
+
+    # Collect all known macro names
+    known = set(_C16_BUILTIN)
+    known |= _collect_defined_macros(program_path)
+    for inc in include_paths:
+        known |= _collect_defined_macros(inc)
+
+    # Auto-discover %include basenames and resolve relative to program directory
+    prog_dir = os.path.dirname(os.path.abspath(program_path))
+    for m in _INCLUDE_BASENAME.finditer(clean):
+        basename = m.group(1)
+        candidate = os.path.join(prog_dir, basename)
+        if os.path.isfile(candidate):
+            known |= _collect_defined_macros(candidate)
+
+    hits = []
+    for i, raw_line in enumerate(lines, 1):
+        for m in re.finditer(r'%(\w+)\s*(?:\(|;)', raw_line, CI):
+            name = m.group(1).lower()
+            if name not in known:
+                hits.append((program_path, i, 'C16',
+                    f'%{name} invoked but not defined in this file or any %include '
+                    f'-- define it or add to include list'))
+    return hits
+
+
 # ── runner ────────────────────────────────────────────────────────────────────
 
 CHECKS = [
@@ -923,7 +995,30 @@ def lint_file(path):
 def main(argv):
     if len(argv) < 2:
         print('Usage: python tools/sas_lint.py <file> [<file> ...]', file=sys.stderr)
+        print('       python tools/sas_lint.py --check-includes <program> <include1> ...', file=sys.stderr)
         sys.exit(1)
+
+    # --check-includes mode: cross-file unresolved macro check
+    if argv[1] == '--check-includes':
+        if len(argv) < 3:
+            print('--check-includes requires at least one program file', file=sys.stderr)
+            sys.exit(1)
+        program = argv[2]
+        includes = argv[3:]
+        hits = check_unresolved_macros(program, includes)
+        errors = [h for h in hits if not h[2].startswith('W')]
+        warnings = [h for h in hits if h[2].startswith('W')]
+        for path, lineno, code, msg in sorted(hits, key=lambda h: (h[0], h[1])):
+            prefix = 'warning' if code.startswith('W') else 'error'
+            print(f'{path}:{lineno}: [{code}] {prefix}: {msg}')
+        if errors:
+            print(f'\n{len(errors)} error(s), {len(warnings)} warning(s).', file=sys.stderr)
+            sys.exit(1)
+        elif warnings:
+            print(f'\nsas_lint: {len(warnings)} warning(s). (clean -- no errors)', file=sys.stderr)
+        else:
+            print('sas_lint: clean.', file=sys.stderr)
+        sys.exit(0)
 
     paths = []
     for arg in argv[1:]:
