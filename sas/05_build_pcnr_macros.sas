@@ -874,11 +874,11 @@
     if length(strip(label)) > 256 then label = substr(label, 1, 256);
     _f_alias = cats('_F', put(var_idx, z4.));
     file "&gen_dir.\05_generated_attrib.sas" encoding='utf-8' mod;
-    _line = cats('ATTRIB ', strip(pcnr_name),
-                 ' LENGTH=', strip(_typecode),
-                 ' LABEL=', quote(trim(label)), ';');
+    _line = cat('ATTRIB ', strip(pcnr_name),
+                ' LENGTH=', strip(_typecode),
+                ' LABEL=', quote(trim(label)), ';');
     put _line;
-    _line = cats('ATTRIB ', strip(_f_alias), ' LENGTH=$4;');
+    _line = cat('ATTRIB ', strip(_f_alias), ' LENGTH=$4;');
     put _line;
     drop resolved_type out_length label _typecode _line _f_alias;
   run;
@@ -947,21 +947,22 @@
     /* type_conflict='Y' and resolved to N8: spine col is char in &srclib..src_s09;
        ATTRIB declares it N8; SAS coerces on read, but explicitly INPUT for clarity */
     if type_conflict = 'Y' and resolved_type = 'N8' then do;
-      _line = cats('/* type-conflict N8: ', strip(pcnr_name), ' */');
+      _line = cat('/* type-conflict N8: ', strip(pcnr_name), ' */');
       put _line;
-      _line = cats('if not missing(', strip(pcnr_name), ') then do;');
+      _line = cat('if not missing(', strip(pcnr_name), ') then do;');
       put _line;
-      _line = cats('  ', strip(pcnr_name),
-                   ' = input(strip(put(', strip(pcnr_name),
-                   ', best32.)), ?? best32.);');
+      _line = cat('  ', strip(pcnr_name),
+                  ' = input(strip(put(', strip(pcnr_name),
+                  ', best32.)), ?? best32.);');
       put _line;
-      _line = cats('  ', strip(_f_alias), " = 's09';");
+      _line = cat('  ', strip(_f_alias), " = 's09';");
       put _line;
       put 'end;';
     end;
     else do;
-      _line = cats('if not missing(', strip(pcnr_name),
-                   ') then ', strip(_f_alias), " = 's09';");
+      _line = cat('if not missing(', strip(pcnr_name),
+                  ') then ', strip(_f_alias), " = 's09';"
+                 );
       put _line;
     end;
     drop resolved_type out_length _f_alias _line;
@@ -1149,36 +1150,36 @@
     file "&gen_dir.\05_generated_gapfill_&s_code..sas" encoding='utf-8';
     /* Write ATTRIB for _S#### with actual source type/length (Blocker 1) */
     if src_type = 'num' then do;
-      _line = cats('ATTRIB ', strip(_s_alias), ' LENGTH=8;');
+      _line = cat('ATTRIB ', strip(_s_alias), ' LENGTH=8;');
     end;
     else do;
-      _line = cats('ATTRIB ', strip(_s_alias),
-                   ' LENGTH=$', strip(put(src_length, best32.)), ';');
+      _line = cat('ATTRIB ', strip(_s_alias),
+                  ' LENGTH=$', strip(put(src_length, best32.)), ';');
     end;
     put _line;
     /* Gap-fill block */
-    _line = cats('/* gap-fill for ', strip(pcnr_name), ' from &s_code */');
+    _line = cat('/* gap-fill for ', strip(pcnr_name), ' from &s_code */');
     put _line;
-    _line = cats('if missing(', strip(pcnr_name),
-                 ') and not missing(', strip(_s_alias), ') then do;');
+    _line = cat('if missing(', strip(pcnr_name),
+                ') and not missing(', strip(_s_alias), ') then do;');
     put _line;
     if resolved_type = 'N8' and type_conflict = 'Y' then do;
       /* Source _S alias is char (type-conflict); convert to numeric */
-      _line = cats('  ', strip(pcnr_name),
-                   ' = input(strip(', strip(_s_alias), '), ?? best32.);');
+      _line = cat('  ', strip(pcnr_name),
+                  ' = input(strip(', strip(_s_alias), '), ?? best32.);');
       put _line;
     end;
     else if resolved_type = 'C' and result_type = 'N' then do;
       /* Source is numeric; resolved to C: convert via PUT */
-      _line = cats('  ', strip(pcnr_name),
-                   ' = strip(put(', strip(_s_alias), ', best32.));');
+      _line = cat('  ', strip(pcnr_name),
+                  ' = strip(put(', strip(_s_alias), ', best32.));');
       put _line;
     end;
     else do;
-      _line = cats('  ', strip(pcnr_name), ' = ', strip(_s_alias), ';');
+      _line = cat('  ', strip(pcnr_name), ' = ', strip(_s_alias), ';');
       put _line;
     end;
-    _line = cats('  ', strip(_f_alias), ' = "&s_code";');
+    _line = cat('  ', strip(_f_alias), ' = "&s_code";');
     put _line;
     /* Provenance output: ONLY for vars with 2+ contributing sources (W5).
        NOTE: work._prov_&s_code contains ONLY 2+-source rows
@@ -1189,40 +1190,40 @@
     end;
     put 'end;';
     /* Conflict block -- all output columns set BEFORE output statement (Blocker 2) */
-    _line = cats('else if not missing(', strip(pcnr_name),
-             ') and not missing(', strip(_s_alias), ') then do;');
+    _line = cat('else if not missing(', strip(pcnr_name),
+                ') and not missing(', strip(_s_alias), ') then do;');
     put _line;
     /* D-20 equality: char uses strip(); numeric uses exact */
     if resolved_type = 'N8' then do;
-      _line = cats('  if ', strip(pcnr_name), ' ne ', strip(_s_alias), ' then do;');
+      _line = cat('  if ', strip(pcnr_name), ' ne ', strip(_s_alias), ' then do;');
     end;
     else do;
-      _line = cats('  if strip(', strip(pcnr_name),
-                   ') ne strip(', strip(_s_alias), ') then do;');
+      _line = cat('  if strip(', strip(pcnr_name),
+                  ') ne strip(', strip(_s_alias), ') then do;');
     end;
     put _line;
     /* conflict_type: SPINE_VS_SOURCE if _F alias = 's09', else SOURCE_VS_SOURCE */
-    _line = cats('    _conflict_type = ifc(strip(', strip(_f_alias),
-             ") = 's09', 'SPINE_VS_SOURCE', 'SOURCE_VS_SOURCE');");
+    _line = cat('    _conflict_type = ifc(strip(', strip(_f_alias),
+                ") = 's09', 'SPINE_VS_SOURCE', 'SOURCE_VS_SOURCE');");
     put _line;
-    _line = cats('    _winning_sc = strip(', strip(_f_alias), ');');
+    _line = cat('    _winning_sc = strip(', strip(_f_alias), ');');
     put _line;
     /* winning_value: convert to $200 */
     if resolved_type = 'N8' then do;
-      _line = cats('    _winning_val = strip(put(', strip(pcnr_name), ', best32.));');
+      _line = cat('    _winning_val = strip(put(', strip(pcnr_name), ', best32.));');
       put _line;
-      _line = cats('    _candidate_val = strip(put(', strip(_s_alias), ', best32.));');
+      _line = cat('    _candidate_val = strip(put(', strip(_s_alias), ', best32.));');
       put _line;
     end;
     else do;
-      _line = cats('    _winning_val = strip(', strip(pcnr_name), ');');
+      _line = cat('    _winning_val = strip(', strip(pcnr_name), ');');
       put _line;
-      _line = cats('    _candidate_val = strip(', strip(_s_alias), ');');
+      _line = cat('    _candidate_val = strip(', strip(_s_alias), ');');
       put _line;
     end;
-    _line = cats('    _candidate_sc = "', "&s_code", '";');
+    _line = cat('    _candidate_sc = "', "&s_code", '";');
     put _line;
-    _line = cats('    _pcnr_name_c  = "', strip(pcnr_name), '";');
+    _line = cat('    _pcnr_name_c  = "', strip(pcnr_name), '";');
     put _line;
     /* value_type: 'N' or 'C' -- set before output */
     if resolved_type = 'N8' then put "    _value_type = 'N';";
@@ -1458,9 +1459,9 @@
   /* Step 1. Write &outlib..pcnr -- drop all temp columns (Blocker 4).
      Explicit DROP instead of KEEP PCNR_: to avoid accidentally keeping _F:/_S: aliases. */
 
-  /* Build drop list for named helpers from dictionary.columns to avoid
-     "never been referenced" warnings for columns absent in test runs. */
-  %local _helper_drop _hi _hword _hexists _hnames;
+  /* Build drop list from dictionary.columns to avoid "never been referenced"
+     warnings for columns absent in test runs (named helpers + _F:/_S: wildcards). */
+  %local _helper_drop _hi _hword _hexists _hnames _has_f _has_s;
   %let _helper_drop = ;
   %let _hnames = pcnr_name conflict_type winning_s_code winning_value
                  candidate_s_code candidate_value value_type src_s_code;
@@ -1479,14 +1480,26 @@
     %let _hi = %eval(&_hi + 1);
     %let _hword = %scan(&_hnames, &_hi, %str( ));
   %end;
+  /* Check whether any _F* or _S* columns exist */
+  %let _has_f = 0;
+  %let _has_s = 0;
+  proc sql noprint;
+    select count(*) into :_has_f trimmed
+    from dictionary.columns
+    where libname = 'WORK' and memname = '_PCNR_ACCUM'
+      and upcase(substr(name, 1, 2)) = '_F';
+    select count(*) into :_has_s trimmed
+    from dictionary.columns
+    where libname = 'WORK' and memname = '_PCNR_ACCUM'
+      and upcase(substr(name, 1, 2)) = '_S';
+  quit;
+  %if &_has_f > 0 %then %let _helper_drop = &_helper_drop _F:;
+  %if &_has_s > 0 %then %let _helper_drop = &_helper_drop _S:;
 
   data &outlib..pcnr;
     set work._pcnr_accum;
     %if %bquote(&_helper_drop) ne %bquote() %then %do;
-    drop &_helper_drop _F: _S:;
-    %end;
-    %else %do;
-    drop _F: _S:;
+    drop &_helper_drop;
     %end;
   run;
 

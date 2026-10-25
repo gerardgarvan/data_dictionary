@@ -844,6 +844,37 @@ def check_hash_guard_no_ok(path, lines):
     return hits
 
 
+# ── C11c: cats() with space-bearing literal arguments in code generators ──────
+#
+# cats() strips leading AND trailing blanks from every argument, so
+# cats('ATTRIB ', strip(x), ' LENGTH=8;') produces 'ATTRIBxLENGTH=8;'
+# (the spaces in 'ATTRIB ' and ' LENGTH=8;' are stripped).
+# Use cat() instead when any literal argument starts or ends with a space.
+
+_CATS_SPACE_ARG = re.compile(
+    r"\bcats\s*\(\s*'[^']*\s'|'\s[^']*'\s*,",  # literal arg ends or starts with space
+    re.IGNORECASE,
+)
+
+def check_cats_space_args(path, lines):
+    """Flag cats( calls where a quoted literal argument starts or ends with a space."""
+    hits = []
+    for i, raw in enumerate(lines, 1):
+        # Find all cats( calls on this line
+        for m in re.finditer(r'\bcats\s*\(', raw, re.IGNORECASE):
+            # Extract everything after cats( to end of line
+            rest = raw[m.end():]
+            # Find quoted string literals in the argument list
+            for lit in re.finditer(r"'([^']*)'", rest):
+                val = lit.group(1)
+                if val.startswith(' ') or val.endswith(' '):
+                    hits.append((path, i, 'C11c',
+                        f"cats() has literal argument '{val}' that starts or ends "
+                        "with a space -- cats() strips those spaces; use cat() instead"))
+                    break  # one hit per cats( call is enough
+    return hits
+
+
 # ── runner ────────────────────────────────────────────────────────────────────
 
 CHECKS = [
@@ -874,6 +905,7 @@ CHECKS = [
     check_datalines_in_macro,
     check_hash_guard_no_ok,
     check_prxchange_anchor_no_strip,
+    check_cats_space_args,
 ]
 
 
