@@ -26,17 +26,30 @@
    All macros defined here before any call (PCM C13).
    ============================================================ */
 
+/* Declare and initialise all Phase 5 control globals.
+   Called immediately after definition so every &p5_fail guard is safe.
+   Does NOT overwrite values already set by the caller (test harness or
+   smoke test may pre-set p5_test_mode=1 or p5_smoke=1 before %include). */
+%macro _p5_init_globals;
+  %global p5_fail p5_fail_msg p5_test_mode p5_smoke;
+  /* Always reset error state at the start of an orchestrator run */
+  %let p5_fail     = 0;
+  %let p5_fail_msg = ;
+  /* Set mode flags only when the caller has not already provided a value */
+  %if %bquote(&p5_test_mode) = %bquote() %then %let p5_test_mode = 0;
+  %if %bquote(&p5_smoke)     = %bquote() %then %let p5_smoke     = 0;
+%mend _p5_init_globals;
+%_p5_init_globals;
+
 /* Hard stop with loud ERROR.
    If p5_test_mode=1: set p5_fail/p5_fail_msg and %return instead of aborting. */
 %macro fail_out(msg=);
   %put ERROR: [05_build_pcnr] &msg;
-  %if %symexist(p5_test_mode) %then %do;
-    %if &p5_test_mode = 1 %then %do;
-      %global p5_fail p5_fail_msg;
-      %let p5_fail = 1;
-      %let p5_fail_msg = &msg;
-      %return;
-    %end;
+  /* p5_fail/p5_fail_msg always global (declared by _p5_init_globals above) */
+  %if &p5_test_mode = 1 %then %do;
+    %let p5_fail = 1;
+    %let p5_fail_msg = &msg;
+    %return;
   %end;
   %abort cancel;
 %mend fail_out;
@@ -1068,9 +1081,10 @@
   %put NOTE: [05_build_pcnr] source &s_code contributes &_n_src_vars PCNR_ variables (rank=&rank);
 
   /* Step 2. Sort source to work (item 2 -- never sort &srclib..src_* in place) */
-  %local _gf_keep _gf_rename _i;
+  %local _gf_keep _gf_rename _i _gf_rn_n;
   %let _gf_keep   = norm_psid;
   %let _gf_rename = ;
+  %let _gf_rn_n   = 0;
   %do _i = 1 %to &_n_src_vars;
     %local _gf_cn_&_i _gf_pn_&_i;
     proc sql noprint;

@@ -77,15 +77,17 @@ options nosyntaxcheck nomlogic nomprint nosymbolgen;
   run;
 %mend _write_s06class_csv;
 
+/* Set p5_test_mode before %include so _p5_init_globals (inside macros file)
+   sees the value and does not overwrite it with the default 0. */
+%let p5_test_mode = 1;
+
 /* Load macro library -- C13: all macros defined before calls below */
 %include "C:\data_dictionary\sas\05_build_pcnr_macros.sas";
 
 /* Initialize counters -- %let is open-code safe (C3); avoid %global at open code */
 %let _tc_pass = 0;
 %let _tc_fail = 0;
-%let p5_test_mode = 1;
-%let p5_fail = 0;
-%let p5_fail_msg = ;
+/* p5_fail / p5_fail_msg already declared and reset by _p5_init_globals above */
 
 /*==========================================================================
   SECTION 1 -- TC-01: type-conflict var resolved N8 when all chars parse numeric
