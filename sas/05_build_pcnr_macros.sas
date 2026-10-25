@@ -537,7 +537,7 @@
    D-02 type-conflict resolution before the build loop.
    Outputs: work._type_resolution (key-unique on pcnr_name),
             work._typecheck_sources (key-unique on pcnr_name+s_code),
-            &outlib..qc_pcnr_typefail (pcnr_name, s_code, raw_value, n),
+            work._typefail_stage -> &outlib..qc_pcnr_typefail (single write at Step 8),
             &export_dir.\pcnr_typecheck.csv.
    DEFINE ONLY -- called from Section 1 of 05_build_pcnr.sas.
    ============================================================ */
@@ -575,7 +575,8 @@
     stop;
   run;
 
-  data &outlib..qc_pcnr_typefail;
+  /* Build in WORK to avoid outlib lock conflicts during incremental appends */
+  data work._typefail_stage;
     length pcnr_name $200 s_code $4 raw_value $200 n 8;
     stop;
   run;
@@ -733,7 +734,7 @@
       /* If failures exist, accumulate into &outlib..qc_pcnr_typefail (distinct values) */
       %if &_n_fail > 0 %then %do;
         proc sql noprint;
-          insert into &outlib..qc_pcnr_typefail (pcnr_name, s_code, raw_value, n)
+          insert into work._typefail_stage (pcnr_name, s_code, raw_value, n)
           select "&_tc_name", "&_sc_j", val, count(*) as n
           from work._tc_scan
           where _fail = 1
@@ -817,7 +818,16 @@
   %if &p5_fail = 1 %then %return;
   %put NOTE: [05_build_pcnr] work._typecheck_sources key uniqueness OK (rows=&_n_tcs);
 
-  /* Step 8. Export typecheck summary (per pcnr_name+s_code, includes n_null_as_missing) */
+  /* Step 8. Copy _typefail_stage (built in WORK) to outlib -- single write avoids lock */
+  data &outlib..qc_pcnr_typefail;
+    set work._typefail_stage;
+  run;
+  %if &syserr > 4 %then %do;
+    %fail_out(msg=%str(failed to persist qc_pcnr_typefail to &outlib (syserr=&syserr)));
+    %if &p5_fail = 1 %then %return;
+  %end;
+
+  /* Export typecheck summary (per pcnr_name+s_code, includes n_null_as_missing) */
   proc export data=work._typecheck_sources
     outfile="&export_dir.\pcnr_typecheck.csv"
     dbms=csv replace;
@@ -837,6 +847,53 @@
   %put NOTE: [05_build_pcnr] pcnr_typecheck.csv written to export_dir;
 
 %mend p5_resolve_types;
+
+/* ============================================================
+   %p5_gen_conv  -- Shared type-safe conversion expression generator.
+   Returns (via global &p5_conv_expr) the SAS expression that converts
+   a source alias to the resolved PCNR type.
+
+   Parameters:
+     src_alias  -- source column name or alias (e.g. _S0042 or raw col)
+     src_type   -- actual source storage type: 'num' or 'char'
+     res_type   -- resolved PCNR type: 'N8' or 'C'
+     tc         -- 'Y' if type_conflict variable, else 'N'
+     outvar     -- global macro variable to receive the expression string
+
+   For N8+char (type conflict only, D-02b applies):
+     input(strip(src), ?? best32.)
+   For N8+num: src (direct)
+   For C+num:  ifc(missing(src),'',strip(put(src,best32.)))
+   For C+char: src (direct, strip handled by caller)
+
+   Non-missing test (also generated in p5_conv_nonmiss macro var):
+   For N8+char (tc=Y): not missing(src) and upcase(strip(src)) ne 'NULL'
+   For all others:     not missing(src)
+   ============================================================ */
+%macro p5_gen_conv(src_alias=, src_type=, res_type=, tc=N, outvar=p5_conv_expr,
+                   outvar_nm=p5_conv_nonmiss);
+  /* Caller must pre-declare &outvar and &outvar_nm as %local or %global (C21). */
+  %if &res_type = N8 and &src_type = char %then %do;
+    %let &outvar = input(strip(&src_alias), %str(??)%str( )best32.);
+    %if &tc = Y %then
+      %let &outvar_nm = (not missing(&src_alias) and upcase(strip(&src_alias)) ne 'NULL');
+    %else
+      %let &outvar_nm = (not missing(&src_alias));
+  %end;
+  %else %if &res_type = N8 and &src_type = num %then %do;
+    %let &outvar    = &src_alias;
+    %let &outvar_nm = (not missing(&src_alias));
+  %end;
+  %else %if &res_type = C and &src_type = num %then %do;
+    %let &outvar    = ifc(missing(&src_alias),'',strip(put(&src_alias,best32.)));
+    %let &outvar_nm = (not missing(&src_alias));
+  %end;
+  %else %do;
+    /* C+char: direct */
+    %let &outvar    = &src_alias;
+    %let &outvar_nm = (not missing(&src_alias));
+  %end;
+%mend p5_gen_conv;
 
 /* ============================================================
    %p5_build_accumulator  (Plan 04 Task 1)
@@ -1330,22 +1387,39 @@
                   ' LENGTH=$', strip(put(src_length, best32.)), ';');
     end;
     put _line;
-    /* Gap-fill block */
+    /* Gap-fill block.
+       D-02b (type_conflict N8 char source): 'NULL' is missing -- exclude from fill test.
+       Use %p5_gen_conv logic inline:
+         N8+char+tc=Y nonmiss: not missing(_S) and upcase(strip(_S)) ne 'NULL'
+         N8+char+tc=N nonmiss: not missing(_S)
+         N8+num       nonmiss: not missing(_S)
+         C+num        nonmiss: not missing(_S)
+         C+char       nonmiss: not missing(_S)
+    */
     _line = cat('/* gap-fill for ', strip(pcnr_name), ' from &s_code */');
     put _line;
-    _line = cat('if missing(', strip(pcnr_name),
-                ') and not missing(', strip(_s_alias), ') then do;');
+    if resolved_type = 'N8' and type_conflict = 'Y' and src_type = 'char' then do;
+      /* D-02b: exclude NULL from non-missing test */
+      _line = cat('if missing(', strip(pcnr_name),
+                  ') and not missing(', strip(_s_alias), ')',
+                  " and upcase(strip(", strip(_s_alias), ")) ne 'NULL' then do;");
+    end;
+    else do;
+      _line = cat('if missing(', strip(pcnr_name),
+                  ') and not missing(', strip(_s_alias), ') then do;');
+    end;
     put _line;
-    if resolved_type = 'N8' and type_conflict = 'Y' then do;
-      /* Source _S alias is char (type-conflict); convert to numeric */
+    if resolved_type = 'N8' and type_conflict = 'Y' and src_type = 'char' then do;
+      /* Source _S alias is char (type-conflict); convert to numeric via INPUT ?? */
       _line = cat('  ', strip(pcnr_name),
                   ' = input(strip(', strip(_s_alias), '), ?? best32.);');
       put _line;
     end;
-    else if resolved_type = 'C' and result_type = 'N' then do;
+    else if resolved_type = 'C' and src_type = 'num' then do;
       /* Source is numeric; resolved to C: convert via PUT */
       _line = cat('  ', strip(pcnr_name),
-                  ' = strip(put(', strip(_s_alias), ', best32.));');
+                  ' = ifc(missing(', strip(_s_alias), "),''",
+                  ',strip(put(', strip(_s_alias), ', best32.)));');
       put _line;
     end;
     else do;
@@ -1362,13 +1436,34 @@
       put _line;
     end;
     put 'end;';
-    /* Conflict block -- all output columns set BEFORE output statement (Blocker 2) */
-    _line = cat('else if not missing(', strip(pcnr_name),
-                ') and not missing(', strip(_s_alias), ') then do;');
+    /* Conflict block -- all output columns set BEFORE output statement (Blocker 2).
+       D-02b: for N8+char+tc, candidate non-missing also excludes 'NULL'. */
+    if resolved_type = 'N8' and type_conflict = 'Y' and src_type = 'char' then do;
+      _line = cat('else if not missing(', strip(pcnr_name),
+                  ') and not missing(', strip(_s_alias), ')',
+                  " and upcase(strip(", strip(_s_alias), ")) ne 'NULL' then do;");
+    end;
+    else do;
+      _line = cat('else if not missing(', strip(pcnr_name),
+                  ') and not missing(', strip(_s_alias), ') then do;');
+    end;
     put _line;
-    /* D-20 equality: char uses strip(); numeric uses exact */
-    if resolved_type = 'N8' then do;
+    /* D-20 equality: compare typed values.
+       N8+char+tc: convert _S to numeric before compare (avoids type mismatch).
+       N8+num:     exact numeric compare.
+       C+num:      compare pcnr_name (char) to put(_S, best32.) string.
+       C+char:     strip compare. */
+    if resolved_type = 'N8' and src_type = 'char' then do;
+      /* Both sides numeric after conversion */
+      _line = cat('  if ', strip(pcnr_name),
+                  ' ne input(strip(', strip(_s_alias), '), ?? best32.) then do;');
+    end;
+    else if resolved_type = 'N8' and src_type = 'num' then do;
       _line = cat('  if ', strip(pcnr_name), ' ne ', strip(_s_alias), ' then do;');
+    end;
+    else if resolved_type = 'C' and src_type = 'num' then do;
+      _line = cat('  if strip(', strip(pcnr_name),
+                  ') ne strip(put(', strip(_s_alias), ', best32.)) then do;');
     end;
     else do;
       _line = cat('  if strip(', strip(pcnr_name),
@@ -1381,9 +1476,23 @@
     put _line;
     _line = cat('    _winning_sc = strip(', strip(_f_alias), ');');
     put _line;
-    /* winning_value: convert to $200 */
+    /* winning_value / candidate_value: always store as $200 string.
+       winning_value: pcnr_name is already resolved type.
+       candidate_value: _s_alias may be char or num depending on src_type. */
     if resolved_type = 'N8' then do;
       _line = cat('    _winning_val = strip(put(', strip(pcnr_name), ', best32.));');
+      put _line;
+      if src_type = 'char' then do;
+        /* _s_alias is char -- use strip() directly for candidate display */
+        _line = cat('    _candidate_val = strip(', strip(_s_alias), ');');
+      end;
+      else do;
+        _line = cat('    _candidate_val = strip(put(', strip(_s_alias), ', best32.));');
+      end;
+      put _line;
+    end;
+    else if resolved_type = 'C' and src_type = 'num' then do;
+      _line = cat('    _winning_val = strip(', strip(pcnr_name), ');');
       put _line;
       _line = cat('    _candidate_val = strip(put(', strip(_s_alias), ', best32.));');
       put _line;
@@ -1833,8 +1942,8 @@
      For every variable where _F=s_code, compare converted source value to PCNR_ value.
      Write mismatches to work._recon_mismatches. */
   data work._recon_mismatches;
-    length norm_psid $64 pcnr_name $200 s_code $4
-           accum_value $200 source_value $200 var_idx 8 n_mismatches 8;
+    length norm_psid $64 pcnr_name $200 fill_s_code $4
+           pcnr_value $200 source_value $200 n_mismatches 8;
     stop;
   run;
 
@@ -1939,48 +2048,77 @@
         %if &p5_fail = 1 %then %goto recon_next_var;
       %end;
 
-      /* Count mismatches: rows where fill-origin=this source AND values differ */
-      %if &_rs_rt = N and &_rs_tc ne Y %then %do;
-        /* Numeric var: exact equality */
-        proc sql noprint;
-          select count(*) into :_rs_mm trimmed
-          from work._rs_merged
-          where strip(&_rs_fa) = "&_rs_sc"
-            and &_rs_pn ne &_rs_cn;
-        quit;
+      /* Look up PCNR_ actual type from &outlib..pcnr and source column actual type
+         from &srclib..src_&_rs_sc (via work._rs_src which is sorted copy). */
+      %local _rs_pcnr_type _rs_src_type;
+      %let _rs_pcnr_type = ;
+      %let _rs_src_type  = ;
+      proc sql noprint;
+        select type into :_rs_pcnr_type trimmed
+        from dictionary.columns
+        where libname = upcase("&outlib")
+          and memname = 'PCNR'
+          and upcase(name) = upcase("&_rs_pn");
+        select type into :_rs_src_type trimmed
+        from dictionary.columns
+        where libname = 'WORK'
+          and memname = '_RS_SRC'
+          and upcase(name) = upcase("&_rs_cn");
+      quit;
+      %if &sqlrc > 4 %then %do;
+        %fail_out(msg=%str(reconciliation: dictionary lookup failed for &_rs_pn / &_rs_cn (sqlrc=&sqlrc)));
+        %if &p5_fail = 1 %then %goto recon_next_var;
       %end;
-      %else %if &_rs_tc = Y %then %do;
-        /* Type-conflict: compare via string after conversion */
-        proc sql noprint;
-          select count(*) into :_rs_mm trimmed
-          from work._rs_merged
-          where strip(&_rs_fa) = "&_rs_sc"
-            and strip(put(&_rs_pn, best32.)) ne strip(&_rs_cn);
-        quit;
-      %end;
-      %else %do;
-        /* Character var: strip comparison */
-        proc sql noprint;
-          select count(*) into :_rs_mm trimmed
-          from work._rs_merged
-          where strip(&_rs_fa) = "&_rs_sc"
-            and strip(&_rs_pn) ne strip(&_rs_cn);
-        quit;
+
+      /* Compare typed values using actual column types (not name_map result_type).
+         pcnr type: num -> pcnr_name is numeric. char -> pcnr_name is character.
+         src  type: num -> sas_name is numeric. char -> sas_name is character.
+         Canonical comparison: both to character string via put()/strip(). */
+      %local _rs_pcnr_expr _rs_src_expr;
+      %if &_rs_pcnr_type = num %then
+        %let _rs_pcnr_expr = strip(put(&_rs_pn, best32.));
+      %else
+        %let _rs_pcnr_expr = strip(&_rs_pn);
+      %if &_rs_src_type = num %then
+        %let _rs_src_expr = strip(put(&_rs_cn, best32.));
+      %else %if &_rs_tc = Y %then
+        /* D-02b: type-conflict char source; treat 'NULL' as missing */
+        %let _rs_src_expr = ifc(upcase(strip(&_rs_cn))='NULL','',strip(&_rs_cn));
+      %else
+        %let _rs_src_expr = strip(&_rs_cn);
+
+      proc sql noprint;
+        select count(*) into :_rs_mm trimmed
+        from work._rs_merged
+        where strip(&_rs_fa) = "&_rs_sc"
+          and &_rs_pcnr_expr ne &_rs_src_expr;
+      quit;
+      %if &sqlrc > 4 %then %do;
+        %fail_out(msg=%str(reconciliation SQL failed for &_rs_pn / &_rs_sc (sqlrc=&sqlrc)));
+        %if &p5_fail = 1 %then %goto recon_next_var;
       %end;
 
       %if &_rs_mm > 0 %then %do;
         data work._rs_mis_row;
-          length norm_psid $64 pcnr_name $200 s_code $4
-                 accum_value $200 source_value $200 var_idx 8;
-          norm_psid    = 'RECON_FAIL';
-          pcnr_name    = "&_rs_pn";
-          s_code       = "&_rs_sc";
-          accum_value  = 'MISMATCH';
-          source_value = 'MISMATCH';
-          var_idx      = &_rs_vi;
-          n_mismatches = &_rs_mm;
+          length norm_psid $64 pcnr_name $200 fill_s_code $4
+                 pcnr_value $200 source_value $200 n_mismatches 8;
+          norm_psid     = 'RECON_SUMMARY';
+          pcnr_name     = "&_rs_pn";
+          fill_s_code   = "&_rs_sc";
+          pcnr_value    = '';
+          source_value  = '';
+          n_mismatches  = &_rs_mm;
         run;
+        %if &syserr > 4 %then %do;
+          %fail_out(msg=%str(recon mismatch row creation failed (syserr=&syserr)));
+          %if &p5_fail = 1 %then %goto recon_next_var;
+        %end;
         proc append base=work._recon_mismatches data=work._rs_mis_row force; run;
+        %if &syserr > 4 %then %do;
+          %fail_out(msg=%str(recon mismatch append failed (syserr=&syserr)));
+          %if &p5_fail = 1 %then %goto recon_next_var;
+        %end;
+        %put NOTE: [05_build_pcnr] reconciliation mismatch: &_rs_pn from &_rs_sc n=&_rs_mm;
       %end;
       %recon_next_var:
     %end; /* _rs_vi_i */
@@ -1992,13 +2130,33 @@
     %next_recon_src:
   %end; /* _rs_i */
 
-  /* 4. Assert 0 mismatches */
+  /* 4. Persist mismatches to &outlib..qc_pcnr_recon_mismatch and assert 0 */
   %local _n_recon_mm;
   proc sql noprint;
     select count(*) into :_n_recon_mm trimmed from work._recon_mismatches;
   quit;
+
+  /* Always write mismatch table (empty = success) */
+  data &outlib..qc_pcnr_recon_mismatch;
+    set work._recon_mismatches;
+  run;
+  %if &syserr > 4 %then %do;
+    %fail_out(msg=%str(failed to persist qc_pcnr_recon_mismatch to &outlib (syserr=&syserr)));
+    %if &p5_fail = 1 %then %return;
+  %end;
+
   %if &_n_recon_mm > 0 %then %do;
-    %fail_out(msg=%str(reconciliation sample found &_n_recon_mm mismatch(es) between &outlib..pcnr and source data -- check work._recon_mismatches));
+    /* Log by pcnr_name/fill_s_code (no values in log per spec) */
+    %local _rmm_i _rmm_pn _rmm_sc _rmm_n;
+    %do _rmm_i = 1 %to &_n_recon_mm;
+      proc sql noprint;
+        select pcnr_name, fill_s_code, n_mismatches
+        into :_rmm_pn trimmed, :_rmm_sc trimmed, :_rmm_n trimmed
+        from work._recon_mismatches (firstobs=&_rmm_i obs=&_rmm_i);
+      quit;
+      %put ERROR: [05_build_pcnr] recon mismatch: pcnr_name=&_rmm_pn fill_s_code=&_rmm_sc n=&_rmm_n;
+    %end;
+    %fail_out(msg=%str(reconciliation sample found &_n_recon_mm mismatch(es) -- see &outlib..qc_pcnr_recon_mismatch));
   %end;
   %if &p5_fail = 1 %then %return;
   %put NOTE: [05_build_pcnr] Reconciliation sample (&_recon_n rows) verified 0 mismatches;
@@ -2006,7 +2164,7 @@
   /* Clean up recon work datasets */
   proc datasets library=work nolist;
     delete _recon_sample _recon_sample_s _accum_sorted _recon_with_flags
-           _recon_mismatches;
+           _recon_mismatches _rs_mis_row;
   quit;
 
   %end; /* _recon_sample_n > 0 */

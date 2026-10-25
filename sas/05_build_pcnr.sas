@@ -223,4 +223,43 @@
 %put NOTE: [05_build_pcnr]   python python\scripts\write_pcnr_qc.py;
 %put NOTE: [05_build_pcnr]   Console output: logs\write_pcnr_qc_console.txt;
 
+/* ============================================================
+   SECTION 9 -- Log integrity scan (standalone mode only).
+   Scan Phase 5 log for "Invalid numeric data" or "Invalid argument"
+   which indicate type-unsafe code emitted by the code generators.
+   These should be impossible by construction (D-02b NULL guard + ??
+   suppressor in input()); treat any occurrence as a hard stop.
+   Wrapped in a macro to comply with C3 (no open-code %if/%mend).
+   ============================================================ */
+%macro _p5_log_scan;
+  %local _p5_logfile _p5_bad_lines;
+  %let _p5_logfile  = &logs_path.\05_build_pcnr.log;
+  %let _p5_bad_lines = 0;
+  %if %sysfunc(fileexist(&_p5_logfile)) %then %do;
+    data _null_;
+      infile "&_p5_logfile" encoding='utf-8' lrecl=500 end=_eof;
+      input _line $500.;
+      if index(upcase(_line), 'INVALID NUMERIC DATA') > 0
+      or index(upcase(_line), 'INVALID ARGUMENT') > 0 then do;
+        call symputx('_p5_bad_lines',
+                     strip(put(input(symget('_p5_bad_lines'), best32.) + 1, best32.)), 'G');
+        put 'ERROR: [05_build_pcnr] log-scan hit: ' _line;
+      end;
+    run;
+    %if &_p5_bad_lines > 0 %then %do;
+      %fail_out(msg=%str(log-scan: &_p5_bad_lines occurrence(s) of Invalid numeric data or Invalid argument in 05_build_pcnr.log -- type-unsafe generated code));
+    %end;
+    %else %do;
+      %put NOTE: [05_build_pcnr] log-scan: 0 Invalid-numeric-data / Invalid-argument lines found;
+    %end;
+  %end;
+  %else %do;
+    %put NOTE: [05_build_pcnr] log-scan skipped: log file not found (&_p5_logfile);
+  %end;
+%mend _p5_log_scan;
+
+%macro _p5_log_scan_dispatch;
+  %if &in_pipeline = 0 %then %_p5_log_scan;
+%mend _p5_log_scan_dispatch;
 %restore_log;
+%_p5_log_scan_dispatch;

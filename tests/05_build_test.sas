@@ -1434,6 +1434,169 @@ run;
 %_tc22_run;
 
 /*==========================================================================
-  SECTION 23 -- Summary
+  SECTION 23 -- TC-23: N8-resolved type-conflict var, non-spine source
+  has 'NULL': no gap-fill (treated as missing), no conflict, _F stays blank
+==========================================================================*/
+
+data work.name_map;
+  length s_code $4 col_order 8 sas_name $200 original_header $200
+         status $20 pcnr_name $200;
+  s_code='s09'; sas_name='PCNR_SCORE'; pcnr_name='PCNR_SCORE'; status='PCNR';
+  original_header='Score'; col_order=1; output;
+  s_code='s19'; sas_name='score_c'; pcnr_name='PCNR_SCORE'; status='PCNR';
+  original_header='Score Char'; col_order=1; output;
+run;
+data work.name_map_vars;
+  length pcnr_name $200 var_idx 8 result_type $1 max_length 8
+         type_conflict $1 s_codes_contributing $200 n_sources 8;
+  pcnr_name='PCNR_SCORE'; var_idx=1; result_type='N'; max_length=8;
+  type_conflict='Y'; s_codes_contributing='s09 s19'; n_sources=2; output;
+run;
+data work._nmv;
+  set work.name_map_vars;
+run;
+/* type_resolution: PCNR_SCORE resolves to N8 (all non-NULL values parse OK) */
+data work._type_resolution;
+  length pcnr_name $200 resolved_type $8 out_length 8;
+  pcnr_name='PCNR_SCORE'; resolved_type='N8'; out_length=8; output;
+run;
+/* s19: char source -- 'NULL' for both rows */
+data work.src_s19;
+  length norm_psid $64 score_c $10;
+  norm_psid='P001'; score_c='NULL'; output;
+  norm_psid='P002'; score_c='NULL'; output;
+run;
+/* Build accumulator: P001 filled by spine, P002 missing */
+data work._pcnr_accum;
+  attrib norm_psid length=$64
+         PCNR_SCORE length=8  _F0001 length=$4;
+  norm_psid='P001'; PCNR_SCORE=5; _F0001='s09'; output;
+  norm_psid='P002'; PCNR_SCORE=.; _F0001='';    output;
+run;
+
+%macro _tc23_run;
+  %_tc_start(n=23, desc=NULL-char-N8-no-fill-no-conflict);
+  %p5_gapfill_source(s_code=s19, rank=1,
+                     srclib=work, nmlib=work, spine_n=2,
+                     gen_dir=%sysfunc(getoption(work)));
+  %_assert_pass(label=no-macro-fail);
+  %if &p5_fail = 0 %then %do;
+    %local _sc_p001 _sc_p002 _f1_p001 _f1_p002 _n_conflicts;
+    proc sql noprint;
+      select PCNR_SCORE, strip(_F0001) into :_sc_p001 trimmed, :_f1_p001 trimmed
+      from work._pcnr_accum where norm_psid='P001';
+      select PCNR_SCORE, strip(_F0001) into :_sc_p002 trimmed, :_f1_p002 trimmed
+      from work._pcnr_accum where norm_psid='P002';
+      select count(*) into :_n_conflicts trimmed
+      from work._conflicts_s19;
+    quit;
+    /* P001: spine=5; NULL from s19 must not conflict */
+    %_assert(cond=(&_sc_p001=5), label=P001-spine-value-intact);
+    %_assert(cond=(%bquote(&_f1_p001)=%bquote(s09)), label=P001-F-still-s09);
+    /* P002: NULL from s19 must not fill (treated as missing) */
+    %_assert(cond=(%bquote(&_sc_p002)=%bquote()), label=P002-no-fill-from-NULL);
+    %_assert(cond=(%bquote(&_f1_p002)=%bquote()), label=P002-F-blank);
+    %_assert(cond=(&_n_conflicts=0), label=no-conflicts);
+  %end;
+%mend _tc23_run;
+%_tc23_run;
+
+/*==========================================================================
+  SECTION 24 -- TC-24: Reconciliation numeric source vs C-resolved PCNR:
+  no "BEST requires numeric" or "STRIP requires character" error
+==========================================================================*/
+
+/* name_map: PCNR_YR4 from s09 (char spine) and s03 (numeric source),
+   type_conflict resolved to C. */
+data work.name_map;
+  length s_code $4 col_order 8 sas_name $200 original_header $200
+         status $20 pcnr_name $200;
+  s_code='s09'; sas_name='PCNR_YR4'; pcnr_name='PCNR_YR4'; status='PCNR';
+  original_header='Year4'; col_order=1; output;
+  s_code='s03'; sas_name='yr4_n'; pcnr_name='PCNR_YR4'; status='PCNR';
+  original_header='Year4 Num'; col_order=1; output;
+run;
+data work.name_map_vars;
+  length pcnr_name $200 var_idx 8 result_type $1 max_length 8
+         type_conflict $1 s_codes_contributing $200 n_sources 8;
+  pcnr_name='PCNR_YR4'; var_idx=1; result_type='C'; max_length=10;
+  type_conflict='Y'; s_codes_contributing='s09 s03'; n_sources=2; output;
+run;
+data work._nmv;
+  set work.name_map_vars;
+run;
+/* pcnr output: PCNR_YR4 is $char (C-resolved), P002 filled from s03 */
+data work.pcnr;
+  length norm_psid $64 PCNR_YR4 $10 _F0001 $4;
+  norm_psid='P001'; PCNR_YR4='2018'; _F0001='s09'; output;
+  norm_psid='P002'; PCNR_YR4='2019'; _F0001='s03'; output;
+run;
+/* Numeric source s03: values match pcnr (2019=2019) */
+data work.src_s03;
+  length norm_psid $64 yr4_n 8;
+  norm_psid='P001'; yr4_n=2018; output;
+  norm_psid='P002'; yr4_n=2019; output;
+run;
+data work._pcnr_accum;
+  set work.pcnr;
+run;
+
+%macro _tc24_run;
+  %_tc_start(n=24, desc=recon-num-src-C-pcnr-no-type-error);
+  /* p5_finalize_pcnr will fail at CLOCK step (dummy CSV missing); that is expected.
+     The test asserts that recon itself did NOT produce a type-mismatch error. */
+  %p5_finalize_pcnr(outlib=work, nmlib=work, srclib=work,
+                    spine_n=2, nvars=1,
+                    s06class_csv=C:\nonexistent\dummy_cls.csv);
+  /* p5_fail may be 1 due to CLOCK CSV missing -- acceptable.
+     It must NOT be 1 due to BEST/STRIP type error. */
+  %if &p5_fail = 1 %then %do;
+    %_assert(cond=(index("&p5_fail_msg", 'BEST requires') = 0 and
+                   index("&p5_fail_msg", 'STRIP requires') = 0),
+             label=no-type-error-in-recon);
+  %end;
+  %else %do;
+    %_assert_pass(label=recon-and-schema-passed);
+  %end;
+%mend _tc24_run;
+%_tc24_run;
+
+/*==========================================================================
+  SECTION 25 -- TC-25: Reconciliation detects real mismatch (mixed types)
+  and fires p5_fail
+==========================================================================*/
+
+/* Reuse name_map / name_map_vars / _nmv from TC-24.
+   pcnr='2019' for P002 but source=2020 -> mismatch. */
+data work.pcnr;
+  length norm_psid $64 PCNR_YR4 $10 _F0001 $4;
+  norm_psid='P001'; PCNR_YR4='2018'; _F0001='s09'; output;
+  norm_psid='P002'; PCNR_YR4='2019'; _F0001='s03'; output;
+run;
+data work.src_s03;
+  length norm_psid $64 yr4_n 8;
+  norm_psid='P001'; yr4_n=2018; output;
+  norm_psid='P002'; yr4_n=2020; output;
+run;
+data work._pcnr_accum;
+  set work.pcnr;
+run;
+
+%macro _tc25_run;
+  %_tc_start(n=25, desc=recon-detects-mismatch-fires-p5fail);
+  %p5_finalize_pcnr(outlib=work, nmlib=work, srclib=work,
+                    spine_n=2, nvars=1,
+                    s06class_csv=C:\nonexistent\dummy_cls.csv);
+  /* Recon fires before CLOCK; p5_fail must be 1 and message must say mismatch */
+  %_assert_fail(label=p5-fail-on-mismatch);
+  %if &p5_fail = 1 %then %do;
+    %_assert(cond=(index("&p5_fail_msg", 'mismatch') > 0),
+             label=fail-msg-says-mismatch);
+  %end;
+%mend _tc25_run;
+%_tc25_run;
+
+/*==========================================================================
+  SECTION 26 -- Summary
 ==========================================================================*/
 %_tc_summary;
