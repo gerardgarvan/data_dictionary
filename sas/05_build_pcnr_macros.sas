@@ -791,12 +791,8 @@
     %end;
   %end;
 
-  /* Step 1. Add sequential var_idx (1..nvars) to work._nmv.
-     DATA step automatic counter increments before first OUTPUT. */
-  data work._nmv;
-    set work._nmv;
-    var_idx + 1;
-  run;
+  /* Step 1. var_idx is assigned by %p5_preflight (or by the test harness).
+     %p5_build_accumulator does NOT re-assign it -- single assignment point. */
 
   /* Step 2. Build representative-label lookup (work._pcnr_labels).
      For each pcnr_name select the original_header from the row with
@@ -1712,8 +1708,7 @@
     run;
 
     data work._rs_merged;
-      merge work._recon_with_flags (in=_a keep=norm_psid
-              /* PCNR_ and _F columns are all present in _recon_with_flags */)
+      merge work._recon_with_flags (in=_a) /* keep all PCNR_ and _F columns */
             work._rs_src (in=_b);
       by norm_psid;
       if _a and _b; /* inner join: only sample rows also in this source */
@@ -1736,6 +1731,25 @@
 
       %let _rs_fa = _F%sysfunc(putn(&_rs_vi, z4.));
       %let _rs_mm = 0;
+
+      /* Guard: verify _F#### and PCNR_ column both exist in work._rs_merged */
+      %local _rs_fa_exists _rs_pn_exists;
+      %let _rs_fa_exists = 0;
+      %let _rs_pn_exists = 0;
+      proc sql noprint;
+        select count(*) into :_rs_fa_exists trimmed
+        from dictionary.columns
+        where libname = 'WORK' and memname = '_RS_MERGED'
+          and upcase(name) = upcase("&_rs_fa");
+        select count(*) into :_rs_pn_exists trimmed
+        from dictionary.columns
+        where libname = 'WORK' and memname = '_RS_MERGED'
+          and upcase(name) = upcase("&_rs_pn");
+      quit;
+      %if &_rs_fa_exists = 0 or &_rs_pn_exists = 0 %then %do;
+        %fail_out(msg=%str(reconciliation: column &_rs_fa or &_rs_pn missing from work._rs_merged -- var_idx mismatch or merge error));
+        %if &p5_fail = 1 %then %goto recon_next_var;
+      %end;
 
       /* Count mismatches: rows where fill-origin=this source AND values differ */
       %if &_rs_rt = N and &_rs_tc ne Y %then %do;
@@ -1780,6 +1794,7 @@
         run;
         proc append base=work._recon_mismatches data=work._rs_mis_row force; run;
       %end;
+      %recon_next_var:
     %end; /* _rs_vi_i */
 
     proc datasets library=work nolist;

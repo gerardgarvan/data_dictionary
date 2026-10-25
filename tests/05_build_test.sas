@@ -1056,6 +1056,171 @@ run;
 %_tc16_run;
 
 /*==========================================================================
-  SECTION 17 -- Summary
+  SECTION 17 -- TC-17: full chain build_accumulator -> run_gapfill ->
+  finalize_pcnr -> write_qc on synthetic WORK data (no hand-built accum)
+==========================================================================*/
+
+/* Fresh name_map: s09 spine col + s01 non-spine col, 1 var, no type conflict */
+data work.name_map;
+  length pcnr_name $200 s_code $4 col_name $200 status $20
+         original_header $200 col_order 8 n_sources 8
+         type_conflict $1 result_type $1 max_length 8;
+  s_code='s09'; col_name='PCNR_SCORE'; pcnr_name='PCNR_SCORE'; status='PCNR';
+  original_header='Score'; col_order=1; n_sources=2;
+  type_conflict='N'; result_type='N'; max_length=8; output;
+  s_code='s01'; col_name='score'; pcnr_name='PCNR_SCORE'; status='PCNR';
+  original_header='Score'; col_order=1; n_sources=2;
+  type_conflict='N'; result_type='N'; max_length=8; output;
+run;
+/* name_map_vars WITHOUT var_idx -- %p5_build_accumulator owns var_idx now */
+data work.name_map_vars;
+  length pcnr_name $200 result_type $1 max_length 8
+         type_conflict $1 s_codes_contributing $200 n_sources 8;
+  pcnr_name='PCNR_SCORE'; result_type='N'; max_length=8;
+  type_conflict='N'; s_codes_contributing='s09 s01'; n_sources=2; output;
+run;
+/* _nmv with var_idx assigned here (simulating what preflight would do) */
+data work._nmv;
+  set work.name_map_vars;
+  var_idx + 1;
+run;
+data work._type_resolution;
+  length pcnr_name $200 resolved_type $8 out_length 8;
+  stop;
+run;
+data work._override;
+  length pcnr_name $200 s_code $4;
+  stop;
+run;
+data work._priority;
+  length s_code $4 rank 8 note $40;
+  s_code='s01'; rank=1; note=''; output;
+  s_code='s09'; rank=9; note='spine'; output;
+run;
+proc sort data=work._priority; by rank; run;
+data work.src_s09;
+  length norm_psid $64 PCNR_SCORE 8;
+  norm_psid='P001'; PCNR_SCORE=10; output;
+  norm_psid='P002'; PCNR_SCORE=.; output;
+  norm_psid='P003'; PCNR_SCORE=.; output;
+run;
+data work.src_s01;
+  length norm_psid $64 score 8;
+  norm_psid='P001'; score=99; output;
+  norm_psid='P002'; score=20; output;
+  norm_psid='P003'; score=30; output;
+run;
+
+%macro _tc17_run;
+  %_tc_start(n=17, desc=full-chain-build-to-writeqc);
+  %local _wdir;
+  %let _wdir = %sysfunc(getoption(work));
+  %_write_s06class_csv(path=&_wdir.\cls_tc17.csv);
+
+  /* Step 1: build_accumulator */
+  %p5_build_accumulator(srclib=work, nmlib=work, spine_n=3,
+                        gen_dir=&_wdir, export_dir=&_wdir);
+  %_assert_pass(label=build-accum-ok);
+  %if &p5_fail = 0 %then %do;
+
+    /* Step 2: run_gapfill */
+    %p5_run_gapfill(srclib=work, nmlib=work, spine_n=3, gen_dir=&_wdir);
+    %_assert_pass(label=run-gapfill-ok);
+  %end;
+  %if &p5_fail = 0 %then %do;
+
+    /* Step 3: finalize_pcnr */
+    %p5_finalize_pcnr(outlib=work, nmlib=work, srclib=work,
+                      spine_n=3, nvars=1, s06class_csv=&_wdir.\cls_tc17.csv);
+    %_assert_pass(label=finalize-ok);
+  %end;
+  %if &p5_fail = 0 %then %do;
+
+    /* Step 4: write_qc */
+    %p5_write_qc(outlib=work, spine_n=3, export_dir=&_wdir);
+    %_assert_pass(label=write-qc-ok);
+  %end;
+  %if &p5_fail = 0 %then %do;
+    /* Verify: P001 stays spine (s09 filled), P002/P003 gap-filled from s01 */
+    %local _nrow _f_p001 _f_p002 _score_p001 _score_p002;
+    proc sql noprint;
+      select count(*) into :_nrow trimmed from work.pcnr;
+      select strip(_F0001) into :_f_p001 trimmed
+      from work._pcnr_accum where norm_psid='P001';
+      select strip(_F0001) into :_f_p002 trimmed
+      from work._pcnr_accum where norm_psid='P002';
+      select PCNR_SCORE into :_score_p001 trimmed
+      from work.pcnr where norm_psid='P001';
+      select PCNR_SCORE into :_score_p002 trimmed
+      from work.pcnr where norm_psid='P002';
+    quit;
+    %_assert(cond=(%eval(&_nrow = 3)), label=pcnr-3-rows);
+    %_assert(cond=(%bquote(&_f_p001)=%bquote(s09)), label=P001-spine-origin);
+    %_assert(cond=(%bquote(&_f_p002)=%bquote(s01)), label=P002-gapfilled-s01);
+    %_assert(cond=(%eval(&_score_p001 = 10)), label=P001-score-10);
+    %_assert(cond=(%eval(&_score_p002 = 20)), label=P002-score-20);
+    /* SPINE_VS_SOURCE conflict: P001 spine=10, s01=99 -> conflict row */
+    %local _nconflict;
+    proc sql noprint;
+      select count(*) into :_nconflict trimmed
+      from work.qc_pcnr_conflicts
+      where norm_psid='P001' and pcnr_name='PCNR_SCORE';
+    quit;
+    %_assert(cond=(%eval(&_nconflict >= 1)), label=P001-conflict-recorded);
+  %end;
+%mend _tc17_run;
+%_tc17_run;
+
+/*==========================================================================
+  SECTION 18 -- TC-18: var_idx mismatch -- reconciliation guard fires
+==========================================================================*/
+
+data work.name_map;
+  length pcnr_name $200 s_code $4 col_name $200 status $20
+         original_header $200 col_order 8 n_sources 8
+         type_conflict $1 result_type $1 max_length 8;
+  s_code='s01'; col_name='age'; pcnr_name='PCNR_AGE'; status='PCNR';
+  original_header='Age'; col_order=1; n_sources=1;
+  type_conflict='N'; result_type='N'; max_length=8; output;
+run;
+data work.name_map_vars;
+  length pcnr_name $200 result_type $1 max_length 8
+         type_conflict $1 s_codes_contributing $200 n_sources 8;
+  pcnr_name='PCNR_AGE'; result_type='N'; max_length=8;
+  type_conflict='N'; s_codes_contributing='s01'; n_sources=1; output;
+run;
+/* var_idx=99 will not match any _F0099 in the accumulator */
+data work._nmv;
+  set work.name_map_vars;
+  var_idx = 99;
+run;
+data work.src_s01;
+  length norm_psid $64 age 8;
+  norm_psid='P001'; age=30; output;
+run;
+/* Accumulator uses _F0001 (var_idx=1) but _nmv says var_idx=99 */
+data work._pcnr_accum;
+  attrib norm_psid length=$64 PCNR_AGE length=8 _F0001 length=$4;
+  norm_psid='P001'; PCNR_AGE=30; _F0001='s01'; output;
+run;
+data work.pcnr;
+  set work._pcnr_accum;
+  drop _F:;
+run;
+
+%macro _tc18_run;
+  %_tc_start(n=18, desc=varidx-mismatch-guard);
+  %local _wdir;
+  %let _wdir = %sysfunc(getoption(work));
+  %_write_s06class_csv(path=&_wdir.\cls_tc18.csv);
+  %p5_finalize_pcnr(outlib=work, nmlib=work, srclib=work,
+                    spine_n=1, nvars=1, s06class_csv=&_wdir.\cls_tc18.csv);
+  /* Reconciliation should fire p5_fail=1 because _F0099 missing from _rs_merged */
+  %_assert_fail(label=varidx-mismatch-detected);
+%mend _tc18_run;
+%_tc18_run;
+
+/*==========================================================================
+  SECTION 19 -- Summary
 ==========================================================================*/
 %_tc_summary;
