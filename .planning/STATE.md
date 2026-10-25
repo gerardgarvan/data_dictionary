@@ -2,7 +2,7 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: PCNR_ raw layer and dictionary framework
-status: Phase 5 statically verified — live run pending
+status: Phase 5 in progress — code review fixes applied, live run pending
 last_updated: "2026-10-21T00:00:00Z"
 progress:
   total_phases: 7
@@ -15,16 +15,16 @@ progress:
 
 ## Current position
 
-Phase: 05 (build-pcnr-on-the-spine) — STATICALLY VERIFIED
-Plan: 5 of 5 (all complete)
-Next: Phase 06 — Distribution engine OR live run of Phase 5 to close human-verification items
+Phase: 05 (build-pcnr-on-the-spine) — IN PROGRESS
+Plan: 5 of 6 (05-06 unchecked — tests/05_build_test.sas run)
+Next: Live run of Phase 5 (run_pipeline.cmd); tests/05_build_test.sas SUMMARY failed=0 required first
 | Field | Value |
 |-------|-------|
 | Milestone | v1.0 — PCNR_ raw layer and dictionary framework |
 | Phase | 05 — Build PCNR_ on the spine |
-| Status | Static verification passed (10/10); live run and QC workbook review pending |
-| Last updated | 2026-10-21 |
-| Stopped at | 05-VERIFICATION.md written |
+| Status | Code review fixes applied 2026-10-21 (commit 6649f69); not yet run against P: data |
+| Last updated | 2026-10-25 |
+| Stopped at | Code review fixes committed; tests/05_build_test.sas extended to TC-24 |
 
 ## Milestone v1.0 phase checklist
 
@@ -34,7 +34,7 @@ Next: Phase 06 — Distribution engine OR live run of Phase 5 to close human-ver
 | 2 | Source guard and header inventory | ✅ Complete — live run passed 2026-10-19 14:15 |
 | 3 | Direct import of the 20 sources | ✅ Complete — live run 2026-10-20 20:58 passed all criteria (0 MISMATCH, n_pairs=9001 ndis=0, exit=1 warnings only) |
 | 4 | Name map | ✅ Complete — verified 2026-10-21; Price sign-off pending before Phase 7 |
-| 5 | Build PCNR_ on the spine | ✅ Statically verified 2026-10-21 (10/10). Live run (pdd.pcnr) and QC workbook human review outstanding. |
+| 5 | Build PCNR_ on the spine | 🔧 In progress — code review fixes applied 2026-10-21; live run (pdd.pcnr) and QC workbook review outstanding. |
 | 6 | Distribution engine | ⬜ Not started |
 | 7 | Dictionary workbook writer | ⬜ Not started |
 
@@ -61,13 +61,18 @@ SAS/Python split locked. SAS owns data; Python owns xlsx output. Phase 3 unchang
 | PDD-D-12 | PCND_ definitions | Phase 13 |
 | PDD-D-13 | CLK_ source. **Note (2026-10-20):** s06 clock columns (COM*/COPY* + clock token) identified as candidate CLK_ source; pending confirmation this is the authoritative source. | Phase 9 |
 | PDD-D-14 | LAB_/MED_/INTRA_ paths | Phases 10–12 |
-| PDD-D-15 | Gap-fill tie-break order | Phase 5 |
-| PDD-D-16 | Per-cell source flag | Phase 5 |
-| PDD-D-17 | **FULLY CLOSED (discuss-3).** All 20 files are 1:1 per PRECEDE_STUDY_ID. s01 (41,423 distinct) and s08 (3,456 distinct) are NOT multi-row -- Phase 2 counts confirm 1:1 grain. 274 s01 IDs not in spine are a QC item. s18 has 2 dup/blank key rows (qc_s18_dup) for Phase 3 review | Phase 3 (s01, s08), Phase 5 (s01, s08) |
-| PDD-D-18 | s04/s05 appear to be linkage/QC files (same encryption, 100% match) — not dictionary variables. Pending Gerard confirmation | Phase 3 (s04, s05), Phase 5 (s04, s05) |
-| PDD-D-19 | **LOCKED (2026-10-19).** `cats('Precede', put(input(strip(id),??8.),z5.))` — 9,001 pairs, ndis=0 (run 19:21). `%pdd_norm_psid` in `00_config.sas`. Phase 3 QC: s01 274 not in spine (1 spine case no PACU row); s18 269 not in spine, 2 dup/blank rows (`pdd.qc_s18_dup`); s06 29 and s11 1 not in spine; s04/s05 4 not in spine | — |
-| PDD-D-20 | **LOCKED.** 6 s17 ENCRYPTED_ENCOUNTER values that map to >1 PRECEDE_STUDY_ID → set to missing for linkage; unchanged in PCNR_ | Phase 3 (s17) |
-| PDD-D-21 | **LOCKED (2026-10-20, reviewed Gerard 2026-10-20).** Excluded from PCNR_: 2,747 digital clock columns (COM/COPY clock tokens + LINUS DCTclock summary). Kept in PCNR_: 809 other digital-battery tests (DIGITAL_OTHER) + 431 other columns (PCNR), including clock admin flags and Mini-Cog clock scores. UNSURE=0; Phase 4 gate clear. Split applied Phase 4 onward via docs/s06_column_class.csv. | Phase 4 gate |
+
+## Decided (closed)
+
+| ID | Decided | Resolution |
+|----|---------|------------|
+| PDD-D-15 | 2026-10-21 | Gap-fill tie-break: rank order from docs/pcnr_source_priority.csv; spine wins unconditionally |
+| PDD-D-16 | 2026-10-21 | QC-only provenance (pdd.qc_pcnr_provenance); no per-cell _SRC columns in pdd.pcnr |
+| PDD-D-17 | 2026-10-19 | FULLY CLOSED. All 20 files 1:1 per PRECEDE_STUDY_ID. s01 (41,423 distinct) and s08 (3,456 distinct) NOT multi-row. 274 s01 IDs not in spine are QC item. s18 has 2 dup/blank key rows (qc_s18_dup). |
+| PDD-D-18 | 2026-10-19 | s04/s05 confirmed as linkage/QC files — not dictionary variables; contribute 0 PCNR_ columns (asserted). |
+| PDD-D-19 | 2026-10-19 | LOCKED. `cats('Precede', put(input(strip(id),??8.),z5.))` — 9,001 pairs, ndis=0. `%pdd_norm_psid` in `00_config.sas`. |
+| PDD-D-20 | 2026-10-19 | LOCKED. 6 s17 ENCRYPTED_ENCOUNTER values mapping to >1 PRECEDE_STUDY_ID set to missing for linkage; unchanged in PCNR_. |
+| PDD-D-21 | 2026-10-20 | LOCKED. Excluded from PCNR_: 2,747 digital clock columns. Kept: 809 DIGITAL_OTHER + 431 PCNR columns. UNSURE=0. Split via docs/s06_column_class.csv. |
 
 ## Decisions (Phase 03)
 
@@ -81,9 +86,7 @@ SAS/Python split locked. SAS owns data; Python owns xlsx output. Phase 3 unchang
 
 ## Notes
 
-- PDD-D-15 and PDD-D-16 block Phase 5 only; Phases 1–4 and 6–7 can proceed.
-- PDD-D-17 FULLY CLOSED: all 20 files are 1:1 per PRECEDE_STUDY_ID; s01/s08 are NOT multi-row (Phase 2 + discuss-3 confirmed).
-- PDD-D-18 pending Gerard confirmation; PDD-D-19 LOCKED (2026-10-19).
+- D-15, D-16, D-17, D-18, D-19, D-20, D-21 all closed. See Decided table above.
 - Repo lives at `C:\data_dictionary`; data/output at `P:\PeCAN Master Data\Gerard\data_dictionary\`.
 - Source files are strictly read-only at `P:\PeCAN Master Data\00 Shared Data\DSS Received Data\1 Data Files\Master Data`.
 - Older copies exist at `P:\PeCAN Master Data\Gerard\raw\master` for hash comparison only.

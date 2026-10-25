@@ -23,7 +23,7 @@ Plans:
 - Header × file matrix across all 20 files; inferred type per column
 - Re-check prior expectations: ~701 header instances, ~168 unique variables, ~41,150-row spine
 - **Done when:** source inventory, key/grain analysis, hash comparison, and header matrix are written to `pdd` library and `qc\`; PDD-D-17 and PDD-D-18 can be decided from the output
-- **Plans:** 1/3 plans executed
+- **Plans:** 3/3 plans complete
 
 Plans:
 - [x] 02-01-PLAN.md — Program scaffold, 20-file list, FINFO metadata, certutil SHA-256, two-branch hash baseline guard, pdd.source_inventory (wave 1)
@@ -48,10 +48,10 @@ Plans:
 ### Phase 4: Name map
 - `04_name_map.sas`: original header → cleaned name → `PCNR_` name (≤32 chars, collision-checked) → label
 - Reads `docs/s06_column_class.csv`; excludes class=CLOCK rows from the PCNR_ name map (D-21 LOCKED)
-- CLOCK columns written to a separate CLK_ candidate list for Phase 9
+- CLOCK columns available as pdd.name_map status=EXCLUDED_CLK (2,747 rows) for Phase 9
 - **Gate:** Gerard must review `qc\s06_clock_classification.xlsx` UNSURE sheet and resolve all UNSURE tokens before Phase 4 starts
 - **Done when:** NAME_MAP has no duplicates or truncation collisions, and Gerard has reviewed it
-- **Status: ✅ VERIFIED 2026-10-21 — all open items closed.** exit=0, warnings=0; 4795→1299 PCNR_, 0 collisions, 0 suffixes, 31 elided, 0 undecided near-matches; merged 93f1d09. Naming rules A1–A4 approved by Gerard 2026-10-21; Price sign-off pending before Phase 7 release. D-21 boundary confirmed: 34 COMmoca*/COPYmoca* stay PCNR_ (Gerard 2026-10-21). 9 type conflicts forwarded to Phase 5 as character columns.
+- **Status: ✅ VERIFIED 2026-10-21 — all open items closed.** exit=0, warnings=0; 4795→1299 PCNR_, 0 collisions, 0 suffixes, 31 elided, 0 undecided near-matches; merged 93f1d09. Naming rules A1–A4 approved by Gerard 2026-10-21; Price sign-off pending before Phase 7 release. D-21 boundary confirmed: 34 COMmoca*/COPYmoca* stay PCNR_ (Gerard 2026-10-21). 9 type conflicts forwarded to Phase 5 (resolved there: N8 if all values parse, else C).
 - **Plans:** 4 plans
 
 Plans:
@@ -69,9 +69,9 @@ Plans:
 - Type resolution before build for the 9 type-conflict variables: N8 if all parse, else C (D-02 amendment)
 - QC-only provenance (D-16): pdd.qc_pcnr_provenance (2+-source cells); no per-cell _SRC columns
 - QC: exchange CSVs → `qc\pcnr_qc.xlsx` (KEY, GAPFILL, SPINE_COVERAGE, CONFLICT_SUMMARY, CONFLICT_DETAIL cap 5,000, TYPECHECK)
-- **Done when:** `pdd.pcnr` has 41,150 rows × 1,299 PCNR_ + NORM_PSID, 0 dup/blank keys, 0 CLOCK columns, QC written and reviewed; wired into 99_run_all.sas
-- **Status: ✅ VERIFIED 2026-10-21 — static verification passed (10/10 must-haves).** All SAS macros, Python QC module, test harness, and pipeline wiring verified. Live run (pdd.pcnr production) and QC workbook output require human verification before phase is fully closed.
-- **Plans:** 5 plans
+- **Status: 🔧 IN PROGRESS — code review 2026-10-21 found blockers (pending fixes: _S alias type clash, conflict/provenance outputs, consolidation SET, PCNR_: keep, generated-file MOD append, pinned pass, reconciliation placeholder, GAPFILL performance). Not yet run.**
+- **Done when:** `pdd.pcnr` has 41,150 rows × 1,299 PCNR_ + NORM_PSID, 0 dup/blank keys, 0 CLOCK columns, QC written and reviewed; wired into 99_run_all.sas; tests/05_build_test.sas SUMMARY failed=0; reconciliation sample 0 mismatches; GAPFILL identities hold; Python QC run from run_pipeline.cmd exit 0.
+- **Plans:** 6 plans
 
 Plans:
 - [x] 05-01-PLAN.md — Wave 0 scaffold: docs/pcnr_source_priority.csv + pcnr_source_override.csv + lint-clean 05_build_pcnr.sas stub (wave 1)
@@ -79,6 +79,7 @@ Plans:
 - [x] 05-03-PLAN.md — 05_build_pcnr_macros.sas: Section 0 + %p5_preflight (D-18) + %p5_spine_coverage (D-19) + %p5_resolve_types (D-02) (wave 2)
 - [x] 05-04-PLAN.md — 05_build_pcnr_macros.sas: %p5_build_accumulator + %p5_gapfill_source + %p5_finalize_pcnr + %p5_write_qc (wave 3)
 - [x] 05-05-PLAN.md — 05_build_pcnr.sas orchestrator + Python QC invoke + wire Phase 5 into 99_run_all.sas (wave 4)
+- [ ] 05-06-PLAN.md — tests/05_build_test.sas: TC-01..TC-24 covering all blockers (wave 5)
 
 ### Phase 6: Distribution engine (reusable macro)
 - `%pdd_profile(lib=, ds=, prefix=, family=)`: classifies each variable by distinct-value count and computes distributions per PDD-D-06
@@ -108,10 +109,18 @@ Phases 8–13 have no fixed order. Whichever gate clears first runs first, excep
 ## Open decisions (phase gates)
 | ID | Blocks | Description |
 |----|--------|-------------|
-| PDD-D-15 | Phase 5 | Gap-fill tie-break order among non-spine sources |
-| PDD-D-16 | Phase 5 | Per-cell source flag vs. QC-only summary |
-| PDD-D-17 | Phase 3 (s01, s08), Phase 5 (s01, s08) | Multi-row-per-patient files — aggregate / first-last / wide / separate long table — decided after Phase 2 |
-| PDD-D-18 | Phase 3 (s04, s05), Phase 5 (s04, s05) | MRN/encounter-keyed crosswalk files — linkage path and ID mismatch resolution — decided after Phase 2 |
+| PDD-D-11 | Phase 8 | PCNC_ source location |
+| PDD-D-12 | Phase 13 | PCND_ definitions |
+| PDD-D-13 | Phase 9 | CLK_ authoritative source (s06 clock columns are candidate; pending confirmation) |
+| PDD-D-14 | Phases 10–12 | LAB_/MED_/INTRA_ paths and linkage keys |
+
+## Decided (closed)
+| ID | Decided | Resolution |
+|----|---------|------------|
+| PDD-D-15 | 2026-10-21 | Gap-fill tie-break: rank order from docs/pcnr_source_priority.csv; spine wins unconditionally |
+| PDD-D-16 | 2026-10-21 | QC-only provenance (pdd.qc_pcnr_provenance); no per-cell _SRC columns in pdd.pcnr |
+| PDD-D-17 | 2026-10-19 | FULLY CLOSED. All 20 files are 1:1 per PRECEDE_STUDY_ID. s01 (41,423 distinct) and s08 (3,456 distinct) are NOT multi-row. 274 s01 IDs not in spine are a QC item. s18 has 2 dup/blank key rows (qc_s18_dup). |
+| PDD-D-18 | 2026-10-19 | s04/s05 confirmed as linkage/QC files (same encryption, 100% match) — not dictionary variables; contribute 0 PCNR_ columns (asserted). |
 
 ## Not in scope (v1.0)
 - Cohort restriction (all spine patients are profiled)
