@@ -603,17 +603,17 @@ run;
   %_tc_start(n=09, desc=pinned-var-override);
   /* Pass 2: pinned s02 for PCNR_AGE */
   %p5_gapfill_source(s_code=s02, rank=0,
-                     pcnr_filter=%bquote(%')PCNR_AGE%bquote(%'),
+                     pcnr_filter=PCNR_AGE,
                      srclib=work, nmlib=work, spine_n=2,
                      gen_dir=%sysfunc(getoption(work)));
   /* Pass 3: s01 for PCNR_CODE */
   %p5_gapfill_source(s_code=s01, rank=1,
-                     pcnr_filter=%bquote(%')PCNR_CODE%bquote(%'),
+                     pcnr_filter=PCNR_CODE,
                      srclib=work, nmlib=work, spine_n=2,
                      gen_dir=%sysfunc(getoption(work)));
   /* s01 for PCNR_AGE (P002 was not filled by s02 -- s02 lacks P002) */
   %p5_gapfill_source(s_code=s01, rank=1,
-                     pcnr_filter=%bquote(%')PCNR_AGE%bquote(%'),
+                     pcnr_filter=PCNR_AGE,
                      srclib=work, nmlib=work, spine_n=2,
                      gen_dir=%sysfunc(getoption(work)));
   %_assert_pass(label=no-macro-fail);
@@ -845,6 +845,17 @@ data work._pcnr_accum;
   attrib norm_psid length=$64 PCNR_AGE length=8 _F0001 length=$4;
   norm_psid='P001'; PCNR_AGE=30; _F0001='s09'; output;
 run;
+
+proc datasets library=work nolist;
+  delete _conflicts_s01 _conflicts_s02 _conflicts_s03 _conflicts_s04 _conflicts_s05
+         _conflicts_s06 _conflicts_s07 _conflicts_s08 _conflicts_s10 _conflicts_s11
+         _conflicts_s12 _conflicts_s13 _conflicts_s14 _conflicts_s15 _conflicts_s16
+         _conflicts_s17 _conflicts_s18 _conflicts_s19 _conflicts_s20
+         _prov_s01 _prov_s02 _prov_s03 _prov_s04 _prov_s05
+         _prov_s06 _prov_s07 _prov_s08 _prov_s10 _prov_s11
+         _prov_s12 _prov_s13 _prov_s14 _prov_s15 _prov_s16
+         _prov_s17 _prov_s18 _prov_s19 _prov_s20;
+quit;
 
 %macro _tc14_run;
   %_tc_start(n=14, desc=empty-conflict-run);

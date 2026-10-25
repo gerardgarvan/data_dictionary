@@ -101,6 +101,7 @@
   %if &_n_linkage_pcnr > 0 %then %do;
     %fail_out(msg=%str(D-18 violated: &_n_linkage_pcnr rows in &nmlib..name_map have s_code in (s04 s05) and status=PCNR));
   %end;
+  %if &p5_fail = 1 %then %return;
   %put NOTE: [05_build_pcnr] D-18 s04/s05 contribute 0 PCNR rows (passed);
 
   /* ---- B. SHA-256 + row counts ---- */
@@ -128,6 +129,7 @@
 
   /* C1. Spine row count and key quality */
   %assert_rowcount(ds=&srclib..src_s09, expected=&spine_n, label=spine &srclib..src_s09);
+  %if &p5_fail = 1 %then %return;
 
   %local _n_blank_spine;
   proc sql noprint;
@@ -138,6 +140,7 @@
   %if &_n_blank_spine > 0 %then %do;
     %fail_out(msg=%str(spine has &_n_blank_spine blank norm_psid values));
   %end;
+  %if &p5_fail = 1 %then %return;
   %put NOTE: [05_build_pcnr] spine blank norm_psid check passed (0 blank);
 
   %local _n_all_spine _n_dis_spine;
@@ -148,6 +151,7 @@
   %if &_n_all_spine ne &_n_dis_spine %then %do;
     %fail_out(msg=%str(spine has duplicate norm_psid: total=&_n_all_spine distinct=&_n_dis_spine));
   %end;
+  %if &p5_fail = 1 %then %return;
   %put NOTE: [05_build_pcnr] spine duplicate norm_psid check passed (&_n_dis_spine unique keys);
 
   /* C2. Per-source key quality for all 20 sources.
@@ -206,6 +210,7 @@
     %if &_n_nonblank ne &_n_dis_nonblank %then %do;
       %fail_out(msg=%str(source &_sc has duplicate non-blank norm_psid: n_nonblank=&_n_nonblank n_distinct=&_n_dis_nonblank));
     %end;
+    %if &p5_fail = 1 %then %return;
 
     %next_source:
   %end;
@@ -233,6 +238,7 @@
   run;
 
   %assert_rowcount(ds=work._priority, expected=20, label=priority);
+  %if &p5_fail = 1 %then %return;
 
   /* Assert ranks form a permutation of 1..20 */
   %local _n_valid_ranks _n_dis_ranks;
@@ -246,9 +252,11 @@
   %if &_n_valid_ranks ne 20 %then %do;
     %fail_out(msg=%str(priority ranks not a permutation of 1..20: &_n_valid_ranks rows have rank in [1,20]));
   %end;
+  %if &p5_fail = 1 %then %return;
   %if &_n_dis_ranks ne 20 %then %do;
     %fail_out(msg=%str(priority ranks not a permutation of 1..20: only &_n_dis_ranks distinct ranks));
   %end;
+  %if &p5_fail = 1 %then %return;
   %put NOTE: [05_build_pcnr] priority ranks are a valid permutation of 1..20;
 
   /* Assert s09 note = 'spine' */
@@ -261,6 +269,7 @@
   %if %bquote(&_s09note) ne %bquote(spine) %then %do;
     %fail_out(msg=%str(priority s09 note is not spine -- found: &_s09note));
   %end;
+  %if &p5_fail = 1 %then %return;
   %put NOTE: [05_build_pcnr] priority s09 note=spine confirmed;
 
   /* Assert s_codes are exactly s01..s20, distinct */
@@ -276,9 +285,11 @@
   %if &_n_valid_sc ne 20 %then %do;
     %fail_out(msg=%str(priority s_codes not exactly s01..s20: &_n_valid_sc valid rows of 20));
   %end;
+  %if &p5_fail = 1 %then %return;
   %if &_n_dis_sc ne 20 %then %do;
     %fail_out(msg=%str(priority has duplicate s_code: only &_n_dis_sc distinct of 20));
   %end;
+  %if &p5_fail = 1 %then %return;
   %put NOTE: [05_build_pcnr] priority s_codes confirmed as exactly s01..s20 distinct;
 
   /* Sort priority by rank for use in coverage/build loops */
@@ -314,6 +325,7 @@
   %if &_n_ov ne &_n_ov_dis %then %do;
     %fail_out(msg=%str(override has duplicate pcnr_name: n=&_n_ov distinct=&_n_ov_dis));
   %end;
+  %if &p5_fail = 1 %then %return;
   %put NOTE: [05_build_pcnr] override pcnr_name uniqueness OK (rows=&_n_ov);
 
   /* Assert no override pins to spine (s09 not allowed as override source) */
@@ -326,6 +338,7 @@
   %if &_n_pin_spine > 0 %then %do;
     %fail_out(msg=%str(override pins to spine (s_code=s09) -- not allowed; &_n_pin_spine rows));
   %end;
+  %if &p5_fail = 1 %then %return;
   %put NOTE: [05_build_pcnr] override s09 guard passed;
 
   /* Assert each override (pcnr_name, s_code) pair exists in &nmlib..name_map with status='PCNR'.
@@ -345,6 +358,7 @@
     %if &_n_bad_pin > 0 %then %do;
       %fail_out(msg=%str(override references s_code not contributing to that pcnr_name: &_n_bad_pin bad rows));
     %end;
+    %if &p5_fail = 1 %then %return;
     %put NOTE: [05_build_pcnr] override foreign-key check passed;
   %end;
   %else %do;
@@ -696,6 +710,7 @@
   %if &_n_tr ne &_n_tr_k %then %do;
     %fail_out(msg=%str(work._type_resolution not unique on pcnr_name: n=&_n_tr distinct=&_n_tr_k));
   %end;
+  %if &p5_fail = 1 %then %return;
   %put NOTE: [05_build_pcnr] work._type_resolution key uniqueness OK (rows=&_n_tr);
 
   /* Step 6. Assert key uniqueness on work._typecheck_sources (pcnr_name + s_code) */
@@ -712,6 +727,7 @@
   %if &_n_tcs ne &_n_tcs_k %then %do;
     %fail_out(msg=%str(work._typecheck_sources not unique on (pcnr_name,s_code): n=&_n_tcs distinct_pairs=&_n_tcs_k));
   %end;
+  %if &p5_fail = 1 %then %return;
   %put NOTE: [05_build_pcnr] work._typecheck_sources key uniqueness OK (rows=&_n_tcs);
 
   /* Step 8. Export &outlib..qc_pcnr_typefail */
@@ -747,6 +763,33 @@
   gen_dir=,
   export_dir=
 );
+
+  /* Step 0. Delete stale intermediate tables from any prior run to prevent leakage (TC-14). */
+  proc datasets library=work nolist;
+    delete _conflicts_s01 _conflicts_s02 _conflicts_s03 _conflicts_s04 _conflicts_s05
+           _conflicts_s06 _conflicts_s07 _conflicts_s08 _conflicts_s10 _conflicts_s11
+           _conflicts_s12 _conflicts_s13 _conflicts_s14 _conflicts_s15 _conflicts_s16
+           _conflicts_s17 _conflicts_s18 _conflicts_s19 _conflicts_s20
+           _prov_s01 _prov_s02 _prov_s03 _prov_s04 _prov_s05
+           _prov_s06 _prov_s07 _prov_s08 _prov_s10 _prov_s11
+           _prov_s12 _prov_s13 _prov_s14 _prov_s15 _prov_s16
+           _prov_s17 _prov_s18 _prov_s19 _prov_s20
+           _gf_cols_s01 _gf_cols_s02 _gf_cols_s03 _gf_cols_s04 _gf_cols_s05
+           _gf_cols_s06 _gf_cols_s07 _gf_cols_s08 _gf_cols_s10 _gf_cols_s11
+           _gf_cols_s12 _gf_cols_s13 _gf_cols_s14 _gf_cols_s15 _gf_cols_s16
+           _gf_cols_s17 _gf_cols_s18 _gf_cols_s19 _gf_cols_s20;
+  quit;
+  /* Also delete previously generated gapfill SAS files */
+  %local _delsc _deli;
+  %do _deli = 1 %to 20;
+    %if &_deli < 10 %then %let _delsc = s0&_deli;
+    %else %let _delsc = s&_deli;
+    %if %sysfunc(fileexist("&gen_dir.\05_generated_gapfill_&_delsc..sas")) %then %do;
+      data _null_;
+        rc = fdelete(filename('_del', "&gen_dir.\05_generated_gapfill_&_delsc..sas"));
+      run;
+    %end;
+  %end;
 
   /* Step 1. Add sequential var_idx (1..nvars) to work._nmv.
      DATA step automatic counter increments before first OUTPUT. */
@@ -940,6 +983,7 @@
   /* Assert spine_n rows */
   %assert_rowcount(ds=work._pcnr_accum, expected=&spine_n,
                    label=spine-loaded accumulator);
+  %if &p5_fail = 1 %then %return;
 
   %put NOTE: [05_build_pcnr] p5_build_accumulator complete;
 
@@ -961,11 +1005,23 @@
 
   /* Step 1. Collect (col_name, pcnr_name, var_idx, n_sources) for this source.
      If pcnr_filter is specified (pinned pass), restrict to those pcnr_names. */
-  %local _n_src_vars _pf_clause;
-  %if %bquote(&pcnr_filter) ne %bquote() %then
-    %let _pf_clause = and nm.pcnr_name in (&pcnr_filter);
-  %else
-    %let _pf_clause = ;
+  %local _n_src_vars;
+  %local _pf_clause;
+  %let _pf_clause = ;
+  %if %bquote(&pcnr_filter) ne %bquote() %then %do;
+    /* Build quoted in-list from space-separated pcnr_filter values */
+    %local _pf_i _pf_word _pf_list;
+    %let _pf_list = ;
+    %let _pf_i = 1;
+    %let _pf_word = %scan(&pcnr_filter, &_pf_i, %str( ));
+    %do %while(%bquote(&_pf_word) ne %bquote());
+      %if %bquote(&_pf_list) ne %bquote() %then %let _pf_list = &_pf_list,;
+      %let _pf_list = &_pf_list "&_pf_word";
+      %let _pf_i = %eval(&_pf_i + 1);
+      %let _pf_word = %scan(&pcnr_filter, &_pf_i, %str( ));
+    %end;
+    %let _pf_clause = and nm.pcnr_name in (&_pf_list);
+  %end;
 
   proc sql noprint;
     create table work._gf_cols_&s_code as
@@ -1061,6 +1117,9 @@
      NOTE: work._prov_&s_code contains ONLY 2+-source rows
      by construction of the n_sources guard (W5 confirmation). */
   data _null_;
+    length col_name_uc $200 src_type $4 src_length 8
+           resolved_type $8 out_length 8
+           _f_alias $10 _s_alias $10 _line $500;
     if _n_ = 1 then do;
       declare hash htr(dataset: 'work._type_resolution');
       htr.definekey('pcnr_name');
@@ -1072,9 +1131,6 @@
       hdict.definedone();
     end;
     set work._gf_cols_&s_code end=_eof;
-    length resolved_type $8 out_length 8
-           _f_alias $10 _s_alias $10 _line $500
-           src_type $4 src_length 8;
     resolved_type = '';
     out_length    = max_length;
     if htr.find() ne 0 then do;
@@ -1086,7 +1142,8 @@
     /* Look up actual source column type/length */
     src_type   = 'char';
     src_length = max_length;
-    if hdict.find(key: upcase(strip(col_name))) = 0 then do;
+    col_name_uc = upcase(strip(col_name));
+    if hdict.find() = 0 then do;
       /* found */
     end;
     file "&gen_dir.\05_generated_gapfill_&s_code..sas" encoding='utf-8';
@@ -1186,7 +1243,7 @@
     put 'end;';
     /* After last variable, write drop _S: to remove all _S#### aliases (Blocker 1) */
     if _eof then put 'drop _S:;';
-    drop resolved_type out_length _f_alias _s_alias _line src_type src_length;
+    drop col_name_uc resolved_type out_length _f_alias _s_alias _line src_type src_length;
   run;
 
   /* Clean up dictionary lookup */
@@ -1242,6 +1299,7 @@
   /* Step 5. Assert spine_n rows on work._pcnr_next */
   %assert_rowcount(ds=work._pcnr_next, expected=&spine_n,
                    label=pcnr_next after &s_code);
+  %if &p5_fail = 1 %then %return;
 
   /* Step 6. Replace accumulator (write-next-verify-replace) via PROC DATASETS rename.
      No DATA step copy -- atomic rename avoids a full pass (Performance 9). */
@@ -1306,7 +1364,7 @@
     /* Call gapfill restricted to the pinned pcnr_name only (Blocker 6).
        rank=0 indicates this is a pinned override call. */
     %p5_gapfill_source(s_code=&_ov_sc, rank=0,
-                       pcnr_filter=%bquote(%')&_ov_pn%bquote(%'),
+                       pcnr_filter=&_ov_pn,
                        srclib=&srclib, nmlib=&nmlib,
                        spine_n=&spine_n, gen_dir=&gen_dir);
     /* Record pinned pair so Pass 3 can skip it */
@@ -1398,15 +1456,43 @@
 );
 
   /* Step 1. Write &outlib..pcnr -- drop all temp columns (Blocker 4).
-     Explicit DROP instead of KEEP PCNR_: to avoid accidentally keeping _F*/_S* aliases. */
+     Explicit DROP instead of KEEP PCNR_: to avoid accidentally keeping _F:/_S: aliases. */
+
+  /* Build drop list for named helpers from dictionary.columns to avoid
+     "never been referenced" warnings for columns absent in test runs. */
+  %local _helper_drop _hi _hword _hexists _hnames;
+  %let _helper_drop = ;
+  %let _hnames = pcnr_name conflict_type winning_s_code winning_value
+                 candidate_s_code candidate_value value_type src_s_code;
+  %let _hi = 1;
+  %let _hword = %scan(&_hnames, &_hi, %str( ));
+  %do %while(%bquote(&_hword) ne %bquote());
+    %let _hexists = 0;
+    proc sql noprint;
+      select count(*) into :_hexists trimmed
+      from dictionary.columns
+      where libname = 'WORK'
+        and memname = '_PCNR_ACCUM'
+        and upcase(name) = upcase("&_hword");
+    quit;
+    %if &_hexists > 0 %then %let _helper_drop = &_helper_drop &_hword;
+    %let _hi = %eval(&_hi + 1);
+    %let _hword = %scan(&_hnames, &_hi, %str( ));
+  %end;
+
   data &outlib..pcnr;
     set work._pcnr_accum;
-    drop pcnr_name conflict_type winning_s_code winning_value
-         candidate_s_code candidate_value value_type src_s_code _F: _S:;
+    %if %bquote(&_helper_drop) ne %bquote() %then %do;
+    drop &_helper_drop _F: _S:;
+    %end;
+    %else %do;
+    drop _F: _S:;
+    %end;
   run;
 
   /* Step 2. Assert spine_n rows */
   %assert_rowcount(ds=&outlib..pcnr, expected=&spine_n, label=&outlib..pcnr);
+  %if &p5_fail = 1 %then %return;
 
   /* Step 3. Assert 0 blank norm_psid */
   %local _n_blank_final;
@@ -1418,6 +1504,7 @@
   %if &_n_blank_final > 0 %then %do;
     %fail_out(msg=%str(&outlib..pcnr has &_n_blank_final blank norm_psid values));
   %end;
+  %if &p5_fail = 1 %then %return;
   %put NOTE: [05_build_pcnr] &outlib..pcnr blank norm_psid check passed (0 blank);
 
   /* Step 4. Assert 0 duplicate norm_psid */
@@ -1429,6 +1516,7 @@
   %if &_n_all_f ne &_n_dis_f %then %do;
     %fail_out(msg=%str(&outlib..pcnr has duplicate norm_psid: total=&_n_all_f distinct=&_n_dis_f));
   %end;
+  %if &p5_fail = 1 %then %return;
   %put NOTE: [05_build_pcnr] &outlib..pcnr duplicate norm_psid check passed;
 
   /* Step 5. Exact column schema assertion (item 16).
@@ -1456,9 +1544,11 @@
   %if &_n_extra > 0 %then %do;
     %fail_out(msg=%str(&outlib..pcnr has &_n_extra extra columns not in &nmlib..name_map_vars));
   %end;
+  %if &p5_fail = 1 %then %return;
   %if &_n_missing > 0 %then %do;
     %fail_out(msg=%str(&outlib..pcnr is missing &_n_missing columns from &nmlib..name_map_vars));
   %end;
+  %if &p5_fail = 1 %then %return;
   %put NOTE: [05_build_pcnr] &outlib..pcnr schema confirmed: exactly &nvars PCNR_ + NORM_PSID;
 
   /* Step 6. CLOCK check via s06_column_class.csv (item 11).
@@ -1471,6 +1561,7 @@
   %if not %sysfunc(fileexist(&_clk_csv)) %then %do;
     %fail_out(msg=%str(CLOCK CSV missing: &_clk_csv));
   %end;
+  %if &p5_fail = 1 %then %return;
 
   data work._s06_classes;
     length col_name $200 class $40;
@@ -1498,6 +1589,7 @@
   %if &_n_clk_not_excluded > 0 %then %do;
     %fail_out(msg=%str(CLOCK check: &_n_clk_not_excluded CLOCK variables in s06_column_class.csv are NOT excluded (status ne EXCLUDED_CLK) in &nmlib..name_map));
   %end;
+  %if &p5_fail = 1 %then %return;
   %put NOTE: [05_build_pcnr] CLOCK check passed (all CLOCK vars have EXCLUDED_CLK in name_map);
 
   /* Step 7. Reconciliation sample 1,000 rows (Blocker 7).
@@ -1510,9 +1602,20 @@
     select count(*) into :_n_recon_nmv trimmed from work._nmv;
   quit;
 
-  /* 1. Draw 1,000-key sample of norm_psid from &outlib..pcnr */
-  proc surveyselect data=&outlib..pcnr method=srs n=1000 out=work._recon_sample noprint seed=12345;
+  /* 1. Draw sample of norm_psid from &outlib..pcnr (up to 1000 rows) */
+  %local _recon_n;
+  %if %eval(&spine_n < 1000) %then %let _recon_n = &spine_n;
+  %else %let _recon_n = 1000;
+
+  proc surveyselect data=&outlib..pcnr method=srs n=&_recon_n out=work._recon_sample noprint seed=12345;
   run;
+
+  %local _recon_sample_n;
+  proc sql noprint;
+    select count(*) into :_recon_sample_n trimmed from work._recon_sample;
+  quit;
+
+  %if &_recon_sample_n > 0 %then %do;
 
   /* 2. Join sample keys to accumulator to get PCNR_ values AND _F* fill-origins */
   proc sort data=work._recon_sample out=work._recon_sample_s;
@@ -1681,13 +1784,19 @@
   %if &_n_recon_mm > 0 %then %do;
     %fail_out(msg=%str(reconciliation sample found &_n_recon_mm mismatch(es) between &outlib..pcnr and source data -- check work._recon_mismatches));
   %end;
-  %put NOTE: [05_build_pcnr] Reconciliation sample (1000 rows) verified 0 mismatches;
+  %if &p5_fail = 1 %then %return;
+  %put NOTE: [05_build_pcnr] Reconciliation sample (&_recon_n rows) verified 0 mismatches;
 
   /* Clean up recon work datasets */
   proc datasets library=work nolist;
     delete _recon_sample _recon_sample_s _accum_sorted _recon_with_flags
            _recon_mismatches;
   quit;
+
+  %end; /* _recon_sample_n > 0 */
+  %else %do;
+    %put NOTE: [05_build_pcnr] Reconciliation sample is empty -- skipping comparison;
+  %end;
 
   %put NOTE: [05_build_pcnr] p5_finalize_pcnr complete;
 
