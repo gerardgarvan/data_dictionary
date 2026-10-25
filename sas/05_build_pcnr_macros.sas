@@ -6,11 +6,9 @@
             Plans 03, 04, 05 append macros to this file in order.
 
   Macros (Plan 03):
-    %fail_out            -- hard stop with ERROR
+    %fail_out            -- hard stop with ERROR (test-mode: sets p5_fail)
     %_p5_ok              -- section guard (obs=0 / syserr > 4)
     %assert_rowcount     -- exact row count assertion
-    %route_log           -- redirect log when running standalone
-    %restore_log         -- restore log after standalone run
     %p5_preflight        -- D-18 assertion, spine key quality, SHA-256,
                             priority/override file validation
     %p5_spine_coverage   -- D-19 extended spine coverage QC
@@ -18,20 +16,28 @@
 
   Author  :
   Notes   : PCM compliance: C1 C2 C3 C9 C11 C13 C14.
-            %include "sas/00_config.sas" must be called before this file.
+            Caller must set &sas_path, &exchange_path, &logs_path before
+            calling these macros (typically via 00_config.sas + %pdd_lib).
+            For test harness usage: set p5_test_mode=1 before any call.
 ==========================================================================*/
 
 /* ============================================================
-   SECTION 0 -- %include, %pdd_lib, ALL macro definitions
+   SECTION 0 -- ALL macro definitions
    All macros defined here before any call (PCM C13).
    ============================================================ */
 
-%include "&sas_path.\00_config.sas";
-%pdd_lib;
-
-/* Hard stop with loud ERROR */
+/* Hard stop with loud ERROR.
+   If p5_test_mode=1: set p5_fail/p5_fail_msg and %return instead of aborting. */
 %macro fail_out(msg=);
   %put ERROR: [05_build_pcnr] &msg;
+  %if %symexist(p5_test_mode) %then %do;
+    %if &p5_test_mode = 1 %then %do;
+      %global p5_fail p5_fail_msg;
+      %let p5_fail = 1;
+      %let p5_fail_msg = &msg;
+      %return;
+    %end;
+  %end;
   %abort cancel;
 %mend fail_out;
 
@@ -44,22 +50,6 @@
     %fail_out(msg=%str(syserr=&syserr entering Section &section -- prior section had an error));
   %end;
 %mend _p5_ok;
-
-/* Check pdd library after fail_out is compiled */
-%check_pdd_lib;
-
-/* Route log to per-program file when running standalone */
-%macro route_log;
-  %if &in_pipeline = 0 %then %do;
-    proc printto log="&logs_path.\05_build_pcnr.log" new; run;
-  %end;
-%mend route_log;
-
-%macro restore_log;
-  %if &in_pipeline = 0 %then %do;
-    proc printto; run;
-  %end;
-%mend restore_log;
 
 /* Assert exact row count; %fail_out if wrong.
    Parameters: ds= dataset, expected= count, label= description */
@@ -81,31 +71,42 @@
    logging of name_map.csv, priority/override file validation.
    DEFINE ONLY -- called from Section 1 of 05_build_pcnr.sas.
    ============================================================ */
-%macro p5_preflight;
+%macro p5_preflight(
+  srclib=pdd,
+  nmlib=pdd,
+  outlib=pdd,
+  spine_n=41150,
+  nvars=1299,
+  priority_csv=,
+  override_csv=,
+  s06class_csv=,
+  gen_dir=,
+  export_dir=
+);
 
   /* ---- A. name_map assertions ---- */
 
   /* A1. Exact row count of name_map_vars */
-  %assert_rowcount(ds=pdd.name_map_vars, expected=1299, label=name_map_vars);
+  %assert_rowcount(ds=&nmlib..name_map_vars, expected=&nvars, label=name_map_vars);
 
   /* A2. D-18: s04/s05 must contribute 0 PCNR rows to name_map.
-         pdd.name_map (not name_map_vars) carries s_code. */
+         &nmlib..name_map (not name_map_vars) carries s_code. */
   %local _n_linkage_pcnr;
   proc sql noprint;
     select count(*) into :_n_linkage_pcnr trimmed
-    from pdd.name_map
+    from &nmlib..name_map
     where s_code in ('s04', 's05')
       and status = 'PCNR';
   quit;
   %if &_n_linkage_pcnr > 0 %then %do;
-    %fail_out(msg=%str(D-18 violated: &_n_linkage_pcnr rows in pdd.name_map have s_code in (s04 s05) and status=PCNR));
+    %fail_out(msg=%str(D-18 violated: &_n_linkage_pcnr rows in &nmlib..name_map have s_code in (s04 s05) and status=PCNR));
   %end;
   %put NOTE: [05_build_pcnr] D-18 s04/s05 contribute 0 PCNR rows (passed);
 
   /* ---- B. SHA-256 + row counts ---- */
 
-  /* B1. SHA-256 of exchange\name_map.csv via certutil */
-  filename _nmhash pipe "certutil -hashfile ""&exchange_path.\name_map.csv"" SHA256";
+  /* B1. SHA-256 of export_dir\name_map.csv via certutil */
+  filename _nmhash pipe "certutil -hashfile ""&export_dir.\name_map.csv"" SHA256";
   data _null_;
     infile _nmhash;
     input;
@@ -116,22 +117,22 @@
   /* B2. Row counts for traceability */
   %local _n_nm _n_nmv;
   proc sql noprint;
-    select count(*) into :_n_nm trimmed from pdd.name_map;
+    select count(*) into :_n_nm trimmed from &nmlib..name_map;
   quit;
   proc sql noprint;
-    select count(*) into :_n_nmv trimmed from pdd.name_map_vars;
+    select count(*) into :_n_nmv trimmed from &nmlib..name_map_vars;
   quit;
-  %put NOTE: [05_build_pcnr] pdd.name_map rows=&_n_nm pdd.name_map_vars rows=&_n_nmv;
+  %put NOTE: [05_build_pcnr] &nmlib..name_map rows=&_n_nm &nmlib..name_map_vars rows=&_n_nmv;
 
   /* ---- C. Source file checks ---- */
 
   /* C1. Spine row count and key quality */
-  %assert_rowcount(ds=pdd.src_s09, expected=41150, label=spine pdd.src_s09);
+  %assert_rowcount(ds=&srclib..src_s09, expected=&spine_n, label=spine &srclib..src_s09);
 
   %local _n_blank_spine;
   proc sql noprint;
     select count(*) into :_n_blank_spine trimmed
-    from pdd.src_s09
+    from &srclib..src_s09
     where norm_psid = '';
   quit;
   %if &_n_blank_spine > 0 %then %do;
@@ -141,8 +142,8 @@
 
   %local _n_all_spine _n_dis_spine;
   proc sql noprint;
-    select count(*) into :_n_all_spine trimmed from pdd.src_s09;
-    select count(distinct norm_psid) into :_n_dis_spine trimmed from pdd.src_s09;
+    select count(*) into :_n_all_spine trimmed from &srclib..src_s09;
+    select count(distinct norm_psid) into :_n_dis_spine trimmed from &srclib..src_s09;
   quit;
   %if &_n_all_spine ne &_n_dis_spine %then %do;
     %fail_out(msg=%str(spine has duplicate norm_psid: total=&_n_all_spine distinct=&_n_dis_spine));
@@ -150,7 +151,7 @@
   %put NOTE: [05_build_pcnr] spine duplicate norm_psid check passed (&_n_dis_spine unique keys);
 
   /* C2. Per-source key quality for all 20 sources.
-         Check each pdd.src_s* that has contributing PCNR rows:
+         Check each &srclib..src_s* that has contributing PCNR rows:
          report n_blank_keys; fail if duplicate non-blank norm_psid. */
   %local _sc _i _src_exist _n_pcnr_src _n_nonblank _n_dis_nonblank
          _n_blank_keys;
@@ -163,9 +164,9 @@
     %if &_sc = s09 %then %goto next_source;
 
     /* Check dataset exists */
-    %let _src_exist = %sysfunc(exist(pdd.src_&_sc));
+    %let _src_exist = %sysfunc(exist(&srclib..src_&_sc));
     %if &_src_exist = 0 %then %do;
-      %put NOTE: [05_build_pcnr] pdd.src_&_sc not found -- skipping key quality check;
+      %put NOTE: [05_build_pcnr] &srclib..src_&_sc not found -- skipping key quality check;
       %goto next_source;
     %end;
 
@@ -173,7 +174,7 @@
     %let _n_pcnr_src = 0;
     proc sql noprint;
       select count(*) into :_n_pcnr_src trimmed
-      from pdd.name_map
+      from &nmlib..name_map
       where s_code = "&_sc"
         and status = 'PCNR';
     quit;
@@ -186,7 +187,7 @@
     %let _n_blank_keys = 0;
     proc sql noprint;
       select count(*) into :_n_blank_keys trimmed
-      from pdd.src_&_sc
+      from &srclib..src_&_sc
       where norm_psid = '';
     quit;
     %put NOTE: [05_build_pcnr] SOURCE &_sc n_blank_keys=&_n_blank_keys;
@@ -196,10 +197,10 @@
     %let _n_dis_nonblank = 0;
     proc sql noprint;
       select count(*) into :_n_nonblank trimmed
-      from pdd.src_&_sc
+      from &srclib..src_&_sc
       where norm_psid ne '';
       select count(distinct norm_psid) into :_n_dis_nonblank trimmed
-      from pdd.src_&_sc
+      from &srclib..src_&_sc
       where norm_psid ne '';
     quit;
     %if &_n_nonblank ne &_n_dis_nonblank %then %do;
@@ -214,14 +215,16 @@
 
   /* D1. Priority file */
   %local _prio_path;
-  %let _prio_path = &sas_path.\..\docs\pcnr_source_priority.csv;
+  %if %bquote(&priority_csv) ne %bquote() %then %let _prio_path = &priority_csv;
+  %else %let _prio_path = &sas_path.\..\docs\pcnr_source_priority.csv;
+
   %if not %sysfunc(fileexist(&_prio_path)) %then %do;
     %fail_out(msg=%str(priority CSV missing: &_prio_path));
   %end;
 
   data work._priority;
     length s_code $4 rank 8 note $40;
-    infile "&sas_path.\..\docs\pcnr_source_priority.csv"
+    infile "&_prio_path"
            encoding='utf-8' dsd dlm=',' missover firstobs=2;
     input s_code $ rank note $;
     s_code = strip(s_code);
@@ -285,14 +288,16 @@
 
   /* D2. Override file */
   %local _override_path;
-  %let _override_path = &sas_path.\..\docs\pcnr_source_override.csv;
+  %if %bquote(&override_csv) ne %bquote() %then %let _override_path = &override_csv;
+  %else %let _override_path = &sas_path.\..\docs\pcnr_source_override.csv;
+
   %if not %sysfunc(fileexist(&_override_path)) %then %do;
     %fail_out(msg=%str(override CSV missing: &_override_path));
   %end;
 
   data work._override;
     length pcnr_name $200 s_code $4;
-    infile "&sas_path.\..\docs\pcnr_source_override.csv"
+    infile "&_override_path"
            encoding='utf-8' dsd dlm=',' missover firstobs=2;
     input pcnr_name $ s_code $;
     pcnr_name = strip(pcnr_name);
@@ -323,7 +328,7 @@
   %end;
   %put NOTE: [05_build_pcnr] override s09 guard passed;
 
-  /* Assert each override (pcnr_name, s_code) pair exists in pdd.name_map with status='PCNR'.
+  /* Assert each override (pcnr_name, s_code) pair exists in &nmlib..name_map with status='PCNR'.
      Only run check when override file is non-empty. */
   %if &_n_ov > 0 %then %do;
     %local _n_bad_pin;
@@ -331,7 +336,7 @@
       select count(*) into :_n_bad_pin trimmed
       from work._override as ov
       where not exists (
-        select 1 from pdd.name_map as nm
+        select 1 from &nmlib..name_map as nm
         where nm.pcnr_name = ov.pcnr_name
           and nm.s_code    = ov.s_code
           and nm.status    = 'PCNR'
@@ -348,7 +353,7 @@
 
   /* ---- E. Load work._nmv ---- */
   data work._nmv;
-    set pdd.name_map_vars;
+    set &nmlib..name_map_vars;
   run;
 
   %put NOTE: [05_build_pcnr] %p5_preflight complete;
@@ -359,7 +364,11 @@
    %p5_spine_coverage  (Plan 03 Task 2 -- appended below)
    ============================================================ */
 
-%macro p5_spine_coverage;
+%macro p5_spine_coverage(
+  srclib=pdd,
+  spine_n=41150,
+  export_dir=
+);
 
   /* Loop over work._priority rows in rank order, skipping spine (s09).
      For each non-spine source compute:
@@ -396,8 +405,8 @@
     %if &_sc = s09 %then %goto next_cov;
 
     /* Check dataset exists */
-    %if %sysfunc(exist(pdd.src_&_sc)) = 0 %then %do;
-      %put NOTE: [05_build_pcnr] SOURCE &_sc: dataset pdd.src_&_sc not found -- skipped in coverage;
+    %if %sysfunc(exist(&srclib..src_&_sc)) = 0 %then %do;
+      %put NOTE: [05_build_pcnr] SOURCE &_sc: dataset &srclib..src_&_sc not found -- skipped in coverage;
       %goto next_cov;
     %end;
 
@@ -409,22 +418,22 @@
 
     proc sql noprint;
       select count(distinct norm_psid) into :_nk trimmed
-      from pdd.src_&_sc
+      from &srclib..src_&_sc
       where norm_psid ne '';
 
       select count(*) into :_nnis trimmed
-      from pdd.src_&_sc
+      from &srclib..src_&_sc
       where norm_psid ne ''
         and norm_psid not in (
-          select norm_psid from pdd.src_s09 where norm_psid ne ''
+          select norm_psid from &srclib..src_s09 where norm_psid ne ''
         );
 
       select count(*) into :_nb trimmed
-      from pdd.src_&_sc
+      from &srclib..src_&_sc
       where norm_psid = '';
 
       select (count(norm_psid) - count(distinct norm_psid)) into :_nd trimmed
-      from pdd.src_&_sc
+      from &srclib..src_&_sc
       where norm_psid ne '';
     quit;
 
@@ -445,13 +454,13 @@
     %next_cov:
   %end;
 
-  /* Export coverage CSV to exchange */
+  /* Export coverage CSV */
   proc export data=work._spine_coverage
-    outfile="&exchange_path.\pcnr_spine_coverage.csv"
+    outfile="&export_dir.\pcnr_spine_coverage.csv"
     dbms=csv replace;
   run;
 
-  %put NOTE: [05_build_pcnr] pcnr_spine_coverage.csv written to exchange;
+  %put NOTE: [05_build_pcnr] pcnr_spine_coverage.csv written to export_dir;
 
 %mend p5_spine_coverage;
 
@@ -460,12 +469,17 @@
    D-02 type-conflict resolution before the build loop.
    Outputs: work._type_resolution (key-unique on pcnr_name),
             work._typecheck_sources (key-unique on pcnr_name+s_code),
-            pdd.qc_pcnr_typefail (pcnr_name, s_code, raw_value, n),
-            exchange\pcnr_typecheck.csv.
+            &outlib..qc_pcnr_typefail (pcnr_name, s_code, raw_value, n),
+            &export_dir.\pcnr_typecheck.csv.
    DEFINE ONLY -- called from Section 1 of 05_build_pcnr.sas.
    ============================================================ */
 
-%macro p5_resolve_types;
+%macro p5_resolve_types(
+  srclib=pdd,
+  nmlib=pdd,
+  outlib=pdd,
+  export_dir=
+);
 
   /* Step 1. Select type-conflict variables from work._nmv.
              Do NOT hard-code the 9 names -- read from dataset. */
@@ -493,7 +507,7 @@
     stop;
   run;
 
-  data pdd.qc_pcnr_typefail;
+  data &outlib..qc_pcnr_typefail;
     length pcnr_name $200 s_code $4 raw_value $200 n 8;
     stop;
   run;
@@ -517,7 +531,7 @@
       from work._tc_vars (firstobs=&_tc_i obs=&_tc_i);
     quit;
 
-    /* Step 2. Find contributing (s_code, col_name) pairs from pdd.name_map */
+    /* Step 2. Find contributing (s_code, col_name) pairs from &nmlib..name_map */
     data work._tc_sources_&_tc_i;
       length pcnr_name $200 s_code $4 col_name $200;
       stop;
@@ -526,7 +540,7 @@
     proc sql noprint;
       insert into work._tc_sources_&_tc_i (pcnr_name, s_code, col_name)
       select pcnr_name, s_code, col_name
-      from pdd.name_map
+      from &nmlib..name_map
       where pcnr_name = "&_tc_name"
         and status    = 'PCNR';
     quit;
@@ -554,17 +568,17 @@
       quit;
 
       /* Check source dataset exists */
-      %if %sysfunc(exist(pdd.src_&_sc_j)) = 0 %then %do;
-        %put NOTE: [05_build_pcnr] pdd.src_&_sc_j not found -- skipped for type check of &_tc_name;
+      %if %sysfunc(exist(&srclib..src_&_sc_j)) = 0 %then %do;
+        %put NOTE: [05_build_pcnr] &srclib..src_&_sc_j not found -- skipped for type check of &_tc_name;
         %goto next_tc_src;
       %end;
 
-      /* Determine storage type of this column in pdd.src_&_sc_j */
+      /* Determine storage type of this column in &srclib..src_&_sc_j */
       %let _src_type = ;
       proc sql noprint;
         select type into :_src_type trimmed
         from dictionary.columns
-        where libname = 'PDD'
+        where libname = upcase("&srclib")
           and memname = upcase("SRC_&_sc_j")
           and name    = upcase("&_col_j");
       quit;
@@ -575,7 +589,7 @@
         %let _numlen_this = 0;
         proc sql noprint;
           select max(length(strip(put(&_col_j, best32.)))) into :_numlen_this trimmed
-          from pdd.src_&_sc_j
+          from &srclib..src_&_sc_j
           where &_col_j is not missing;
         quit;
         %if &_numlen_this > &_n_numlen_max %then %let _n_numlen_max = &_numlen_this;
@@ -588,7 +602,7 @@
       %let _ex_fail   = ;
 
       data work._tc_scan;
-        set pdd.src_&_sc_j (keep=&_col_j);
+        set &srclib..src_&_sc_j (keep=&_col_j);
         length val $200 _ex_fail $200;
         val = strip(&_col_j);
         /* Skip blank and '.' -- treated as missing in parse check */
@@ -626,10 +640,10 @@
       run;
       proc append base=work._typecheck_sources data=work._tcs_row force; run;
 
-      /* If failures exist, accumulate into pdd.qc_pcnr_typefail (distinct values) */
+      /* If failures exist, accumulate into &outlib..qc_pcnr_typefail (distinct values) */
       %if &_n_fail > 0 %then %do;
         proc sql noprint;
-          insert into pdd.qc_pcnr_typefail (pcnr_name, s_code, raw_value, n)
+          insert into &outlib..qc_pcnr_typefail (pcnr_name, s_code, raw_value, n)
           select "&_tc_name", "&_sc_j", val, count(*) as n
           from work._tc_scan
           where _fail = 1
@@ -699,9 +713,9 @@
   %end;
   %put NOTE: [05_build_pcnr] work._typecheck_sources key uniqueness OK (rows=&_n_tcs);
 
-  /* Step 8. Export pdd.qc_pcnr_typefail to exchange */
-  proc export data=pdd.qc_pcnr_typefail
-    outfile="&exchange_path.\pcnr_typecheck.csv"
+  /* Step 8. Export &outlib..qc_pcnr_typefail */
+  proc export data=&outlib..qc_pcnr_typefail
+    outfile="&export_dir.\pcnr_typecheck.csv"
     dbms=csv replace;
   run;
 
@@ -712,22 +726,28 @@
     select count(*) into :_n_c  trimmed from work._type_resolution where resolved_type = 'C';
   quit;
   %put NOTE: [05_build_pcnr] type resolution complete: N8=&_n_n8 C=&_n_c (of &_n_tr conflict vars);
-  %put NOTE: [05_build_pcnr] pcnr_typecheck.csv written to exchange;
+  %put NOTE: [05_build_pcnr] pcnr_typecheck.csv written to export_dir;
 
 %mend p5_resolve_types;
 
 /* ============================================================
    %p5_build_accumulator  (Plan 04 Task 1)
    Add var_idx to work._nmv; build representative-label lookup;
-   generate ATTRIB code to logs\05_generated_attrib.sas via
+   generate ATTRIB code to gen_dir\05_generated_attrib.sas via
    DATA _NULL_ FILE= (no CALL EXECUTE); load spine into
    work._pcnr_accum with fill-origin _F* ($4) and source-alias
-   _S* columns; assert 41,150 rows.
+   _S* columns; assert &spine_n rows.
    DEFINE ONLY -- called from Section 2 of 05_build_pcnr.sas.
    ============================================================ */
-%macro p5_build_accumulator;
+%macro p5_build_accumulator(
+  srclib=pdd,
+  nmlib=pdd,
+  spine_n=41150,
+  gen_dir=,
+  export_dir=
+);
 
-  /* Step 1. Add sequential var_idx (1..1299) to work._nmv.
+  /* Step 1. Add sequential var_idx (1..nvars) to work._nmv.
      DATA step automatic counter increments before first OUTPUT. */
   data work._nmv;
     set work._nmv;
@@ -737,16 +757,16 @@
   /* Step 2. Build representative-label lookup (work._pcnr_labels).
      For each pcnr_name select the original_header from the row with
      the numerically lowest s_code (cast via input(substr(s_code,2),best32.))
-     then lowest col_order. Join pdd.name_map (status='PCNR') to itself. */
+     then lowest col_order. Join &nmlib..name_map (status='PCNR') to itself. */
   proc sql noprint;
     create table work._pcnr_labels as
     select a.pcnr_name,
            substr(a.original_header, 1, 256) as label length=256
-    from pdd.name_map as a
+    from &nmlib..name_map as a
     inner join (
       select pcnr_name,
              min(input(substr(s_code, 2), best32.)) as min_sc_num
-      from pdd.name_map
+      from &nmlib..name_map
       where status = 'PCNR' and pcnr_name ne ''
       group by pcnr_name
     ) as b
@@ -756,7 +776,7 @@
       select pcnr_name,
              input(substr(s_code, 2), best32.) as sc_num,
              min(col_order) as min_col_order
-      from pdd.name_map
+      from &nmlib..name_map
       where status = 'PCNR' and pcnr_name ne ''
       group by pcnr_name, calculated sc_num
     ) as c
@@ -769,7 +789,7 @@
 
   /* Step 3a. Write norm_psid ATTRIB first (fresh file, not mod) */
   data _null_;
-    file "&logs_path.\05_generated_attrib.sas" encoding='utf-8';
+    file "&gen_dir.\05_generated_attrib.sas" encoding='utf-8';
     put 'ATTRIB norm_psid LENGTH=$64;';
     stop;
   run;
@@ -809,7 +829,7 @@
     if hlbl.find() ne 0 then label = pcnr_name; /* fallback: use name */
     if length(strip(label)) > 256 then label = substr(label, 1, 256);
     _f_alias = cats('_F', put(var_idx, z4.));
-    file "&logs_path.\05_generated_attrib.sas" encoding='utf-8' mod;
+    file "&gen_dir.\05_generated_attrib.sas" encoding='utf-8' mod;
     _line = cats('ATTRIB ', strip(pcnr_name),
                  ' LENGTH=', strip(_typecode),
                  ' LABEL=', quote(trim(label)), ';');
@@ -821,7 +841,7 @@
 
   %put NOTE: [05_build_pcnr] 05_generated_attrib.sas written;
 
-  /* Step 4. Collect s09-contributed columns from pdd.name_map */
+  /* Step 4. Collect s09-contributed columns from &nmlib..name_map */
   proc sql noprint;
     create table work._s09_cols as
     select nm.col_name,
@@ -830,7 +850,7 @@
            nv.result_type,
            nv.max_length,
            nv.type_conflict
-    from pdd.name_map as nm
+    from &nmlib..name_map as nm
     inner join work._nmv as nv
       on nm.pcnr_name = nv.pcnr_name
     where nm.s_code = 's09'
@@ -879,8 +899,8 @@
       else                       resolved_type = 'C';
     end;
     _f_alias = cats('_F', put(var_idx, z4.));
-    file "&logs_path.\05_generated_spine_fill.sas" encoding='utf-8';
-    /* type_conflict='Y' and resolved to N8: spine col is char in pdd.src_s09;
+    file "&gen_dir.\05_generated_spine_fill.sas" encoding='utf-8';
+    /* type_conflict='Y' and resolved to N8: spine col is char in &srclib..src_s09;
        ATTRIB declares it N8; SAS coerces on read, but explicitly INPUT for clarity */
     if type_conflict = 'Y' and resolved_type = 'N8' then do;
       _line = cats('/* type-conflict N8: ', strip(pcnr_name), ' */');
@@ -903,21 +923,21 @@
     drop resolved_type out_length _f_alias _line;
   run;
 
-  /* Sort spine to work (item 2 -- never sort pdd.src_* in place) */
-  proc sort data=pdd.src_s09 out=work._src_s09;
+  /* Sort spine to work (item 2 -- never sort &srclib..src_* in place) */
+  proc sort data=&srclib..src_s09 out=work._src_s09;
     by norm_psid;
   run;
 
   /* Step 6. DATA work._pcnr_accum: set spine; apply ATTRIBs and fill-origin */
   data work._pcnr_accum;
-    %include "&logs_path.\05_generated_attrib.sas";
+    %include "&gen_dir.\05_generated_attrib.sas";
     set work._src_s09 (keep=&_s09_keep
                        rename=(&_s09_rename));
-    %include "&logs_path.\05_generated_spine_fill.sas";
+    %include "&gen_dir.\05_generated_spine_fill.sas";
   run;
 
-  /* Assert 41,150 rows */
-  %assert_rowcount(ds=work._pcnr_accum, expected=41150,
+  /* Assert spine_n rows */
+  %assert_rowcount(ds=work._pcnr_accum, expected=&spine_n,
                    label=spine-loaded accumulator);
 
   %put NOTE: [05_build_pcnr] %p5_build_accumulator complete;
@@ -928,15 +948,15 @@
    %p5_gapfill_source(s_code=, rank=)  (Plan 04 Task 2)
    Gap-fill accumulator from one non-spine source via
    write-next-verify-replace pattern; generate per-variable
-   IF blocks to logs\05_generated_gapfill_<s>.sas (no CALL
+   IF blocks to gen_dir\05_generated_gapfill_<s>.sas (no CALL
    EXECUTE); detect SPINE_VS_SOURCE and SOURCE_VS_SOURCE
    conflicts; record provenance for 2+-source vars; assert
-   41,150 rows on work._pcnr_next before replacing accumulator.
+   &spine_n rows on work._pcnr_next before replacing accumulator.
    DEFINE ONLY -- called from %p5_run_gapfill.
    ============================================================ */
 /* pcnr_filter=: space-separated list of quoted pcnr_name values to include,
    e.g. %str('PCNR_AGE' 'PCNR_CODE'). Leave blank for all vars (rank-order pass). */
-%macro p5_gapfill_source(s_code=, rank=, pcnr_filter=);
+%macro p5_gapfill_source(s_code=, rank=, pcnr_filter=, srclib=pdd, nmlib=pdd, spine_n=41150, gen_dir=);
 
   /* Step 1. Collect (col_name, pcnr_name, var_idx, n_sources) for this source.
      If pcnr_filter is specified (pinned pass), restrict to those pcnr_names. */
@@ -955,7 +975,7 @@
            nv.max_length,
            nv.type_conflict,
            nv.n_sources
-    from pdd.name_map as nm
+    from &nmlib..name_map as nm
     inner join work._nmv as nv
       on nm.pcnr_name = nv.pcnr_name
     where nm.s_code = "&s_code"
@@ -974,7 +994,7 @@
   %end;
   %put NOTE: [05_build_pcnr] source &s_code contributes &_n_src_vars PCNR_ variables (rank=&rank);
 
-  /* Step 2. Sort source to work (item 2 -- never sort pdd.src_* in place) */
+  /* Step 2. Sort source to work (item 2 -- never sort &srclib..src_* in place) */
   %local _gf_keep _gf_rename _i;
   %let _gf_keep   = norm_psid;
   %let _gf_rename = ;
@@ -1006,7 +1026,7 @@
     %let _gf_rename_str = &_gf_rename_str &&_gf_rn_&_j;
   %end;
 
-  proc sort data=pdd.src_&s_code
+  proc sort data=&srclib..src_&s_code
     out=work._src_&s_code (keep=&_gf_keep rename=(&_gf_rename_str));
     by norm_psid;
   run;
@@ -1019,12 +1039,12 @@
            d.type         as src_type    length=4,
            d.length       as src_length
     from dictionary.columns as d
-    where d.libname = 'PDD'
+    where d.libname = upcase("&srclib")
       and d.memname = upcase("SRC_&s_code");
   quit;
 
   /* Step 3b. Generate per-variable ATTRIB (_S####) and gap-fill/conflict IF blocks
-     to logs\05_generated_gapfill_&s_code..sas via DATA _NULL_ FILE=.
+     to gen_dir\05_generated_gapfill_&s_code..sas via DATA _NULL_ FILE=.
      No CALL EXECUTE.
      Generated code shape for one variable (type C, example):
        ATTRIB _S0042 LENGTH=$20;
@@ -1068,7 +1088,7 @@
     if hdict.find(key: upcase(strip(col_name))) = 0 then do;
       /* found */
     end;
-    file "&logs_path.\05_generated_gapfill_&s_code..sas" encoding='utf-8';
+    file "&gen_dir.\05_generated_gapfill_&s_code..sas" encoding='utf-8';
     /* Write ATTRIB for _S#### with actual source type/length (Blocker 1) */
     if src_type = 'num' then do;
       _line = cats('ATTRIB ', strip(_s_alias), ' LENGTH=8;');
@@ -1195,12 +1215,12 @@
     merge work._pcnr_accum (in=_a)
           work._src_&s_code (in=_b);
     by norm_psid;
-    if _a; /* keep all 41,150 spine rows */
+    if _a; /* keep all spine rows */
     /* Reset side-output vars */
     _conflict_type = ''; _winning_sc = ''; _winning_val = '';
     _candidate_sc  = ''; _candidate_val = ''; _value_type = '';
     _pcnr_name_c   = '';
-    %include "&logs_path.\05_generated_gapfill_&s_code..sas";
+    %include "&gen_dir.\05_generated_gapfill_&s_code..sas";
     /* Generated code sets conflict_type, winning_s_code, winning_value,
        candidate_s_code, candidate_value, value_type, pcnr_name, src_s_code
        and calls OUTPUT work._conflicts_&s_code before this point (Blocker 2).
@@ -1210,8 +1230,8 @@
          _candidate_val _value_type _pcnr_name_c _S:;
   run;
 
-  /* Step 5. Assert 41,150 rows on work._pcnr_next */
-  %assert_rowcount(ds=work._pcnr_next, expected=41150,
+  /* Step 5. Assert spine_n rows on work._pcnr_next */
+  %assert_rowcount(ds=work._pcnr_next, expected=&spine_n,
                    label=pcnr_next after &s_code);
 
   /* Step 6. Replace accumulator (write-next-verify-replace) via PROC DATASETS rename.
@@ -1244,7 +1264,12 @@
    excluding s09 and already-pinned sources).
    DEFINE ONLY -- called from Section 2 of 05_build_pcnr.sas.
    ============================================================ */
-%macro p5_run_gapfill;
+%macro p5_run_gapfill(
+  srclib=pdd,
+  nmlib=pdd,
+  spine_n=41150,
+  gen_dir=
+);
 
   /* Build work._pinned_pairs: (pcnr_name, s_code) pairs already handled in Pass 2.
      Used in Pass 3 to skip pinned (source, var) pairs (Blocker 6). */
@@ -1272,7 +1297,9 @@
     /* Call gapfill restricted to the pinned pcnr_name only (Blocker 6).
        rank=0 indicates this is a pinned override call. */
     %p5_gapfill_source(s_code=&_ov_sc, rank=0,
-                       pcnr_filter=%bquote(%')&_ov_pn%bquote(%'));
+                       pcnr_filter=%bquote(%')&_ov_pn%bquote(%'),
+                       srclib=&srclib, nmlib=&nmlib,
+                       spine_n=&spine_n, gen_dir=&gen_dir);
     /* Record pinned pair so Pass 3 can skip it */
     data work._pinned_pairs;
       set work._pinned_pairs;
@@ -1310,7 +1337,7 @@
       %let _p3_filter = ;
       proc sql noprint;
         select count(*) into :_n_p3_vars trimmed
-        from pdd.name_map
+        from &nmlib..name_map
         where s_code = "&_sc"
           and status = 'PCNR'
           and pcnr_name not in (
@@ -1322,7 +1349,7 @@
         proc sql noprint;
           select distinct quote(strip(pcnr_name))
           into :_p3_filter separated by ' '
-          from pdd.name_map
+          from &nmlib..name_map
           where s_code = "&_sc"
             and status = 'PCNR'
             and pcnr_name not in (
@@ -1330,7 +1357,9 @@
             );
         quit;
         %p5_gapfill_source(s_code=&_sc, rank=&_rk,
-                           pcnr_filter=&_p3_filter);
+                           pcnr_filter=&_p3_filter,
+                           srclib=&srclib, nmlib=&nmlib,
+                           spine_n=&spine_n, gen_dir=&gen_dir);
       %end;
       %else %do;
         %put NOTE: [05_build_pcnr] Pass 3: source &_sc all vars pinned -- skipped;
@@ -1344,90 +1373,99 @@
 
 /* ============================================================
    %p5_finalize_pcnr  (Plan 04 Task 3)
-   Write pdd.pcnr from accumulator; assert exact schema
-   (1,299 PCNR_ + NORM_PSID); 41,150 rows; 0 dup/blank norm_psid;
-   0 CLOCK columns via pdd.name_map status='EXCLUDED_CLK';
+   Write &outlib..pcnr from accumulator; assert exact schema
+   (nvars PCNR_ + NORM_PSID); &spine_n rows; 0 dup/blank norm_psid;
+   0 CLOCK columns via &nmlib..name_map status='EXCLUDED_CLK';
    reconciliation sample 1,000 rows.
    DEFINE ONLY -- called from Section 3 of 05_build_pcnr.sas.
    ============================================================ */
-%macro p5_finalize_pcnr;
+%macro p5_finalize_pcnr(
+  outlib=pdd,
+  nmlib=pdd,
+  srclib=pdd,
+  spine_n=41150,
+  nvars=1299,
+  s06class_csv=
+);
 
-  /* Step 1. Write pdd.pcnr -- drop all temp columns (Blocker 4).
+  /* Step 1. Write &outlib..pcnr -- drop all temp columns (Blocker 4).
      Explicit DROP instead of KEEP PCNR_: to avoid accidentally keeping _F*/_S* aliases. */
-  data pdd.pcnr;
+  data &outlib..pcnr;
     set work._pcnr_accum;
     drop pcnr_name conflict_type winning_s_code winning_value
          candidate_s_code candidate_value value_type src_s_code _F: _S:;
   run;
 
-  /* Step 2. Assert 41,150 rows */
-  %assert_rowcount(ds=pdd.pcnr, expected=41150, label=pdd.pcnr);
+  /* Step 2. Assert spine_n rows */
+  %assert_rowcount(ds=&outlib..pcnr, expected=&spine_n, label=&outlib..pcnr);
 
   /* Step 3. Assert 0 blank norm_psid */
   %local _n_blank_final;
   proc sql noprint;
     select count(*) into :_n_blank_final trimmed
-    from pdd.pcnr
+    from &outlib..pcnr
     where norm_psid = '';
   quit;
   %if &_n_blank_final > 0 %then %do;
-    %fail_out(msg=%str(pdd.pcnr has &_n_blank_final blank norm_psid values));
+    %fail_out(msg=%str(&outlib..pcnr has &_n_blank_final blank norm_psid values));
   %end;
-  %put NOTE: [05_build_pcnr] pdd.pcnr blank norm_psid check passed (0 blank);
+  %put NOTE: [05_build_pcnr] &outlib..pcnr blank norm_psid check passed (0 blank);
 
   /* Step 4. Assert 0 duplicate norm_psid */
   %local _n_all_f _n_dis_f;
   proc sql noprint;
-    select count(*) into :_n_all_f trimmed from pdd.pcnr;
-    select count(distinct norm_psid) into :_n_dis_f trimmed from pdd.pcnr;
+    select count(*) into :_n_all_f trimmed from &outlib..pcnr;
+    select count(distinct norm_psid) into :_n_dis_f trimmed from &outlib..pcnr;
   quit;
   %if &_n_all_f ne &_n_dis_f %then %do;
-    %fail_out(msg=%str(pdd.pcnr has duplicate norm_psid: total=&_n_all_f distinct=&_n_dis_f));
+    %fail_out(msg=%str(&outlib..pcnr has duplicate norm_psid: total=&_n_all_f distinct=&_n_dis_f));
   %end;
-  %put NOTE: [05_build_pcnr] pdd.pcnr duplicate norm_psid check passed;
+  %put NOTE: [05_build_pcnr] &outlib..pcnr duplicate norm_psid check passed;
 
   /* Step 5. Exact column schema assertion (item 16).
-     Extra columns = in pdd.pcnr but not in pdd.name_map_vars (excluding norm_psid).
-     Missing columns = in pdd.name_map_vars but not in pdd.pcnr. */
-  proc contents data=pdd.pcnr out=work._pcnr_cols noprint; run;
+     Extra columns = in &outlib..pcnr but not in &nmlib..name_map_vars (excluding norm_psid).
+     Missing columns = in &nmlib..name_map_vars but not in &outlib..pcnr. */
+  proc contents data=&outlib..pcnr out=work._pcnr_cols noprint; run;
 
   %local _n_extra _n_missing;
   proc sql noprint;
-    /* Extra: columns in pdd.pcnr (not norm_psid) absent from pdd.name_map_vars */
+    /* Extra: columns in &outlib..pcnr (not norm_psid) absent from &nmlib..name_map_vars */
     select count(*) into :_n_extra trimmed
     from work._pcnr_cols as c
     where upcase(c.name) ne 'NORM_PSID'
       and upcase(c.name) not in (
-        select upcase(pcnr_name) from pdd.name_map_vars
+        select upcase(pcnr_name) from &nmlib..name_map_vars
       );
 
-    /* Missing: pcnr_names in pdd.name_map_vars absent from pdd.pcnr columns */
+    /* Missing: pcnr_names in &nmlib..name_map_vars absent from &outlib..pcnr columns */
     select count(*) into :_n_missing trimmed
-    from pdd.name_map_vars as v
+    from &nmlib..name_map_vars as v
     where upcase(v.pcnr_name) not in (
         select upcase(c.name) from work._pcnr_cols as c
       );
   quit;
   %if &_n_extra > 0 %then %do;
-    %fail_out(msg=%str(pdd.pcnr has &_n_extra extra columns not in pdd.name_map_vars));
+    %fail_out(msg=%str(&outlib..pcnr has &_n_extra extra columns not in &nmlib..name_map_vars));
   %end;
   %if &_n_missing > 0 %then %do;
-    %fail_out(msg=%str(pdd.pcnr is missing &_n_missing columns from pdd.name_map_vars));
+    %fail_out(msg=%str(&outlib..pcnr is missing &_n_missing columns from &nmlib..name_map_vars));
   %end;
-  %put NOTE: [05_build_pcnr] pdd.pcnr schema confirmed: exactly 1299 PCNR_ + NORM_PSID;
+  %put NOTE: [05_build_pcnr] &outlib..pcnr schema confirmed: exactly &nvars PCNR_ + NORM_PSID;
 
-  /* Step 6. CLOCK check via docs/s06_column_class.csv (item 11).
+  /* Step 6. CLOCK check via s06_column_class.csv (item 11).
      Read CSV; for every row where class=CLOCK, assert status=EXCLUDED_CLK
-     in pdd.name_map for s_code='s06'. */
+     in &nmlib..name_map for s_code='s06'. */
   %local _clk_csv;
-  %let _clk_csv = &sas_path.\..\docs\s06_column_class.csv;
+  %if %bquote(&s06class_csv) ne %bquote() %then %let _clk_csv = &s06class_csv;
+  %else %let _clk_csv = &sas_path.\..\docs\s06_column_class.csv;
+
   %if not %sysfunc(fileexist(&_clk_csv)) %then %do;
     %fail_out(msg=%str(CLOCK CSV missing: &_clk_csv));
   %end;
 
   data work._s06_classes;
     length col_name $200 class $40;
-    infile "&sas_path.\..\docs\s06_column_class.csv"
+    infile "&_clk_csv"
            encoding='utf-8' dsd dlm=',' missover firstobs=2;
     input col_name $ class $;
     col_name = strip(col_name);
@@ -1442,20 +1480,20 @@
     from work._s06_classes as c
     where upcase(c.class) = 'CLOCK'
       and not exists (
-        select 1 from pdd.name_map as nm
+        select 1 from &nmlib..name_map as nm
         where upcase(nm.col_name) = upcase(c.col_name)
           and nm.s_code  = 's06'
           and nm.status  = 'EXCLUDED_CLK'
       );
   quit;
   %if &_n_clk_not_excluded > 0 %then %do;
-    %fail_out(msg=%str(CLOCK check: &_n_clk_not_excluded CLOCK variables in s06_column_class.csv are NOT excluded (status ne EXCLUDED_CLK) in pdd.name_map));
+    %fail_out(msg=%str(CLOCK check: &_n_clk_not_excluded CLOCK variables in s06_column_class.csv are NOT excluded (status ne EXCLUDED_CLK) in &nmlib..name_map));
   %end;
   %put NOTE: [05_build_pcnr] CLOCK check passed (all CLOCK vars have EXCLUDED_CLK in name_map);
 
   /* Step 7. Reconciliation sample 1,000 rows (Blocker 7).
      For each (norm_psid, var_idx) in the sample where _F* is non-blank and ne 's09':
-     look up the raw source value from pdd.src_<s_code> for the contributing source;
+     look up the raw source value from &srclib..src_<s_code> for the contributing source;
      compare to the accumulated PCNR_ value using D-20 equality;
      %fail_out if any mismatch. */
   %local _n_recon_nmv;
@@ -1463,8 +1501,8 @@
     select count(*) into :_n_recon_nmv trimmed from work._nmv;
   quit;
 
-  /* 1. Draw 1,000-key sample of norm_psid from pdd.pcnr */
-  proc surveyselect data=pdd.pcnr method=srs n=1000 out=work._recon_sample noprint seed=12345;
+  /* 1. Draw 1,000-key sample of norm_psid from &outlib..pcnr */
+  proc surveyselect data=&outlib..pcnr method=srs n=1000 out=work._recon_sample noprint seed=12345;
   run;
 
   /* 2. Join sample keys to accumulator to get PCNR_ values AND _F* fill-origins */
@@ -1482,7 +1520,7 @@
     if _a;
   run;
 
-  /* 3. For each non-spine source s, merge sample PCNR_+_F values with pdd.src_s.
+  /* 3. For each non-spine source s, merge sample PCNR_+_F values with &srclib..src_s.
      For every variable where _F=s_code, compare converted source value to PCNR_ value.
      Write mismatches to work._recon_mismatches. */
   data work._recon_mismatches;
@@ -1504,7 +1542,7 @@
     %let _rs_n_pcnr = 0;
     proc sql noprint;
       select count(*) into :_rs_n_pcnr trimmed
-      from pdd.name_map
+      from &nmlib..name_map
       where s_code = "&_rs_sc"
         and status = 'PCNR';
     quit;
@@ -1528,7 +1566,7 @@
              nv.var_idx,
              nv.result_type,
              nv.type_conflict
-      from pdd.name_map as nm
+      from &nmlib..name_map as nm
       inner join work._nmv as nv
         on nm.pcnr_name = nv.pcnr_name
       where nm.s_code = "&_rs_sc"
@@ -1541,10 +1579,10 @@
     quit;
 
     %if &_rs_nv = 0 %then %goto next_recon_src;
-    %if %sysfunc(exist(pdd.src_&_rs_sc)) = 0 %then %goto next_recon_src;
+    %if %sysfunc(exist(&srclib..src_&_rs_sc)) = 0 %then %goto next_recon_src;
 
     /* Sort source to work and merge with sample */
-    proc sort data=pdd.src_&_rs_sc out=work._rs_src;
+    proc sort data=&srclib..src_&_rs_sc out=work._rs_src;
       by norm_psid;
     run;
 
@@ -1632,7 +1670,7 @@
     select count(*) into :_n_recon_mm trimmed from work._recon_mismatches;
   quit;
   %if &_n_recon_mm > 0 %then %do;
-    %fail_out(msg=%str(reconciliation sample found &_n_recon_mm mismatch(es) between pdd.pcnr and source data -- check work._recon_mismatches));
+    %fail_out(msg=%str(reconciliation sample found &_n_recon_mm mismatch(es) between &outlib..pcnr and source data -- check work._recon_mismatches));
   %end;
   %put NOTE: [05_build_pcnr] Reconciliation sample (1000 rows) verified 0 mismatches;
 
@@ -1650,11 +1688,15 @@
    %p5_write_qc  (Plan 04 Task 3)
    Consolidate conflicts and provenance; compute GAPFILL counts
    from _F* fill-origin columns with identity assertions; write
-   exchange CSVs: pcnr_gapfill.csv, pcnr_conflicts_summary.csv,
+   export CSVs: pcnr_gapfill.csv, pcnr_conflicts_summary.csv,
    pcnr_conflicts_detail.csv (capped 5,000 rows).
    DEFINE ONLY -- called from Section 3 of 05_build_pcnr.sas.
    ============================================================ */
-%macro p5_write_qc;
+%macro p5_write_qc(
+  outlib=pdd,
+  spine_n=41150,
+  export_dir=
+);
 
   /* Step 1. Build SET list for conflicts consolidation (Blocker 3).
      Only include datasets that exist to avoid DATA step errors. */
@@ -1669,7 +1711,7 @@
   %end;
 
   %if %bquote(&_conflicts_setlist) ne %bquote() %then %do;
-    data pdd.qc_pcnr_conflicts;
+    data &outlib..qc_pcnr_conflicts;
       length norm_psid $64 pcnr_name $200 conflict_type $20
              winning_s_code $4 winning_value $200
              candidate_s_code $4 candidate_value $200
@@ -1678,7 +1720,7 @@
     run;
   %end;
   %else %do;
-    data pdd.qc_pcnr_conflicts;
+    data &outlib..qc_pcnr_conflicts;
       length norm_psid $64 pcnr_name $200 conflict_type $20
              winning_s_code $4 winning_value $200
              candidate_s_code $4 candidate_value $200
@@ -1701,13 +1743,13 @@
   %end;
 
   %if %bquote(&_prov_setlist) ne %bquote() %then %do;
-    data pdd.qc_pcnr_provenance;
+    data &outlib..qc_pcnr_provenance;
       length norm_psid $64 pcnr_name $200 src_s_code $4;
       set &_prov_setlist;
     run;
   %end;
   %else %do;
-    data pdd.qc_pcnr_provenance;
+    data &outlib..qc_pcnr_provenance;
       length norm_psid $64 pcnr_name $200 src_s_code $4;
       stop;
     run;
@@ -1715,25 +1757,25 @@
 
   %local _n_prov;
   proc sql noprint;
-    select count(*) into :_n_prov trimmed from pdd.qc_pcnr_provenance;
+    select count(*) into :_n_prov trimmed from &outlib..qc_pcnr_provenance;
   quit;
-  %put NOTE: [05_build_pcnr] pdd.qc_pcnr_provenance row count = &_n_prov;
+  %put NOTE: [05_build_pcnr] &outlib..qc_pcnr_provenance row count = &_n_prov;
 
   /* Step 3. GAPFILL counts from fill-origin _F* columns in work._pcnr_accum.
      For each PCNR_ variable (var_idx i):
        n_spine     = rows where _F<i> = 's09'
        n_gapfilled = rows where _F<i> not in ('s09','')
        n_missing   = rows where _F<i> = ''
-     Identity assertion: n_spine + n_gapfilled + n_missing = 41,150.
+     Identity assertion: n_spine + n_gapfilled + n_missing = &spine_n.
      Accumulate into work._gapfill_summary (pcnr_name, n_spine, n_gapfilled,
      n_missing) plus one n_filled_<s_code> per contributing non-spine source. */
 
   /* Build gapfill summary in one DATA step using arrays (Performance 8).
-     Arrays _fill_ over _F0001-_F1299 (actual count from work._nmv).
+     Arrays _fill_ over _F0001-_F<nvars> (actual count from work._nmv).
      Counts per variable: n_spine (_F='s09'), n_gapfilled (_F not in ('','s09')),
      n_missing (_F='').
-     Assert per variable: n_spine + n_gapfilled + n_missing = 41150.
-     Output: work._gapfill_counts (pcnr_name, n_spine, n_gapfilled, n_missing). */
+     Assert per variable: n_spine + n_gapfilled + n_missing = &spine_n.
+     Output: work._gapfill_counts (var_idx, n_spine, n_gapfilled, n_missing). */
   %local _n_nmv2;
   proc sql noprint;
     select count(*) into :_n_nmv2 trimmed from work._nmv;
@@ -1776,10 +1818,10 @@
     by var_idx;
     if _a;
     _id_check = n_spine + n_gapfilled + n_missing;
-    if _id_check ne 41150 then do;
+    if _id_check ne &spine_n then do;
       put "ERROR: GAPFILL identity assertion failed for " pcnr_name
           " sp=" n_spine " gf=" n_gapfilled " ms=" n_missing
-          " total=" _id_check " expected=41150";
+          " total=" _id_check " expected=&spine_n";
       abort cancel;
     end;
     keep pcnr_name n_spine n_gapfilled n_missing;
@@ -1788,10 +1830,10 @@
   %put NOTE: [05_build_pcnr] GAPFILL identity assertions passed for all &_n_nmv2 variables;
 
   proc export data=work._gapfill_summary
-    outfile="&exchange_path.\pcnr_gapfill.csv"
+    outfile="&export_dir.\pcnr_gapfill.csv"
     dbms=csv replace;
   run;
-  %put NOTE: [05_build_pcnr] pcnr_gapfill.csv written to exchange;
+  %put NOTE: [05_build_pcnr] pcnr_gapfill.csv written to export_dir;
 
   /* Step 4. Conflict summary (item 15) */
   proc sql noprint;
@@ -1800,36 +1842,36 @@
            conflict_type,
            count(*) as n_conflict_events,
            count(distinct cats(norm_psid, '|', pcnr_name)) as n_conflict_cells
-    from pdd.qc_pcnr_conflicts
+    from &outlib..qc_pcnr_conflicts
     group by pcnr_name, conflict_type;
   quit;
 
   proc export data=work._conflict_summary
-    outfile="&exchange_path.\pcnr_conflicts_summary.csv"
+    outfile="&export_dir.\pcnr_conflicts_summary.csv"
     dbms=csv replace;
   run;
-  %put NOTE: [05_build_pcnr] pcnr_conflicts_summary.csv written to exchange;
+  %put NOTE: [05_build_pcnr] pcnr_conflicts_summary.csv written to export_dir;
 
   /* Step 5. Conflict detail -- cap at 5,000 rows */
   %local _n_total_conflicts;
   proc sql noprint;
     select count(*) into :_n_total_conflicts trimmed
-    from pdd.qc_pcnr_conflicts;
+    from &outlib..qc_pcnr_conflicts;
   quit;
 
   data work._conflicts_cap;
-    set pdd.qc_pcnr_conflicts (obs=5000);
+    set &outlib..qc_pcnr_conflicts (obs=5000);
   run;
 
   proc export data=work._conflicts_cap
-    outfile="&exchange_path.\pcnr_conflicts_detail.csv"
+    outfile="&export_dir.\pcnr_conflicts_detail.csv"
     dbms=csv replace;
   run;
 
   %if &_n_total_conflicts > 5000 %then %do;
-    %put NOTE: [05_build_pcnr] conflicts detail capped at 5000 rows; full table in pdd.qc_pcnr_conflicts (total=&_n_total_conflicts);
+    %put NOTE: [05_build_pcnr] conflicts detail capped at 5000 rows; full table in &outlib..qc_pcnr_conflicts (total=&_n_total_conflicts);
   %end;
-  %put NOTE: [05_build_pcnr] pcnr_conflicts_detail.csv written to exchange;
+  %put NOTE: [05_build_pcnr] pcnr_conflicts_detail.csv written to export_dir;
 
   %put NOTE: [05_build_pcnr] %p5_write_qc complete;
 
