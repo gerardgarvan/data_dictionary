@@ -18,6 +18,8 @@
 !docs/pcnr_source_override.csv
 # Exception: Phase 5 exchange CSV contract, no PHI -- committed per plan 05-fix
 !docs/exchange_schema.csv
+# Exception: PCNR value equivalence pairs for CODING_EQUIV conflict_class, no PHI -- D-QC-01
+!docs/pcnr_value_equiv.csv
 
 # SAS logs and output
 *.log

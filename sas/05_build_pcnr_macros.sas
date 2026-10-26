@@ -89,7 +89,7 @@
   nmlib=pdd,
   outlib=pdd,
   spine_n=41150,
-  nvars=1299,
+  nvars=1297, /* D-24: removed PCNR_ENCRYPTED_MRN, PCNR_ENCRYPTED_ENCOUNTER */
   priority_csv=,
   override_csv=,
   s06class_csv=,
@@ -1881,7 +1881,7 @@
   nmlib=pdd,
   srclib=pdd,
   spine_n=41150,
-  nvars=1299,
+  nvars=1297, /* D-24: removed PCNR_ENCRYPTED_MRN, PCNR_ENCRYPTED_ENCOUNTER */
   s06class_csv=
 );
 
@@ -1958,6 +1958,42 @@
   %end;
   %if &p5_fail = 1 %then %return;
   %put NOTE: [05_build_pcnr] &outlib..pcnr duplicate norm_psid check passed;
+
+  /* Step 4b. D-24 assertions: no PCNR_ENCRYPTED_MRN, PCNR_ENCRYPTED_ENCOUNTER,
+     and no column matching PCNR_ENCRYPTED_* in &outlib..pcnr. */
+  %local _n_enc_mrn _n_enc_enc _n_enc_any;
+  proc sql noprint;
+    select count(*) into :_n_enc_mrn trimmed
+    from dictionary.columns
+    where libname = upcase("&outlib")
+      and memname = 'PCNR'
+      and upcase(name) = 'PCNR_ENCRYPTED_MRN';
+
+    select count(*) into :_n_enc_enc trimmed
+    from dictionary.columns
+    where libname = upcase("&outlib")
+      and memname = 'PCNR'
+      and upcase(name) = 'PCNR_ENCRYPTED_ENCOUNTER';
+
+    select count(*) into :_n_enc_any trimmed
+    from dictionary.columns
+    where libname = upcase("&outlib")
+      and memname = 'PCNR'
+      and upcase(substr(name, 1, 14)) = 'PCNR_ENCRYPTED';
+  quit;
+  %if &_n_enc_mrn > 0 %then %do;
+    %fail_out(msg=%str(D-24 violation: PCNR_ENCRYPTED_MRN found in &outlib..pcnr));
+  %end;
+  %if &p5_fail = 1 %then %return;
+  %if &_n_enc_enc > 0 %then %do;
+    %fail_out(msg=%str(D-24 violation: PCNR_ENCRYPTED_ENCOUNTER found in &outlib..pcnr));
+  %end;
+  %if &p5_fail = 1 %then %return;
+  %if &_n_enc_any > 0 %then %do;
+    %fail_out(msg=%str(D-24 violation: &_n_enc_any column(s) matching PCNR_ENCRYPTED_* found in &outlib..pcnr));
+  %end;
+  %if &p5_fail = 1 %then %return;
+  %put NOTE: [05_build_pcnr] D-24 assertions passed: no PCNR_ENCRYPTED_* columns in &outlib..pcnr;
 
   /* Step 5. Exact column schema assertion (item 16).
      Extra columns = in &outlib..pcnr but not in &nmlib..name_map_vars (excluding norm_psid).
@@ -2315,8 +2351,11 @@
    %p5_write_qc  (Plan 04 Task 3)
    Consolidate conflicts and provenance; compute GAPFILL counts
    from _F* fill-origin columns with identity assertions; write
-   export CSVs: pcnr_gapfill.csv, pcnr_conflicts_summary.csv,
-   pcnr_conflicts_detail.csv (capped 5,000 rows).
+   export CSVs: pcnr_gapfill.csv (+ n_filled_<s_code> per-source cols),
+   pcnr_conflicts_summary_class.csv (by pcnr_name, conflict_type, conflict_class),
+   pcnr_conflicts_detail.csv (stratified 200/stratum REAL-first, 5000 cap).
+   conflict_class: PLACEHOLDER/CODING_EQUIV/TOPCODE/NUMERIC_CLOSE/REAL.
+   Equiv pairs loaded from docs/pcnr_value_equiv.csv via hash (C23: subsetting IF).
    DEFINE ONLY -- called from Section 3 of 05_build_pcnr.sas.
    ============================================================ */
 %macro p5_write_qc(
@@ -2355,6 +2394,66 @@
       stop;
     run;
   %end;
+
+  /* Step 1b. Add conflict_class to qc_pcnr_conflicts.
+     Priority (case-insensitive on stripped values):
+       PLACEHOLDER  : either candidate_value or winning_value in (?/NULL/N/A/UNKNOWN)
+       CODING_EQUIV : (pcnr_name, val_a, val_b) pair in docs/pcnr_value_equiv.csv
+                      order-insensitive: check both (cand,win) and (win,cand)
+       TOPCODE      : numeric var, candidate_value='89', winning_value>89
+       NUMERIC_CLOSE: both parse numeric, abs(a-b)/max(abs(a),abs(b)) <= 0.01
+       REAL         : everything else
+     Equiv CSV read via INFILE (subsetting IF, not WHERE -- C23). */
+
+  /* Load pcnr_value_equiv.csv into work._equiv */
+  data work._equiv;
+    length pcnr_name $200 value_a $200 value_b $200;
+    infile "&sas_path.\..\docs\pcnr_value_equiv.csv"
+           dsd dlm=',' firstobs=2 truncover encoding='utf-8';
+    input pcnr_name $ value_a $ value_b $;
+    if pcnr_name ne '';
+  run;
+
+  /* Classify conflicts using hash lookup for CODING_EQUIV */
+  data &outlib..qc_pcnr_conflicts;
+    length conflict_class $20;
+    if _n_ = 1 then do;
+      declare hash _heq(dataset:'work._equiv');
+      _heq.defineKey('pcnr_name','value_a','value_b');
+      _heq.defineData('pcnr_name','value_a','value_b');
+      _heq.defineDone();
+    end;
+    set &outlib..qc_pcnr_conflicts;
+    /* PLACEHOLDER check */
+    _u_cand = upcase(strip(candidate_value));
+    _u_win  = upcase(strip(winning_value));
+    if _u_cand in ('?','NULL','N/A','UNKNOWN') or
+       _u_win  in ('?','NULL','N/A','UNKNOWN') then do;
+      conflict_class = 'PLACEHOLDER';
+    end;
+    /* CODING_EQUIV check (order-insensitive) */
+    else if _heq.find(key:pcnr_name, key:_u_cand, key:_u_win) = 0 or
+            _heq.find(key:pcnr_name, key:_u_win,  key:_u_cand) = 0 then do;
+      conflict_class = 'CODING_EQUIV';
+    end;
+    /* TOPCODE: numeric var, candidate='89', winner>89 */
+    else if value_type = 'N' and _u_cand = '89' and
+            input(winning_value, ?? best32.) > 89 then do;
+      conflict_class = 'TOPCODE';
+    end;
+    /* NUMERIC_CLOSE: both parse numeric, within 1% */
+    else do;
+      _na = input(candidate_value, ?? best32.);
+      _nb = input(winning_value,   ?? best32.);
+      if not missing(_na) and not missing(_nb) and
+         max(abs(_na), abs(_nb)) > 0 and
+         abs(_na - _nb) / max(abs(_na), abs(_nb)) <= 0.01 then do;
+        conflict_class = 'NUMERIC_CLOSE';
+      end;
+      else conflict_class = 'REAL';
+    end;
+    drop _u_cand _u_win _na _nb;
+  run;
 
   /* Step 2. Consolidate provenance from work._prov_s01..s20.
      NOTE: each work._prov_&s_code contains ONLY 2+-source variable rows
@@ -2437,11 +2536,44 @@
     keep var_idx n_spine n_gapfilled n_missing;
   run;
 
-  /* Assert identity and join pcnr_name */
+  /* Per-source gapfill counts: one row per (var_idx, s_code) non-spine fill.
+     Pass 1: unpivot _F* columns into long form -- one row per filled cell. */
+  data work._gapfill_long (keep=var_idx s_code);
+    array _fill_ {&_n_nmv2} $ 4 _F0001-_F%sysfunc(putn(&_n_nmv2, z4.));
+    length s_code $4;
+    set work._pcnr_accum;
+    do _vi = 1 to &_n_nmv2;
+      if _fill_{_vi} ne '' and _fill_{_vi} ne 's09' then do;
+        var_idx = _vi;
+        s_code  = _fill_{_vi};
+        output;
+      end;
+    end;
+  run;
+
+  /* Pass 2: count fills per (var_idx, s_code). */
+  proc sql noprint;
+    create table work._gapfill_src_counts as
+    select var_idx, s_code, count(*) as n_filled
+    from work._gapfill_long
+    group by var_idx, s_code;
+  quit;
+
+  /* Pass 3: transpose to wide -- one n_filled_<s_code> col per contributing source. */
+  proc transpose data=work._gapfill_src_counts
+                 out=work._gapfill_src_wide (drop=_name_)
+                 prefix=n_filled_;
+    by var_idx;
+    id s_code;
+    var n_filled;
+  run;
+
+  /* Assert identity and join pcnr_name; merge per-source wide counts. */
   data work._gapfill_summary;
     length pcnr_name $200 n_spine 8 n_gapfilled 8 n_missing 8;
-    merge work._gapfill_counts (in=_a)
-          work._nmv_sorted     (in=_b keep=var_idx pcnr_name);
+    merge work._gapfill_counts   (in=_a)
+          work._nmv_sorted       (in=_b keep=var_idx pcnr_name)
+          work._gapfill_src_wide (in=_c);
     by var_idx;
     if _a;
     _id_check = n_spine + n_gapfilled + n_missing;
@@ -2451,8 +2583,36 @@
           " total=" _id_check " expected=&spine_n";
       abort cancel;
     end;
-    keep pcnr_name n_spine n_gapfilled n_missing;
+    /* Identity: n_gapfilled must equal sum of all n_filled_* per-source cols.
+       Verified at runtime via _id_check2 below. */
+    drop _id_check;
   run;
+
+  /* Assert n_gapfilled = sum(n_filled_*) for each row */
+  %local _nsrc_cols;
+  proc sql noprint;
+    select count(*) into :_nsrc_cols trimmed
+    from dictionary.columns
+    where libname='WORK' and memname='_GAPFILL_SUMMARY'
+      and name like 'N_FILLED_%';
+  quit;
+
+  %if &_nsrc_cols > 0 %then %do;
+    data _null_;
+      set work._gapfill_summary;
+      array _s_cols{*} n_filled_:;
+      _sum_src = 0;
+      do _si = 1 to dim(_s_cols);
+        if not missing(_s_cols{_si}) then _sum_src + _s_cols{_si};
+      end;
+      if _sum_src ne n_gapfilled then do;
+        put "ERROR: GAPFILL per-source sum mismatch for " pcnr_name
+            " n_gapfilled=" n_gapfilled " sum_src=" _sum_src;
+        abort cancel;
+      end;
+    run;
+    %put NOTE: [05_build_pcnr] GAPFILL per-source identity assertions passed;
+  %end;
 
   %put NOTE: [05_build_pcnr] GAPFILL identity assertions passed for all &_n_nmv2 variables;
 
@@ -2465,7 +2625,7 @@
   filename _exp03 clear;
   %put NOTE: [05_build_pcnr] pcnr_gapfill.csv written to export_dir;
 
-  /* Step 4. Conflict summary (item 15) */
+  /* Step 4. Conflict summary (item 15) + conflict_class summary (Item 1). */
   proc sql noprint;
     create table work._conflict_summary as
     select pcnr_name,
@@ -2485,29 +2645,77 @@
   filename _exp04 clear;
   %put NOTE: [05_build_pcnr] pcnr_conflicts_summary.csv written to export_dir;
 
-  /* Step 5. Conflict detail -- cap at 5,000 rows */
+  /* Conflict class summary: by (pcnr_name, conflict_type, conflict_class) */
+  proc sql noprint;
+    create table work._conflict_summary_class as
+    select pcnr_name,
+           conflict_type,
+           conflict_class,
+           count(*) as n
+    from &outlib..qc_pcnr_conflicts
+    group by pcnr_name, conflict_type, conflict_class;
+  quit;
+
+  /* Explicit UTF-8 FILENAME before PROC EXPORT (D-23) */
+  filename _exp4b "&export_dir.\pcnr_conflicts_summary_class.csv" encoding='utf-8';
+  proc export data=work._conflict_summary_class
+    outfile=_exp4b
+    dbms=csv replace;
+  run;
+  filename _exp4b clear;
+  %put NOTE: [05_build_pcnr] pcnr_conflicts_summary_class.csv written to export_dir;
+
+  /* Step 5. Conflict detail -- stratified sample.
+     Sort: REAL conflicts first within each (pcnr_name, conflict_type, conflict_class)
+     stratum. Take up to 200 per stratum. Hard cap: 5000 total rows. */
   %local _n_total_conflicts;
   proc sql noprint;
     select count(*) into :_n_total_conflicts trimmed
     from &outlib..qc_pcnr_conflicts;
   quit;
 
-  data work._conflicts_cap;
-    set &outlib..qc_pcnr_conflicts (obs=5000);
+  /* Sort: REAL first, then others, within each stratum */
+  proc sort data=&outlib..qc_pcnr_conflicts
+            out=work._conflicts_sorted;
+    by pcnr_name conflict_type conflict_class
+       descending conflict_class; /* REAL sorts last alpha -- use flag below */
+  run;
+
+  /* Re-sort: REAL first by using a numeric sort key */
+  data work._conflicts_sorted2;
+    set work._conflicts_sorted;
+    _real_first = (conflict_class = 'REAL');
+  run;
+
+  proc sort data=work._conflicts_sorted2 out=work._conflicts_sorted3;
+    by pcnr_name conflict_type conflict_class descending _real_first;
+  run;
+
+  /* Stratified sample: up to 200 per stratum, 5000 total */
+  data work._conflicts_sample (drop=_real_first _strat_n _total_n);
+    retain _strat_n 0 _total_n 0;
+    set work._conflicts_sorted3;
+    by pcnr_name conflict_type conflict_class;
+    if first.conflict_class then _strat_n = 0;
+    _strat_n + 1;
+    if _strat_n <= 200 and _total_n < 5000 then do;
+      _total_n + 1;
+      output;
+    end;
   run;
 
   /* Explicit UTF-8 FILENAME before PROC EXPORT (D-23) */
   filename _exp05 "&export_dir.\pcnr_conflicts_detail.csv" encoding='utf-8';
-  proc export data=work._conflicts_cap
+  proc export data=work._conflicts_sample
     outfile=_exp05
     dbms=csv replace;
   run;
   filename _exp05 clear;
 
   %if &_n_total_conflicts > 5000 %then %do;
-    %put NOTE: [05_build_pcnr] conflicts detail capped at 5000 rows, full table in &outlib..qc_pcnr_conflicts (total=&_n_total_conflicts);
+    %put NOTE: [05_build_pcnr] conflicts detail capped at 5000 rows (stratified), full table in &outlib..qc_pcnr_conflicts (total=&_n_total_conflicts);
   %end;
-  %put NOTE: [05_build_pcnr] pcnr_conflicts_detail.csv written to export_dir;
+  %put NOTE: [05_build_pcnr] pcnr_conflicts_detail.csv written to export_dir (stratified, REAL-first);
 
   %put NOTE: [05_build_pcnr] p5_write_qc complete;
 

@@ -92,7 +92,7 @@
     %let _p5_nmlib        = pdd;
     %let _p5_outlib       = pdd;
     %let _p5_spine_n      = 41150;
-    %let _p5_nvars        = 1299;
+    %let _p5_nvars        = 1297; /* D-24: removed ENCRYPTED_MRN, ENCRYPTED_ENCOUNTER */
     %let _p5_gen_dir      = &exchange_path;
     %let _p5_exp_dir      = &exchange_path;
     %let _p5_priority_csv = &sas_path.\..\docs\pcnr_source_priority.csv;
