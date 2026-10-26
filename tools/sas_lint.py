@@ -477,6 +477,62 @@ def check_macro_invoke_in_put(path, lines):
     return hits
 
 
+# ── C11d: bare %macroname (no parens) in %put text or double-quoted put string ──
+#
+# %macroname without parens is still executed by the macro processor.
+# Common mistake in log %put statements and code-generator put strings.
+# Exceptions: macro keywords (handled by C11/C3), safe quoting functions.
+_C11D_SAFE = frozenset("""
+str nrstr superq bquote nrbquote quote unquote sysfunc symexist eval sysevalf
+scan qscan substr qsubstr index length upcase lowcase trim left verify qupcase
+copy window display nrquote resolve syscall
+if else do end let macro mend abort return global local goto while include run
+""".split())
+
+def _bare_macros_in_text(text):
+    """Yield name for each bare %identifier in text (not followed by (), excluding safe names."""
+    # Find every %identifier; skip if followed by ( (possibly with spaces).
+    # Use a two-phase check to avoid regex backtracking matching sub-identifiers
+    # (e.g. %super from %superq( before backtracking).
+    for m in re.finditer(r'%([A-Za-z_]\w*)', text, CI):
+        name = m.group(1).lower()
+        # Check character immediately after the full match
+        after_pos = m.end()
+        after_text = text[after_pos:].lstrip()
+        if after_text.startswith('('):
+            continue  # %name( — macro call with args; already caught by C11b
+        if name not in _C11D_SAFE:
+            yield name
+
+def check_bare_macro_in_text(path, lines):
+    hits = []
+    for i, raw in enumerate(lines, 1):
+        stripped = raw.strip()
+        # Case A: %put statement — scan text after %put keyword up to first ;
+        m_put = re.search(r'%put\b', stripped, CI)
+        if m_put:
+            put_text = stripped[m_put.end():]
+            # strip at semicolon
+            semi = put_text.find(';')
+            if semi >= 0:
+                put_text = put_text[:semi]
+            for name in _bare_macros_in_text(put_text):
+                hits.append((path, i, 'C11d',
+                    f'bare %{name} (no parens) in %put text or quoted put string -- '
+                    'the macro WILL execute; remove the % prefix for literal text'))
+            continue  # don't also check as DATA step put on same line
+
+        # Case B: DATA step put statement — scan inside double-quoted strings only
+        if re.search(r'\bput\b', raw, CI):
+            for dq_m in re.finditer(r'"([^"]*)"', raw):
+                dq_content = dq_m.group(1)
+                for name in _bare_macros_in_text(dq_content):
+                    hits.append((path, i, 'C11d',
+                        f'bare %{name} (no parens) in %put text or quoted put string -- '
+                        'the macro WILL execute; remove the % prefix for literal text'))
+    return hits
+
+
 # ── C13: macro called before definition (same file) ──────────────────────────
 #
 # Only flags macros whose %macro definition appears later in the same file.
@@ -1135,6 +1191,7 @@ CHECKS = [
     check_array_special_before_set,
     check_macro_in_put,
     check_macro_invoke_in_put,
+    check_bare_macro_in_text,
     check_call_before_define,
     check_bare_data_set,
     check_assert_query_columns,

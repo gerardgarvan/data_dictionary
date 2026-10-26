@@ -43,7 +43,7 @@
   %if %symexist(in_pipeline) = 0 %then %let in_pipeline = 0;
   %if %bquote(&in_pipeline) = %bquote() %then %let in_pipeline = 0;
   %if &in_pipeline = 0 %then %do;
-    %include "&sas_path.\00_config.sas";
+    %include "C:\data_dictionary\sas\00_config.sas";
     %pdd_lib;
   %end;
 %mend _p6_standalone_init;
