@@ -1268,6 +1268,58 @@ def _strip_comments_aware(text):
     return ''.join(result)
 
 
+# ── C27: LIKE operator in DATA step IF/ELSE IF expression ──────────────────
+#
+# LIKE is valid only in PROC SQL and DATA step WHERE clauses.
+# Using it in a DATA step IF/ELSE IF causes ERROR 22-322.
+# Correct: use substr(upcase(x), ...) in (...) or index() instead.
+
+_C27_LIKE_PATTERN = re.compile(r'\blike\b', CI)
+_C27_WHERE_START  = re.compile(r'^\s*where\b', CI)
+_C27_WHERE_CONT   = re.compile(r'^\s*(?:and|or)\b', CI)
+
+def check_like_in_datastep(path, lines):
+    hits = []
+    in_datastep = False
+    in_procsql  = False
+    in_where    = False  # True while inside a multi-line WHERE clause
+    for i, raw in enumerate(lines, 1):
+        stripped = re.sub(r'/\*.*?\*/', '', raw)
+        sl = stripped.strip()
+        # Track PROC SQL block
+        if re.search(r'\bproc\s+sql\b', stripped, CI):
+            in_procsql = True
+        if re.search(r'\bquit\s*;', stripped, CI):
+            in_procsql = False
+        # Track DATA step block (simple: data keyword starts it, run; ends it)
+        if re.search(r'^\s*data\s+\S', stripped, CI) and not re.search(r'\bproc\b', stripped, CI):
+            in_datastep = True
+            in_where = False
+        if re.search(r'^\s*run\s*;', stripped, CI):
+            in_datastep = False
+            in_where = False
+        if not in_datastep or in_procsql:
+            continue
+        # Track WHERE clause -- starts with 'where' keyword, continues with 'and'/'or'
+        if _C27_WHERE_START.search(stripped):
+            in_where = True
+        elif in_where and _C27_WHERE_CONT.search(stripped):
+            pass  # still inside multi-line WHERE continuation
+        else:
+            in_where = False
+        if in_where:
+            # A semicolon ends the WHERE clause after this line is processed
+            if ';' in sl:
+                in_where = False
+            continue  # Valid WHERE context: LIKE is allowed
+        if _C27_LIKE_PATTERN.search(stripped):
+            hits.append((path, i, 'C27',
+                'LIKE operator in DATA step IF/ELSE IF expression -- '
+                'LIKE is only valid in WHERE clauses and PROC SQL; '
+                'use substr(upcase(x), ...) in (...) or index() instead'))
+    return hits
+
+
 # ── runner ────────────────────────────────────────────────────────────────────
 
 CHECKS = [
@@ -1308,6 +1360,7 @@ CHECKS = [
     check_per_col_pcnr_scan,
     check_sysfunc_missing,
     check_literal_pdd_in_macro,
+    check_like_in_datastep,
 ]
 
 

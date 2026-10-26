@@ -570,3 +570,45 @@ def test_c11d_fires_on_all_five_original_offenders():
         hits = sas_lint.check_bare_macro_in_text("<test>", [line])
         codes = [h[2] for h in hits]
         assert 'C11d' in codes, f"C11d did not fire on: {line!r} -- hits={hits}"
+
+
+# ---------------------------------------------------------------------------
+# C27: LIKE in DATA step IF expression
+# ---------------------------------------------------------------------------
+
+def test_c27_fires_on_like_in_datastep_if():
+    lines = [
+        "data work.test;",
+        "  set work.src;",
+        "  if upcase(name) like '%_DATE' then x = 1;",
+        "run;",
+    ]
+    hits = sas_lint.check_like_in_datastep("<test>", lines)
+    codes = [h[2] for h in hits]
+    assert 'C27' in codes, f"C27 did not fire: {hits}"
+
+def test_c27_ignores_like_in_where_clause():
+    lines = [
+        "data work.test;",
+        "  set work.src;",
+        "  where upcase(name) like '%_DATE';",
+        "run;",
+    ]
+    hits = sas_lint.check_like_in_datastep("<test>", lines)
+    assert hits == [], f"C27 false-positive on WHERE: {hits}"
+
+def test_c27_ignores_like_in_proc_sql():
+    lines = [
+        "proc sql noprint;",
+        "  select * from work.src where name like '%_DATE';",
+        "quit;",
+    ]
+    hits = sas_lint.check_like_in_datastep("<test>", lines)
+    assert hits == [], f"C27 false-positive on PROC SQL: {hits}"
+
+def test_c27_clean_on_phase6_macros():
+    path = ROOT / "sas" / "06_profile_macros.sas"
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        lines = fh.read().split("\n")
+    hits = sas_lint.check_like_in_datastep(str(path), lines)
+    assert hits == [], "C27 in 06_profile_macros.sas:\n" + "\n".join(str(h) for h in hits)

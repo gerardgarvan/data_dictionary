@@ -811,7 +811,7 @@ run;
 
   %p6_write_output(outlib=work, family=BAD, export=0);
 
-  %_assert_fail(label=TC04b-HC-recon-fail, expected_text=HIGH_CARD);
+  %_assert_fail(label=TC04b-HC-recon-fail, expected_text=D-08);
 
   %let _badexist = %sysfunc(exist(work.prf_bad));
   %let _f = 0; %if %eval(&_badexist = 0) %then %let _f = 1;

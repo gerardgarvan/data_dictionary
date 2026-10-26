@@ -368,7 +368,7 @@
   %let _p6_nbatches = %eval((&_p6_total_vars + &_p6_batch_size - 1) / &_p6_batch_size);
 
   data work._p6_nl_all;
-    length TableVar $32 NNonMissLevels 8;
+    length TableVar $32 NNonMissLevels 8 TableVarLabel $256;
     %local _p6_sb;
     %let _p6_sb = 1;
     set
@@ -527,7 +527,8 @@
 
   /* Build work._p6_vars with var_class assignment via DATA-step logic (C3: no open-code %if) */
   data work._p6_vars;
-    length name $200 type $8 format $32 var_class $12 date_kind $12 display_format $32;
+    length name $200 type $8 format $32 var_class $12 date_kind $12 display_format $32
+           _uname $200 _is_np 8;
 
     /* Define the exact date/datetime/time format sets (stripped of width/decimals) */
     length _fmt_stripped $32 _date_kind $12;
@@ -578,18 +579,20 @@
         _date_kind = 'TIME';
       end;
       /* Name-pattern fallback: blank format AND name ends _DATE or _DTTM */
-      else if _fmt_stripped = '' and
-              (upcase(reverse(strip(name))) like upcase(reverse('_DATE') || '%') or
-               upcase(reverse(strip(name))) like upcase(reverse('_DTTM') || '%'))
-      then do;
-        /* Only assign DATE when the variable passed the plausibility check
-           (min>=-3653 and max<=36525).  Out-of-range vars are logged above
-           and fall through to the LOW_CARD/CONT_NUM cardinality branches.  */
-        if indexw(upcase("&_p6_np_inrange_list"), upcase(strip(name))) > 0 then do;
-          _is_date   = 1;
-          _date_kind = 'DATE';
+      else if _fmt_stripped = '' then do;
+        _uname = upcase(strip(name));
+        _is_np = (length(_uname) >= 5 and
+                  substr(_uname, length(_uname)-4) in ('_DATE','_DTTM'));
+        if _is_np then do;
+          /* Only assign DATE when the variable passed the plausibility check
+             (min>=-3653 and max<=36525).  Out-of-range vars are logged above
+             and fall through to the LOW_CARD/CONT_NUM cardinality branches.  */
+          if indexw(upcase("&_p6_np_inrange_list"), _uname) > 0 then do;
+            _is_date   = 1;
+            _date_kind = 'DATE';
+          end;
+          /* else: _is_date stays 0; classify by cardinality below */
         end;
-        /* else: _is_date stays 0; classify by cardinality below */
       end;
 
     end; /* type=num */
