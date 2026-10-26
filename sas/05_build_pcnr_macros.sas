@@ -2466,17 +2466,21 @@
             _heq.find(key:pcnr_name, key:_u_win,  key:_u_cand) = 0 then do;
       conflict_class = 'CODING_EQUIV';
     end;
-    /* TOPCODE: AGE variable, candidate='89', winner>89 (restricted to AGE vars) */
-    else if value_type = 'N' and _u_cand = '89' and
-            input(winning_value, ?? best32.) > 89
-         and index(upcase(pcnr_name), 'AGE') > 0 then do;
-      conflict_class = 'TOPCODE';
-    end;
-    /* NUMERIC_CLOSE: both parse numeric, within 1% */
+    /* ROUNDING: both parse as numeric; values differ only by floating-point rounding */
     else do;
       _na = input(candidate_value, ?? best32.);
       _nb = input(winning_value,   ?? best32.);
       if not missing(_na) and not missing(_nb) and
+         abs(_na - _nb) <= 1e-6 * max(abs(_na), abs(_nb), 1) then do;
+        conflict_class = 'ROUNDING';
+      end;
+      /* TOPCODE: AGE variable, candidate='89', winner>89 (restricted to AGE vars) */
+      else if value_type = 'N' and _u_cand = '89' and _nb > 89
+           and index(upcase(pcnr_name), 'AGE') > 0 then do;
+        conflict_class = 'TOPCODE';
+      end;
+      /* NUMERIC_CLOSE: both parse numeric, within 1% */
+      else if not missing(_na) and not missing(_nb) and
          max(abs(_na), abs(_nb)) > 0 and
          abs(_na - _nb) / max(abs(_na), abs(_nb)) <= 0.01 then do;
         conflict_class = 'NUMERIC_CLOSE';

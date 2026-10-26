@@ -309,3 +309,24 @@ def test_all_missing_src_required_columns() -> None:
     """ALL_MISSING_SRC REQUIRED columns are correct."""
     expected = ["pcnr_name", "s_code", "n_nonmissing"]
     assert REQUIRED_COLUMNS["ALL_MISSING_SRC"] == expected
+
+
+# ---------------------------------------------------------------------------
+# Item 2: ROUNDING conflict_class in KEY sheet
+# ---------------------------------------------------------------------------
+
+def test_rounding_in_key_sheet(tmp_path: Path) -> None:
+    """KEY sheet must describe the ROUNDING conflict_class."""
+    out = tmp_path / "rounding_key.xlsx"
+    write_workbook(_minimal_sheets(), out)
+
+    wb = load_workbook(out, read_only=True)
+    ws = wb["KEY"]
+    all_text = " ".join(
+        str(val or "")
+        for row in ws.iter_rows(values_only=True)
+        for val in row
+        if val is not None
+    )
+    wb.close()
+    assert "ROUNDING" in all_text, "KEY sheet does not mention ROUNDING conflict_class"

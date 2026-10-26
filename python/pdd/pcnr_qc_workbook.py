@@ -112,11 +112,15 @@ def _build_conflict_class_summary(
 
     Source CSV columns: pcnr_name, conflict_type, conflict_class,
                         n_conflict_events, n_conflict_cells.
-    Output sheet columns: conflict_class, n_variables, n_cells, top_5_vars_by_cells.
-    Includes a TOTALS row where n_cells sums to total conflicts (97,194).
+    Output sheet columns: conflict_class, n_variables, n_events, n_cells,
+                          top_5_vars_by_cells.
+    TOTAL row: n_variables = distinct pcnr_names across all classes (a var can appear
+    in multiple classes); n_events and n_cells are grand sums. Asserts that the TOTAL
+    row values equal the per-class sums (internal consistency check).
     """
     # Aggregate by conflict_class
     class_n_vars: dict[str, set[str]] = defaultdict(set)
+    class_n_events: dict[str, int] = defaultdict(int)
     class_n_cells: dict[str, int] = defaultdict(int)
     class_var_cells: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
 
@@ -124,33 +128,53 @@ def _build_conflict_class_summary(
         cls = r.get("conflict_class", "")
         name = r.get("pcnr_name", "")
         try:
+            events = int(r.get("n_conflict_events", 0) or 0)
+        except (ValueError, TypeError):
+            events = 0
+        try:
             cells = int(r.get("n_conflict_cells", 0) or 0)
         except (ValueError, TypeError):
             cells = 0
         class_n_vars[cls].add(name)
+        class_n_events[cls] += events
         class_n_cells[cls] += cells
         class_var_cells[cls][name] += cells
 
-    headers = ["conflict_class", "n_variables", "n_cells", "top_5_vars_by_cells"]
+    headers = ["conflict_class", "n_variables", "n_events", "n_cells", "top_5_vars_by_cells"]
     data: list[list] = []
 
+    total_events = 0
     total_cells = 0
     total_vars: set[str] = set()
 
     for cls in sorted(class_n_vars.keys()):
         n_vars = len(class_n_vars[cls])
+        n_events = class_n_events[cls]
         n_cells = class_n_cells[cls]
         top5 = ", ".join(
             v for v, _ in sorted(
                 class_var_cells[cls].items(), key=lambda kv: kv[1], reverse=True
             )[:5]
         )
-        data.append([cls, n_vars, n_cells, top5])
+        data.append([cls, n_vars, n_events, n_cells, top5])
+        total_events += n_events
         total_cells += n_cells
         total_vars.update(class_n_vars[cls])
 
+    # Internal consistency: TOTAL row sums must equal the per-class sums
+    if total_events != sum(class_n_events.values()):
+        raise ValueError(
+            f"CONFLICT_CLASS_SUMMARY: total n_events {total_events} != "
+            f"sum of class n_events {sum(class_n_events.values())}"
+        )
+    if total_cells != sum(class_n_cells.values()):
+        raise ValueError(
+            f"CONFLICT_CLASS_SUMMARY: total n_cells {total_cells} != "
+            f"sum of class n_cells {sum(class_n_cells.values())}"
+        )
+
     # Totals row
-    data.append(["TOTAL", len(total_vars), total_cells, ""])
+    data.append(["TOTAL", len(total_vars), total_events, total_cells, ""])
 
     return headers, data
 
@@ -173,16 +197,19 @@ def _key_rows() -> list[list[str]]:
          "n_conflict_cells = distinct patient x variable pairs with a conflict."],
         ["Sheet", "CONFLICT_CLASS_SUMMARY",
          "One row per conflict_class. Aggregated from pcnr_conflicts_summary_class.csv. "
-         "Columns: conflict_class, n_variables (distinct pcnr_names), n_cells (sum of "
-         "n_conflict_cells), top_5_vars_by_cells (comma-joined top 5 pcnr_names by n_cells). "
-         "Includes a TOTAL row. n_cells across all data rows sums to total conflicts (97,194)."],
+         "Columns: conflict_class, n_variables (distinct pcnr_names), "
+         "n_events (total conflict events — one per source row where values differ), "
+         "n_cells (distinct patient x variable cells with a conflict), "
+         "top_5_vars_by_cells (comma-joined top 5 pcnr_names by n_cells). "
+         "Includes a TOTAL row: n_variables = count of distinct PCNR variables (a variable "
+         "can appear in more than one class); n_events should equal grand total from "
+         "CONFLICT_SUMMARY; n_cells <= n_events."],
         ["Sheet", "CONFLICT_DETAIL",
          f"One row per conflicting cell. Capped at {CONFLICT_DETAIL_CAP} rows in this workbook. "
          f"Full table is pdd.qc_pcnr_conflicts on P:. "
          "Each row shows the winning value and the losing candidate value."],
         ["Sheet", "TYPECHECK",
          "One row per pcnr_name with a type conflict. "
-         "type resolution = N8 when all values parse via input(strip(val), best32.) else C. "
          "Columns: pcnr_name, resolved_type, out_length, n_char_sources, n_failures, n_null_as_missing."],
         ["Sheet", "TYPEFAIL",
          "One row per (pcnr_name, s_code, raw_value) combination for values that failed "
@@ -193,8 +220,9 @@ def _key_rows() -> list[list[str]]:
          "Present only when at least one all-missing variable exists; sheet shows (no data) otherwise."],
         ["Sheet", "ALL_MISSING_SRC",
          "One row per (pcnr_name, s_code) for all-missing PCNR_ variables. "
-         "n_nonmissing = count of non-missing values in the source dataset (always 0 for truly "
-         "all-missing variables). Companion to ALL_MISSING."],
+         "n_nonmissing: count of non-missing values in the full source dataset "
+         "(not just spine-matched rows). Always 0 for truly all-missing variables. "
+         "Companion to ALL_MISSING."],
         # Conflict types (D-15)
         ["conflict_type", "SPINE_VS_SOURCE",
          "Spine is non-missing AND a non-spine source is non-missing AND they disagree. "
@@ -224,6 +252,9 @@ def _key_rows() -> list[list[str]]:
         ["conflict_class", "CODING_EQUIV",
          "The (pcnr_name, value_a, value_b) pair appears in docs/pcnr_value_equiv.csv "
          "(order-insensitive). Known coding synonyms (e.g. FEMALE/F, MALE/M)."],
+        ["conflict_class", "ROUNDING",
+         "Both values parse as numeric and values differ only by floating-point rounding "
+         "(abs diff <= 1e-6 x max(|a|, |b|, 1)). Checked after CODING_EQUIV, before TOPCODE."],
         ["conflict_class", "TOPCODE",
          "AGE variable where candidate_value='89' and winning_value > 89. "
          "Top-coded value (89=highest reportable) vs the actual higher value. "
@@ -304,7 +335,7 @@ def write_workbook(
                     src_rows = [dict(zip(src_hdrs, r)) for r in raw_rows]
                 agg_headers, agg_data = _build_conflict_class_summary(src_rows)
             else:
-                agg_headers, agg_data = ["conflict_class", "n_variables", "n_cells", "top_5_vars_by_cells"], []
+                agg_headers, agg_data = ["conflict_class", "n_variables", "n_events", "n_cells", "top_5_vars_by_cells"], []
             if not agg_data:
                 ws.append(["(no data)"])
             else:
