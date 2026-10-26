@@ -610,9 +610,9 @@ def check_array_special_before_set(path, lines):
     return hits
 
 
-# ── C15 / W3: RETAIN inline length spec / uninit char var ────────────────────
+# ── C15r / W3: RETAIN inline length spec / uninit char var ───────────────────
 #
-# C15  RETAIN contains a $ length specifier (e.g., retain x $50 ' ').
+# C15r RETAIN contains a $ length specifier (e.g., retain x $50 ' ').
 #      SAS does not accept length specs in RETAIN; declare with LENGTH first.
 # W3   RETAIN initialises a char variable with '' / ' ' but no LENGTH has been
 #      declared for that variable earlier in the same DATA step; SAS will
@@ -622,7 +622,7 @@ def check_array_special_before_set(path, lines):
 
 def _check_retain_stmt(path, lineno, stmt, length_vars, hits):
     if re.search(r'\$\s*\d+', stmt):
-        hits.append((path, lineno, 'C15',
+        hits.append((path, lineno, 'C15r',
             'RETAIN statement contains a $ length specifier -- '
             'declare character lengths with a LENGTH statement before RETAIN'))
     for m in re.finditer(r"\b([a-z_]\w*)\s+(?:''|' ')", stmt, CI):
@@ -1174,6 +1174,100 @@ def check_literal_pdd_in_macro(path, lines):
     return hits
 
 
+# ── C15: /* inside double-quoted string in put/DATA step context ──────────────
+#
+# In SAS, /* inside a double-quoted string in a macro body IS interpreted as
+# a block-comment opener by the macro processor. This consumes following code
+# (including %end; statements) until the matching */ is found, producing
+# mysterious "unclosed %DO" compile errors.
+# Correct fix: change */ or /* to use a space: "* / " or "/ *".
+
+_COMMENT_IN_DQUOTE = re.compile(
+    r'(?:%put|put)\b[^;]*"[^"]*\/\*',
+    CI,
+)
+
+def check_comment_in_dquote(path, lines):
+    hits = []
+    for i, raw in enumerate(lines, 1):
+        if re.search(_COMMENT_IN_DQUOTE, raw):
+            hits.append((path, i, 'C15',
+                r'/* inside double-quoted string on a put/%put line -- '
+                'the macro processor interprets this as a block-comment opener; '
+                'add a space: "/ *" or "* /"'))
+    return hits
+
+
+# ── C26b: unbalanced %do/%end within a %macro...%mend block ──────────────────
+#
+# Each %do must have a matching %end. This check counts them per macro block,
+# stripping /* */ block comments with awareness that /* inside a double-quoted
+# put string is NOT a block comment.
+#
+# Note: this check operates on the whole file text (not line-by-line) so it
+# must be called directly, not via the CHECKS list.
+
+def check_do_end_balance(path, lines):
+    text = '\n'.join(lines)
+    hits = []
+
+    # Find each %macro...%mend pair
+    macro_starts = [(m.group(1), m.start(), m.end())
+                    for m in re.finditer(r'%macro\s+(\w+)', text, re.IGNORECASE)]
+
+    for mname, mstart, _ in macro_starts:
+        mend_m = re.search(r'%mend\s*' + re.escape(mname) + r'\b', text[mstart:], re.IGNORECASE)
+        if not mend_m:
+            mend_m = re.search(r'%mend\b', text[mstart:], re.IGNORECASE)
+        if not mend_m:
+            continue
+        body = text[mstart: mstart + mend_m.end()]
+
+        # Strip block comments with put-string awareness
+        clean = _strip_comments_aware(body)
+
+        do_count  = len(re.findall(r'%do\b',  clean, re.IGNORECASE))
+        end_count = len(re.findall(r'%end\b', clean, re.IGNORECASE))
+        if do_count != end_count:
+            # Find line number of %macro definition
+            lineno = text[:mstart].count('\n') + 1
+            hits.append((path, lineno, 'C26b',
+                f'macro %{mname}: %do count={do_count} does not match %end count={end_count}'))
+    return hits
+
+
+def _strip_comments_aware(text):
+    """Strip /* ... */ block comments, but treat /* inside a double-quoted
+    string on a put/%put line as literal (not a comment opener)."""
+    result = []
+    i = 0
+    in_block = False
+    while i < len(text):
+        if not in_block:
+            if text[i:i+2] == '/*':
+                # Check if this /* is inside a double-quoted string on a put line
+                # by looking back to start of line
+                line_start = text.rfind('\n', 0, i) + 1
+                line_prefix = text[line_start:i]
+                if re.search(r'(?:%put|(?<!\w)put)\b[^"]*"[^"]*$', line_prefix, re.IGNORECASE):
+                    # Inside a double-quoted string on a put line -- treat as literal
+                    result.append(text[i])
+                    i += 1
+                else:
+                    in_block = True
+                    i += 2
+            else:
+                result.append(text[i])
+                i += 1
+        else:
+            if text[i:i+2] == '*/':
+                in_block = False
+                i += 2
+            else:
+                i += 1
+    return ''.join(result)
+
+
 # ── runner ────────────────────────────────────────────────────────────────────
 
 CHECKS = [
@@ -1190,6 +1284,8 @@ CHECKS = [
     check_libname_engine_after_path,
     check_array_special_before_set,
     check_macro_in_put,
+    check_comment_in_dquote,
+    check_do_end_balance,
     check_macro_invoke_in_put,
     check_bare_macro_in_text,
     check_call_before_define,

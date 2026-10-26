@@ -694,7 +694,10 @@ run;
 
   /* Total rows in fixture = 50; T_L21 cycles 1..21, no missing */
   %local _f;
-  %let _f = 0; %if %eval(&_n21 + &_nm21 = 50) %then %let _f = 1;
+  %let _f = 0;
+  %if %bquote(&_n21) ne %bquote() and %bquote(&_nm21) ne %bquote() %then %do;
+    %if %eval(&_n21 + &_nm21 = 50) %then %let _f = 1;
+  %end;
   %_assert(flag=&_f, label=T_L21-N-plus-NMISS-eq-50);
 
   /* Independent PROC MEANS for comparison (tolerance 1e-9) */
@@ -720,9 +723,9 @@ run;
     call symputx('_abs_max',  strip(put(abs_max,  32.10)), 'L');
   run;
 
-  %let _f = 0; %if %sysevalf(&_abs_mean <= 1e-9) %then %let _f = 1; %_assert(flag=&_f, label=T_L21-MEAN-match);
-  %let _f = 0; %if %sysevalf(&_abs_min  <= 1e-9) %then %let _f = 1; %_assert(flag=&_f, label=T_L21-MIN-match);
-  %let _f = 0; %if %sysevalf(&_abs_max  <= 1e-9) %then %let _f = 1; %_assert(flag=&_f, label=T_L21-MAX-match);
+  %let _f = 0; %if %bquote(&_abs_mean) ne %bquote() %then %do; %if %sysevalf(&_abs_mean <= 1e-9) %then %let _f = 1; %end; %_assert(flag=&_f, label=T_L21-MEAN-match);
+  %let _f = 0; %if %bquote(&_abs_min)  ne %bquote() %then %do; %if %sysevalf(&_abs_min  <= 1e-9) %then %let _f = 1; %end; %_assert(flag=&_f, label=T_L21-MIN-match);
+  %let _f = 0; %if %bquote(&_abs_max)  ne %bquote() %then %do; %if %sysevalf(&_abs_max  <= 1e-9) %then %let _f = 1; %end; %_assert(flag=&_f, label=T_L21-MAX-match);
 
 %mend _tc11;
 %_tc11;
@@ -740,21 +743,30 @@ run;
 %macro _tc04;
   %_tc_start(n=04, desc=d08-recon-expected-fail);
 
-  /* -- Shared: ensure _p6_total is set (50 rows in fixture) -- */
-  /* _p6_total was set globally by %pdd_profile above */
+  /* Set globals so %p6_write_output has consistent schema */
+  %global _p6_total _p6_lvl_len _p6_nv;
+  %let _p6_total   = 50;
+  %let _p6_lvl_len = 300;
+  %let _p6_nv      = 1;
 
   /* ======== Sub-case A: LOW_CARD mismatch ======== */
   proc datasets lib=work nolist; delete prf_bad; quit;
 
   /* Build a _p6_rows that has a LOW_CARD variable with n sum != 50 */
   data work._p6_rows;
-    length family $32 variable $32 var_class $12 stat $12 level $300
-           n 8 value 8 pct_total 8 pct_nonmiss 8 sort_order 8
-           small_cell_flag $1 date_kind $8 display_format $32;
+    %_p6_attrib;
     variable = 'T_BAD_LC'; var_class = 'LOW_CARD'; family = 'BAD';
     stat = 'LEVEL'; level = 'A'; n = 20; sort_order = 1; small_cell_flag = 'N'; output;
     stat = 'MISSING'; level = ''; n = 5; sort_order = 99; small_cell_flag = 'N'; output;
     /* Total = 25, not 50 -- reconciliation must fail */
+  run;
+
+  /* Minimal work._p6_vars for variable-set check in %p6_write_output */
+  data work._p6_vars;
+    length name $200 type $8 length 8 format $32 n_distinct 8
+           var_class $12 date_kind $8 display_format $32;
+    name = 'T_BAD_LC'; type = 'char'; var_class = 'LOW_CARD'; output;
+    stop;
   run;
 
   %let p6_fail = 0;
@@ -776,9 +788,7 @@ run;
   proc datasets lib=work nolist; delete prf_bad; quit;
 
   data work._p6_rows;
-    length family $32 variable $32 var_class $12 stat $12 level $300
-           n 8 value 8 pct_total 8 pct_nonmiss 8 sort_order 8
-           small_cell_flag $1 date_kind $8 display_format $32;
+    %_p6_attrib;
     variable = 'T_BAD_HC'; var_class = 'HIGH_CARD'; family = 'BAD';
     /* N_DISTINCT row */
     stat = 'N_DISTINCT'; n = 22; sort_order = 0; output;
@@ -789,6 +799,14 @@ run;
     stat = 'OTHER';   n = 8;  sort_order = 11; small_cell_flag = 'N'; output;
     stat = 'MISSING'; n = 0;  sort_order = 99; small_cell_flag = 'N'; output;
     drop _i;
+  run;
+
+  /* Minimal work._p6_vars for variable-set check in %p6_write_output */
+  data work._p6_vars;
+    length name $200 type $8 length 8 format $32 n_distinct 8
+           var_class $12 date_kind $8 display_format $32;
+    name = 'T_BAD_HC'; type = 'char'; var_class = 'HIGH_CARD'; n_distinct = 22; output;
+    stop;
   run;
 
   %p6_write_output(outlib=work, family=BAD, export=0);
@@ -806,9 +824,7 @@ run;
   proc datasets lib=work nolist; delete prf_bad; quit;
 
   data work._p6_rows;
-    length family $32 variable $32 var_class $12 stat $12 level $300
-           n 8 value 8 pct_total 8 pct_nonmiss 8 sort_order 8
-           small_cell_flag $1 date_kind $8 display_format $32;
+    %_p6_attrib;
     variable = 'T_BAD_CN'; var_class = 'CONT_NUM'; family = 'BAD';
     stat = 'N';         n = 40; sort_order = 1; output;
     stat = 'N_MISSING'; n = 5;  sort_order = 2; output;
@@ -820,6 +836,14 @@ run;
     stat = 'Q3';     value = 12.0; sort_order = 7; output;
     stat = 'MIN';    value = 5.0;  sort_order = 8; output;
     stat = 'MAX';    value = 20.0; sort_order = 9; output;
+  run;
+
+  /* Minimal work._p6_vars for variable-set check in %p6_write_output */
+  data work._p6_vars;
+    length name $200 type $8 length 8 format $32 n_distinct 8
+           var_class $12 date_kind $8 display_format $32;
+    name = 'T_BAD_CN'; type = 'num'; var_class = 'CONT_NUM'; n_distinct = 50; output;
+    stop;
   run;
 
   %p6_write_output(outlib=work, family=BAD, export=0);
