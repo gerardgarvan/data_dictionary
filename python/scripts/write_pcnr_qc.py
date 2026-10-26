@@ -79,11 +79,19 @@ def main() -> int:
         try:
             csv_data[sheet_name] = read_csv(p)
         except UnicodeDecodeError as exc:
-            # Report location without printing data values (D-23 hardening)
-            line_no = exc.start // max(1, exc.end - exc.start) if exc.end > exc.start else exc.start
+            # Count newlines in raw bytes up to error start to get accurate line number.
+            # exc.start is a byte offset in the raw stream (D-23 hardening -- no values).
+            try:
+                raw = p.read_bytes()
+                line_no = raw[: exc.start].count(b"\n") + 1
+                col_no = exc.start - raw[: exc.start].rfind(b"\n") - 1
+            except Exception:
+                line_no = "?"
+                col_no = exc.start
             print(
                 f"ERROR: UnicodeDecodeError in {p}"
-                f" line ~{line_no} col {exc.start}"
+                f" line {line_no} col {col_no}"
+                f" hex {exc.object[exc.start:exc.end].hex()}"
                 f" pcnr_name=unknown"
             )
             sys.exit(1)
