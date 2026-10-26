@@ -617,3 +617,849 @@
   %put NOTE: [06_profile] var_class summary: DATE=&_p6_n_date LOW_CARD=&_p6_n_lc CONT_NUM=&_p6_n_cn HIGH_CARD=&_p6_n_hc;
 
 %mend p6_classify_vars;
+
+/* ============================================================
+   %_p6_attrib
+   Emits the ATTRIB statement for the 13 locked schema columns.
+   Uses &_p6_lvl_len (global, set in %pdd_profile before any
+   computation macro is called).
+   C26: no literal "pdd." -- always use &lib / &outlib params.
+   ============================================================ */
+%macro _p6_attrib;
+  attrib
+    family         length=$32      label='Family'
+    variable       length=$32      label='Variable name'
+    var_class      length=$12      label='Variable class'
+    stat           length=$12      label='Row type identifier'
+    level          length=$&_p6_lvl_len label='Category text (LEVEL rows only)'
+    n              length=8        label='Count'
+    value          length=8        label='Statistic value'
+    pct_total      length=8        label='n / total_rows * 100'
+    pct_nonmiss    length=8        label='n / n_nonmiss * 100'
+    sort_order     length=8        label='Display sort order within variable'
+    small_cell_flag length=$1      label='Y if 1<=n<=10'
+    date_kind      length=$8       label='DATE / DATETIME / TIME or blank'
+    display_format length=$32      label='SAS format for DATE tier'
+  ;
+%mend _p6_attrib;
+
+/* ============================================================
+   %p6_freq_lowcard
+   Compute LOW_CARD distributions.
+   - D-07 (100% missing) variables: emit single MISSING row directly.
+   - Others: batched PROC FREQ OUT= with MISSING option; reshape
+     to LEVEL rows + one MISSING row per variable.
+   - Appends normalised rows into work._p6_rows (no FORCE).
+   ============================================================ */
+%macro p6_freq_lowcard(lib=, ds=);
+  %_p6_ok(section=p6_freq_lowcard entry);
+  %if &p6_fail = 1 %then %return;
+
+  /* Identify LOW_CARD variables */
+  %local _p6_lc_n;
+  proc sql noprint;
+    select count(*) into :_p6_lc_n trimmed
+    from work._p6_vars
+    where var_class = 'LOW_CARD';
+  quit;
+  %if &p6_fail = 1 %then %return;
+
+  %if &_p6_lc_n = 0 %then %do;
+    %put NOTE: [06_profile] p6_freq_lowcard: no LOW_CARD variables -- skipping;
+    %return;
+  %end;
+
+  %put NOTE: [06_profile] p6_freq_lowcard: processing &_p6_lc_n LOW_CARD variable(s);
+
+  /* Load LOW_CARD variable names into macro array */
+  %local _p6_lc_total;
+  %let _p6_lc_total = &_p6_lc_n;
+  data _null_;
+    set work._p6_vars (where=(var_class='LOW_CARD'));
+    call symputx(cats('_p6_lcv_', strip(put(_n_, best32.))), strip(name), 'L');
+    call symputx(cats('_p6_lct_', strip(put(_n_, best32.))), strip(type), 'L');
+    call symputx(cats('_p6_lcd_', strip(put(_n_, best32.))), strip(put(n_distinct, best32.)), 'L');
+    call symputx(cats('_p6_lck_', strip(put(_n_, best32.))), strip(date_kind), 'L');
+    call symputx(cats('_p6_lcf_', strip(put(_n_, best32.))), strip(display_format), 'L');
+    call symputx(cats('_p6_lcc_', strip(put(_n_, best32.))), strip(var_class), 'L');
+  run;
+  %if &p6_fail = 1 %then %return;
+  %_p6_ok(section=p6_freq_lowcard varname load);
+  %if &p6_fail = 1 %then %return;
+
+  /* ---- D-07: 100%-missing LOW_CARD variables ---- */
+  /* Emit single MISSING row for each; no PROC FREQ needed */
+  %local _p6_lci;
+  %let _p6_lci = 1;
+  %do %while (&_p6_lci <= &_p6_lc_total);
+    %if &&_p6_lcd_&_p6_lci = 0 %then %do;
+      /* 100% missing: single MISSING row */
+      data work._p6_lc_d07;
+        %_p6_attrib;
+        family         = upcase("&family");
+        variable       = "&&_p6_lcv_&_p6_lci";
+        var_class      = "&&_p6_lcc_&_p6_lci";
+        stat           = 'MISSING';
+        level          = '';
+        n              = &_p6_total;
+        value          = .;
+        pct_total      = 100;
+        pct_nonmiss    = .;
+        sort_order     = 99;
+        /* small_cell_flag D-04: 1<=n<=10 */
+        if &_p6_total >= 1 and &_p6_total <= 10
+          then small_cell_flag = 'Y';
+          else small_cell_flag = 'N';
+        date_kind      = "&&_p6_lck_&_p6_lci";
+        display_format = "&&_p6_lcf_&_p6_lci";
+        output;
+        stop;
+      run;
+      %if &p6_fail = 1 %then %return;
+      %_p6_ok(section=p6_freq_lowcard d07 row &&_p6_lcv_&_p6_lci);
+      %if &p6_fail = 1 %then %return;
+      proc append base=work._p6_rows data=work._p6_lc_d07;
+      run;
+      %if &p6_fail = 1 %then %return;
+      %_p6_ok(section=p6_freq_lowcard d07 append &&_p6_lcv_&_p6_lci);
+      %if &p6_fail = 1 %then %return;
+    %end;
+    %let _p6_lci = %eval(&_p6_lci + 1);
+  %end;
+
+  /* ---- Batch PROC FREQ for non-D07 LOW_CARD variables ---- */
+  /* Write generated include file -- FILE (not MOD) so reruns are safe */
+  %local _p6_lc_gen;
+  %let _p6_lc_gen = &logs_path.\06_generated_lowcard_&family..sas;
+
+  /* Count non-D07 LOW_CARD vars */
+  %local _p6_lc_nd07;
+  %let _p6_lc_nd07 = 0;
+  %let _p6_lci = 1;
+  %do %while (&_p6_lci <= &_p6_lc_total);
+    %if &&_p6_lcd_&_p6_lci > 0 %then
+      %let _p6_lc_nd07 = %eval(&_p6_lc_nd07 + 1);
+    %let _p6_lci = %eval(&_p6_lci + 1);
+  %end;
+
+  %if &_p6_lc_nd07 = 0 %then %do;
+    %put NOTE: [06_profile] p6_freq_lowcard: all LOW_CARD vars were 100%% missing -- no PROC FREQ needed;
+    %goto lc_done;
+  %end;
+
+  /* Write header */
+  data _null_;
+    file "&_p6_lc_gen" lrecl=32767;
+    put "/* Generated by %p6_freq_lowcard -- do not edit */";
+    put "/* Family: &family  Dataset: &lib..&ds */";
+  run;
+  %if &p6_fail = 1 %then %return;
+  %_p6_ok(section=p6_freq_lowcard gen header);
+  %if &p6_fail = 1 %then %return;
+
+  /* Write one PROC FREQ per non-D07 LOW_CARD variable (each needs its own OUT=) */
+  /* Batch into groups of 100 TABLES statements */
+  %local _p6_lc_batch_size _p6_lc_bstart _p6_lc_bnum;
+  %let _p6_lc_batch_size = 100;
+  %let _p6_lc_bstart = 0; /* will increment to find non-D07 */
+  %let _p6_lc_bnum   = 0;
+  %local _p6_lc_bi_in_batch _p6_lc_batch_open;
+  %let _p6_lc_bi_in_batch = 0;
+  %let _p6_lc_batch_open  = 0;
+  %let _p6_lc_bnum        = 0;
+
+  %let _p6_lci = 1;
+  %do %while (&_p6_lci <= &_p6_lc_total);
+    %if &&_p6_lcd_&_p6_lci > 0 %then %do;
+      /* This var needs PROC FREQ */
+      %let _p6_lc_bi_in_batch = %eval(&_p6_lc_bi_in_batch + 1);
+
+      /* Open a new batch if needed */
+      %if &_p6_lc_batch_open = 0 %then %do;
+        %let _p6_lc_bnum = %eval(&_p6_lc_bnum + 1);
+        %let _p6_lc_batch_open = 1;
+        data _null_;
+          file "&_p6_lc_gen" lrecl=32767 mod;
+          put "proc freq data=&lib..&ds noprint;";
+        run;
+        %if &p6_fail = 1 %then %return;
+      %end;
+
+      /* Append this variable's TABLES statement to current batch */
+      data _null_;
+        file "&_p6_lc_gen" lrecl=32767 mod;
+        put "  tables &&_p6_lcv_&_p6_lci / out=work._p6_lc_f&_p6_lci(keep=&&_p6_lcv_&_p6_lci COUNT) missing noprint;";
+      run;
+      %if &p6_fail = 1 %then %return;
+
+      /* Close batch if full */
+      %if &_p6_lc_bi_in_batch >= &_p6_lc_batch_size %then %do;
+        data _null_;
+          file "&_p6_lc_gen" lrecl=32767 mod;
+          put "run;";
+        run;
+        %if &p6_fail = 1 %then %return;
+        %let _p6_lc_batch_open  = 0;
+        %let _p6_lc_bi_in_batch = 0;
+      %end;
+    %end;
+    %let _p6_lci = %eval(&_p6_lci + 1);
+  %end;
+
+  /* Close last open batch if any */
+  %if &_p6_lc_batch_open = 1 %then %do;
+    data _null_;
+      file "&_p6_lc_gen" lrecl=32767 mod;
+      put "run;";
+    run;
+    %if &p6_fail = 1 %then %return;
+    %let _p6_lc_batch_open = 0;
+  %end;
+
+  /* Include the generated file */
+  %include "&_p6_lc_gen";
+  %if &p6_fail = 1 %then %return;
+  %_p6_ok(section=p6_freq_lowcard gen include);
+  %if &p6_fail = 1 %then %return;
+
+  /* ---- Reshape each PROC FREQ output into schema rows ---- */
+  %let _p6_lci = 1;
+  %do %while (&_p6_lci <= &_p6_lc_total);
+    %if &&_p6_lcd_&_p6_lci > 0 %then %do;
+
+      /* Compute n_nonmiss for this variable from the PROC FREQ output */
+      /* (rows where the variable value is not missing) */
+      %local _p6_lc_nn;
+      proc sql noprint;
+        select sum(COUNT) into :_p6_lc_nn trimmed
+        from work._p6_lc_f&_p6_lci
+        where &&_p6_lcv_&_p6_lci is not missing;
+      quit;
+      %if &p6_fail = 1 %then %return;
+
+      /* Build LEVEL rows + MISSING row from PROC FREQ output */
+      /* Sort: n desc, level asc for sort_order assignment */
+      proc sort data=work._p6_lc_f&_p6_lci
+                out =work._p6_lc_sorted;
+        where &&_p6_lcv_&_p6_lci is not missing;
+        by descending COUNT &&_p6_lcv_&_p6_lci;
+      run;
+      %if &p6_fail = 1 %then %return;
+      %_p6_ok(section=p6_freq_lowcard sort &&_p6_lcv_&_p6_lci);
+      %if &p6_fail = 1 %then %return;
+
+      data work._p6_lc_piece;
+        %_p6_attrib;
+        length _raw_val $32767;
+        set work._p6_lc_sorted end=_eof;
+        family         = upcase("&family");
+        variable       = "&&_p6_lcv_&_p6_lci";
+        var_class      = "&&_p6_lcc_&_p6_lci";
+        stat           = 'LEVEL';
+        /* Level text: char = strip value; num = strip(put(v,best32.)) */
+        %if &&_p6_lct_&_p6_lci = char %then %do;
+          level = strip(vvalue(&&_p6_lcv_&_p6_lci));
+        %end;
+        %else %do;
+          level = strip(put(&&_p6_lcv_&_p6_lci, best32.));
+        %end;
+        n              = COUNT;
+        value          = .;
+        pct_total      = n / &_p6_total * 100;
+        if &_p6_lc_nn > 0
+          then pct_nonmiss = n / &_p6_lc_nn * 100;
+          else pct_nonmiss = .;
+        sort_order     = _n_;
+        if n >= 1 and n <= 10
+          then small_cell_flag = 'Y';
+          else small_cell_flag = 'N';
+        date_kind      = "&&_p6_lck_&_p6_lci";
+        display_format = "&&_p6_lcf_&_p6_lci";
+        drop _raw_val COUNT &&_p6_lcv_&_p6_lci;
+        output;
+      run;
+      %if &p6_fail = 1 %then %return;
+      %_p6_ok(section=p6_freq_lowcard level rows &&_p6_lcv_&_p6_lci);
+      %if &p6_fail = 1 %then %return;
+
+      /* Add MISSING row (n from PROC FREQ OUT= missing row or 0 if none) */
+      %local _p6_lc_nmiss;
+      proc sql noprint;
+        select sum(COUNT) into :_p6_lc_nmiss trimmed
+        from work._p6_lc_f&_p6_lci
+        where &&_p6_lcv_&_p6_lci is missing;
+      quit;
+      %if &p6_fail = 1 %then %return;
+      %if %bquote(&_p6_lc_nmiss) = %bquote() %then %let _p6_lc_nmiss = 0;
+
+      data work._p6_lc_miss;
+        %_p6_attrib;
+        family         = upcase("&family");
+        variable       = "&&_p6_lcv_&_p6_lci";
+        var_class      = "&&_p6_lcc_&_p6_lci";
+        stat           = 'MISSING';
+        level          = '';
+        n              = &_p6_lc_nmiss;
+        value          = .;
+        pct_total      = n / &_p6_total * 100;
+        pct_nonmiss    = .;
+        sort_order     = 99;
+        if n >= 1 and n <= 10
+          then small_cell_flag = 'Y';
+          else small_cell_flag = 'N';
+        date_kind      = "&&_p6_lck_&_p6_lci";
+        display_format = "&&_p6_lcf_&_p6_lci";
+        output;
+        stop;
+      run;
+      %if &p6_fail = 1 %then %return;
+      %_p6_ok(section=p6_freq_lowcard missing row &&_p6_lcv_&_p6_lci);
+      %if &p6_fail = 1 %then %return;
+
+      proc append base=work._p6_rows data=work._p6_lc_piece;
+      run;
+      %if &p6_fail = 1 %then %return;
+      %_p6_ok(section=p6_freq_lowcard append piece &&_p6_lcv_&_p6_lci);
+      %if &p6_fail = 1 %then %return;
+
+      proc append base=work._p6_rows data=work._p6_lc_miss;
+      run;
+      %if &p6_fail = 1 %then %return;
+      %_p6_ok(section=p6_freq_lowcard append miss &&_p6_lcv_&_p6_lci);
+      %if &p6_fail = 1 %then %return;
+
+    %end;
+    %let _p6_lci = %eval(&_p6_lci + 1);
+  %end;
+
+  %lc_done:
+  %put NOTE: [06_profile] p6_freq_lowcard complete;
+
+%mend p6_freq_lowcard;
+
+/* ============================================================
+   %p6_stats_contnum
+   Compute CONT_NUM and DATE distributions.
+   - D-07 (100% missing) variables: emit single MISSING row directly,
+     BEFORE PROC MEANS (all-missing numerics must not reach PROC MEANS).
+   - Others: ONE PROC MEANS pass with all vars in one VAR statement;
+     reshape to nine rows per variable.
+   - Appends normalised rows into work._p6_rows (no FORCE).
+   ============================================================ */
+%macro p6_stats_contnum(lib=, ds=);
+  %_p6_ok(section=p6_stats_contnum entry);
+  %if &p6_fail = 1 %then %return;
+
+  %local _p6_cn_n;
+  proc sql noprint;
+    select count(*) into :_p6_cn_n trimmed
+    from work._p6_vars
+    where var_class in ('CONT_NUM','DATE');
+  quit;
+  %if &p6_fail = 1 %then %return;
+
+  %if &_p6_cn_n = 0 %then %do;
+    %put NOTE: [06_profile] p6_stats_contnum: no CONT_NUM/DATE variables -- skipping;
+    %return;
+  %end;
+
+  %put NOTE: [06_profile] p6_stats_contnum: processing &_p6_cn_n CONT_NUM/DATE variable(s);
+
+  /* Load variable info into macro arrays */
+  data _null_;
+    set work._p6_vars (where=(var_class in ('CONT_NUM','DATE')));
+    call symputx(cats('_p6_cnv_', strip(put(_n_, best32.))), strip(name), 'L');
+    call symputx(cats('_p6_cnd_', strip(put(_n_, best32.))), strip(put(n_distinct, best32.)), 'L');
+    call symputx(cats('_p6_cnk_', strip(put(_n_, best32.))), strip(date_kind), 'L');
+    call symputx(cats('_p6_cnf_', strip(put(_n_, best32.))), strip(display_format), 'L');
+    call symputx(cats('_p6_cnc_', strip(put(_n_, best32.))), strip(var_class), 'L');
+    call symputx('_p6_cn_total', strip(put(_n_, best32.)), 'L');
+  run;
+  %if &p6_fail = 1 %then %return;
+  %_p6_ok(section=p6_stats_contnum varname load);
+  %if &p6_fail = 1 %then %return;
+
+  /* ---- D-07: 100%-missing CONT_NUM/DATE variables (branch BEFORE PROC MEANS) ---- */
+  %local _p6_cni;
+  %let _p6_cni = 1;
+  %do %while (&_p6_cni <= &_p6_cn_total);
+    %if &&_p6_cnd_&_p6_cni = 0 %then %do;
+      data work._p6_cn_d07;
+        %_p6_attrib;
+        family         = upcase("&family");
+        variable       = "&&_p6_cnv_&_p6_cni";
+        var_class      = "&&_p6_cnc_&_p6_cni";
+        stat           = 'MISSING';
+        level          = '';
+        n              = &_p6_total;
+        value          = .;
+        pct_total      = 100;
+        pct_nonmiss    = .;
+        sort_order     = 99;
+        if &_p6_total >= 1 and &_p6_total <= 10
+          then small_cell_flag = 'Y';
+          else small_cell_flag = 'N';
+        date_kind      = "&&_p6_cnk_&_p6_cni";
+        display_format = "&&_p6_cnf_&_p6_cni";
+        output;
+        stop;
+      run;
+      %if &p6_fail = 1 %then %return;
+      %_p6_ok(section=p6_stats_contnum d07 row &&_p6_cnv_&_p6_cni);
+      %if &p6_fail = 1 %then %return;
+      proc append base=work._p6_rows data=work._p6_cn_d07;
+      run;
+      %if &p6_fail = 1 %then %return;
+      %_p6_ok(section=p6_stats_contnum d07 append &&_p6_cnv_&_p6_cni);
+      %if &p6_fail = 1 %then %return;
+    %end;
+    %let _p6_cni = %eval(&_p6_cni + 1);
+  %end;
+
+  /* ---- Build VAR list for PROC MEANS (non-D07 only) ---- */
+  %local _p6_cn_varlist _p6_cn_nd07;
+  %let _p6_cn_varlist = ;
+  %let _p6_cn_nd07    = 0;
+  %let _p6_cni = 1;
+  %do %while (&_p6_cni <= &_p6_cn_total);
+    %if &&_p6_cnd_&_p6_cni > 0 %then %do;
+      %let _p6_cn_varlist = &_p6_cn_varlist &&_p6_cnv_&_p6_cni;
+      %let _p6_cn_nd07    = %eval(&_p6_cn_nd07 + 1);
+    %end;
+    %let _p6_cni = %eval(&_p6_cni + 1);
+  %end;
+
+  %if &_p6_cn_nd07 = 0 %then %do;
+    %put NOTE: [06_profile] p6_stats_contnum: all CONT_NUM/DATE vars were 100%% missing -- no PROC MEANS needed;
+    %goto cn_done;
+  %end;
+
+  /* ONE PROC MEANS with all non-D07 vars in a single VAR statement (Pitfall 3) */
+  proc means data=&lib..&ds noprint;
+    var &_p6_cn_varlist;
+    output out=work._p6_cn_stats
+      n=       nmiss=  mean=   std=    median= q1=     q3=     min=    max=
+      / autoname;
+  run;
+  %if &p6_fail = 1 %then %return;
+  %_p6_ok(section=p6_stats_contnum proc means);
+  %if &p6_fail = 1 %then %return;
+
+  /* Reshape: one row in wide format -> nine rows per variable */
+  /* PROC MEANS AUTONAME creates: varname_N varname_NMiss varname_Mean varname_StdDev
+     varname_Median varname_Q1 varname_Q3 varname_Min varname_Max                   */
+  %let _p6_cni = 1;
+  %do %while (&_p6_cni <= &_p6_cn_total);
+    %if &&_p6_cnd_&_p6_cni > 0 %then %do;
+      %local _p6_cn_vname;
+      %let _p6_cn_vname = &&_p6_cnv_&_p6_cni;
+
+      data work._p6_cn_piece;
+        %_p6_attrib;
+        set work._p6_cn_stats (keep=&_p6_cn_vname._N
+                                     &_p6_cn_vname._NMiss
+                                     &_p6_cn_vname._Mean
+                                     &_p6_cn_vname._StdDev
+                                     &_p6_cn_vname._Median
+                                     &_p6_cn_vname._Q1
+                                     &_p6_cn_vname._Q3
+                                     &_p6_cn_vname._Min
+                                     &_p6_cn_vname._Max);
+
+        /* Common fields */
+        family         = upcase("&family");
+        variable       = "&_p6_cn_vname";
+        var_class      = "&&_p6_cnc_&_p6_cni";
+        level          = '';
+        small_cell_flag = '';  /* blank on STAT rows per D-04 */
+        date_kind      = "&&_p6_cnk_&_p6_cni";
+        display_format = "&&_p6_cnf_&_p6_cni";
+
+        /* N row (sort_order=1) */
+        stat       = 'N';
+        n          = &_p6_cn_vname._N;
+        value      = .;
+        pct_total  = n / &_p6_total * 100;
+        pct_nonmiss = .;
+        sort_order = 1;
+        output;
+
+        /* N_MISSING row (sort_order=2) */
+        stat       = 'N_MISSING';
+        n          = &_p6_cn_vname._NMiss;
+        value      = .;
+        pct_total  = n / &_p6_total * 100;
+        pct_nonmiss = .;
+        sort_order = 2;
+        output;
+
+        /* MEAN row (sort_order=3) */
+        stat       = 'MEAN';
+        n          = .;
+        value      = &_p6_cn_vname._Mean;
+        pct_total  = .;
+        pct_nonmiss = .;
+        sort_order = 3;
+        output;
+
+        /* SD row (sort_order=4) */
+        stat       = 'SD';
+        n          = .;
+        value      = &_p6_cn_vname._StdDev;
+        pct_total  = .;
+        pct_nonmiss = .;
+        sort_order = 4;
+        output;
+
+        /* MEDIAN row (sort_order=5) */
+        stat       = 'MEDIAN';
+        n          = .;
+        value      = &_p6_cn_vname._Median;
+        pct_total  = .;
+        pct_nonmiss = .;
+        sort_order = 5;
+        output;
+
+        /* Q1 row (sort_order=6) */
+        stat       = 'Q1';
+        n          = .;
+        value      = &_p6_cn_vname._Q1;
+        pct_total  = .;
+        pct_nonmiss = .;
+        sort_order = 6;
+        output;
+
+        /* Q3 row (sort_order=7) */
+        stat       = 'Q3';
+        n          = .;
+        value      = &_p6_cn_vname._Q3;
+        pct_total  = .;
+        pct_nonmiss = .;
+        sort_order = 7;
+        output;
+
+        /* MIN row (sort_order=8) */
+        stat       = 'MIN';
+        n          = .;
+        value      = &_p6_cn_vname._Min;
+        pct_total  = .;
+        pct_nonmiss = .;
+        sort_order = 8;
+        output;
+
+        /* MAX row (sort_order=9) */
+        stat       = 'MAX';
+        n          = .;
+        value      = &_p6_cn_vname._Max;
+        pct_total  = .;
+        pct_nonmiss = .;
+        sort_order = 9;
+        output;
+
+        keep family variable var_class stat level n value pct_total pct_nonmiss
+             sort_order small_cell_flag date_kind display_format;
+      run;
+      %if &p6_fail = 1 %then %return;
+      %_p6_ok(section=p6_stats_contnum reshape &_p6_cn_vname);
+      %if &p6_fail = 1 %then %return;
+
+      proc append base=work._p6_rows data=work._p6_cn_piece;
+      run;
+      %if &p6_fail = 1 %then %return;
+      %_p6_ok(section=p6_stats_contnum append &_p6_cn_vname);
+      %if &p6_fail = 1 %then %return;
+
+    %end;
+    %let _p6_cni = %eval(&_p6_cni + 1);
+  %end;
+
+  %cn_done:
+  %put NOTE: [06_profile] p6_stats_contnum complete;
+
+%mend p6_stats_contnum;
+
+/* ============================================================
+   %p6_freq_highcard
+   Compute HIGH_CARD distributions.
+   - Batched PROC FREQ OUT= with MISSING option per variable.
+   - Ranks non-missing levels by COUNT desc, level asc.
+   - Emits N_DISTINCT (sort_order=0), top-10 LEVEL (1..10),
+     OTHER (11), MISSING (99) per D-03.
+   - D-07 HIGH_CARD: not possible (HIGH_CARD requires n_distinct>=21),
+     but code still guards via the n_distinct>0 check in _p6_vars.
+   - Appends normalised rows into work._p6_rows (no FORCE).
+   ============================================================ */
+%macro p6_freq_highcard(lib=, ds=);
+  %_p6_ok(section=p6_freq_highcard entry);
+  %if &p6_fail = 1 %then %return;
+
+  %local _p6_hc_n;
+  proc sql noprint;
+    select count(*) into :_p6_hc_n trimmed
+    from work._p6_vars
+    where var_class = 'HIGH_CARD';
+  quit;
+  %if &p6_fail = 1 %then %return;
+
+  %if &_p6_hc_n = 0 %then %do;
+    %put NOTE: [06_profile] p6_freq_highcard: no HIGH_CARD variables -- skipping;
+    %return;
+  %end;
+
+  %put NOTE: [06_profile] p6_freq_highcard: processing &_p6_hc_n HIGH_CARD variable(s);
+
+  /* Load HIGH_CARD variable names into macro arrays */
+  data _null_;
+    set work._p6_vars (where=(var_class='HIGH_CARD'));
+    call symputx(cats('_p6_hcv_', strip(put(_n_, best32.))), strip(name), 'L');
+    call symputx(cats('_p6_hcd_', strip(put(_n_, best32.))), strip(put(n_distinct, best32.)), 'L');
+    call symputx(cats('_p6_hct_', strip(put(_n_, best32.))), strip(type), 'L');
+    call symputx(cats('_p6_hck_', strip(put(_n_, best32.))), strip(date_kind), 'L');
+    call symputx(cats('_p6_hcf_', strip(put(_n_, best32.))), strip(display_format), 'L');
+    call symputx('_p6_hc_total', strip(put(_n_, best32.)), 'L');
+  run;
+  %if &p6_fail = 1 %then %return;
+  %_p6_ok(section=p6_freq_highcard varname load);
+  %if &p6_fail = 1 %then %return;
+
+  /* Write generated include file -- FILE (not MOD) */
+  %local _p6_hc_gen;
+  %let _p6_hc_gen = &logs_path.\06_generated_highcard_&family..sas;
+
+  data _null_;
+    file "&_p6_hc_gen" lrecl=32767;
+    put "/* Generated by %p6_freq_highcard -- do not edit */";
+    put "/* Family: &family  Dataset: &lib..&ds */";
+  run;
+  %if &p6_fail = 1 %then %return;
+  %_p6_ok(section=p6_freq_highcard gen header);
+  %if &p6_fail = 1 %then %return;
+
+  /* Batch PROC FREQ (100 TABLES per PROC) */
+  %local _p6_hc_batch_size _p6_hc_bi_in_batch _p6_hc_batch_open _p6_hci;
+  %let _p6_hc_batch_size   = 100;
+  %let _p6_hc_bi_in_batch  = 0;
+  %let _p6_hc_batch_open   = 0;
+  %let _p6_hci = 1;
+  %do %while (&_p6_hci <= &_p6_hc_total);
+    %let _p6_hc_bi_in_batch = %eval(&_p6_hc_bi_in_batch + 1);
+
+    %if &_p6_hc_batch_open = 0 %then %do;
+      %let _p6_hc_batch_open = 1;
+      data _null_;
+        file "&_p6_hc_gen" lrecl=32767 mod;
+        put "proc freq data=&lib..&ds noprint;";
+      run;
+      %if &p6_fail = 1 %then %return;
+    %end;
+
+    data _null_;
+      file "&_p6_hc_gen" lrecl=32767 mod;
+      put "  tables &&_p6_hcv_&_p6_hci / out=work._p6_hc_f&_p6_hci(keep=&&_p6_hcv_&_p6_hci COUNT) missing noprint;";
+    run;
+    %if &p6_fail = 1 %then %return;
+
+    %if &_p6_hc_bi_in_batch >= &_p6_hc_batch_size %then %do;
+      data _null_;
+        file "&_p6_hc_gen" lrecl=32767 mod;
+        put "run;";
+      run;
+      %if &p6_fail = 1 %then %return;
+      %let _p6_hc_batch_open  = 0;
+      %let _p6_hc_bi_in_batch = 0;
+    %end;
+
+    %let _p6_hci = %eval(&_p6_hci + 1);
+  %end;
+
+  %if &_p6_hc_batch_open = 1 %then %do;
+    data _null_;
+      file "&_p6_hc_gen" lrecl=32767 mod;
+      put "run;";
+    run;
+    %if &p6_fail = 1 %then %return;
+    %let _p6_hc_batch_open = 0;
+  %end;
+
+  %include "&_p6_hc_gen";
+  %if &p6_fail = 1 %then %return;
+  %_p6_ok(section=p6_freq_highcard gen include);
+  %if &p6_fail = 1 %then %return;
+
+  /* ---- Reshape each variable's PROC FREQ output into schema rows ---- */
+  %let _p6_hci = 1;
+  %do %while (&_p6_hci <= &_p6_hc_total);
+    %local _p6_hc_vname _p6_hc_nmiss _p6_hc_nndist;
+    %let _p6_hc_vname = &&_p6_hcv_&_p6_hci;
+
+    /* Compute n_missing from PROC FREQ output */
+    proc sql noprint;
+      select sum(COUNT) into :_p6_hc_nmiss trimmed
+      from work._p6_hc_f&_p6_hci
+      where &_p6_hc_vname is missing;
+    quit;
+    %if &p6_fail = 1 %then %return;
+    %if %bquote(&_p6_hc_nmiss) = %bquote() %then %let _p6_hc_nmiss = 0;
+
+    /* n_distinct from classifier (used on N_DISTINCT row) */
+    %let _p6_hc_nndist = &&_p6_hcd_&_p6_hci;
+
+    /* Sort non-missing rows: COUNT desc, level asc (D-03 deterministic tie-break) */
+    proc sort data=work._p6_hc_f&_p6_hci (where=(&_p6_hc_vname is not missing))
+              out =work._p6_hc_sorted;
+      by descending COUNT &_p6_hc_vname;
+    run;
+    %if &p6_fail = 1 %then %return;
+    %_p6_ok(section=p6_freq_highcard sort &_p6_hc_vname);
+    %if &p6_fail = 1 %then %return;
+
+    /* Compute n_other = sum of non-missing levels ranked > 10 */
+    %local _p6_hc_nother;
+    proc sql noprint;
+      select sum(COUNT) into :_p6_hc_nother trimmed
+      from (select COUNT, monotonic() as rn
+            from work._p6_hc_sorted)
+      where rn > 10;
+    quit;
+    %if &p6_fail = 1 %then %return;
+    %if %bquote(&_p6_hc_nother) = %bquote() %then %let _p6_hc_nother = 0;
+
+    /* Build all rows for this variable */
+    data work._p6_hc_piece;
+      %_p6_attrib;
+      set work._p6_hc_sorted end=_eof;
+
+      /* Keep only top-10 non-missing levels */
+      if _n_ > 10 then stop;
+
+      family         = upcase("&family");
+      variable       = "&_p6_hc_vname";
+      var_class      = 'HIGH_CARD';
+      stat           = 'LEVEL';
+      %if &&_p6_hct_&_p6_hci = char %then %do;
+        level = strip(vvalue(&_p6_hc_vname));
+      %end;
+      %else %do;
+        level = strip(put(&_p6_hc_vname, best32.));
+      %end;
+      n              = COUNT;
+      value          = .;
+      pct_total      = n / &_p6_total * 100;
+      pct_nonmiss    = n / &_p6_hc_nndist * 100;
+      sort_order     = _n_;
+      if n >= 1 and n <= 10
+        then small_cell_flag = 'Y';
+        else small_cell_flag = 'N';
+      date_kind      = '';
+      display_format = '';
+      drop COUNT &_p6_hc_vname;
+      output;
+    run;
+    %if &p6_fail = 1 %then %return;
+    %_p6_ok(section=p6_freq_highcard level rows &_p6_hc_vname);
+    %if &p6_fail = 1 %then %return;
+
+    /* N_DISTINCT row (sort_order=0) */
+    data work._p6_hc_ndist;
+      %_p6_attrib;
+      family         = upcase("&family");
+      variable       = "&_p6_hc_vname";
+      var_class      = 'HIGH_CARD';
+      stat           = 'N_DISTINCT';
+      level          = '';
+      n              = &_p6_hc_nndist;
+      value          = .;
+      pct_total      = .;
+      pct_nonmiss    = .;
+      sort_order     = 0;
+      small_cell_flag = '';
+      date_kind      = '';
+      display_format = '';
+      output;
+      stop;
+    run;
+    %if &p6_fail = 1 %then %return;
+    %_p6_ok(section=p6_freq_highcard ndist row &_p6_hc_vname);
+    %if &p6_fail = 1 %then %return;
+
+    /* OTHER row (sort_order=11) */
+    data work._p6_hc_other;
+      %_p6_attrib;
+      family         = upcase("&family");
+      variable       = "&_p6_hc_vname";
+      var_class      = 'HIGH_CARD';
+      stat           = 'OTHER';
+      level          = '';
+      n              = &_p6_hc_nother;
+      value          = .;
+      pct_total      = n / &_p6_total * 100;
+      pct_nonmiss    = n / &_p6_hc_nndist * 100;
+      sort_order     = 11;
+      if n >= 1 and n <= 10
+        then small_cell_flag = 'Y';
+        else small_cell_flag = 'N';
+      date_kind      = '';
+      display_format = '';
+      output;
+      stop;
+    run;
+    %if &p6_fail = 1 %then %return;
+    %_p6_ok(section=p6_freq_highcard other row &_p6_hc_vname);
+    %if &p6_fail = 1 %then %return;
+
+    /* MISSING row (sort_order=99) */
+    data work._p6_hc_miss;
+      %_p6_attrib;
+      family         = upcase("&family");
+      variable       = "&_p6_hc_vname";
+      var_class      = 'HIGH_CARD';
+      stat           = 'MISSING';
+      level          = '';
+      n              = &_p6_hc_nmiss;
+      value          = .;
+      pct_total      = n / &_p6_total * 100;
+      pct_nonmiss    = .;
+      sort_order     = 99;
+      if n >= 1 and n <= 10
+        then small_cell_flag = 'Y';
+        else small_cell_flag = 'N';
+      date_kind      = '';
+      display_format = '';
+      output;
+      stop;
+    run;
+    %if &p6_fail = 1 %then %return;
+    %_p6_ok(section=p6_freq_highcard missing row &_p6_hc_vname);
+    %if &p6_fail = 1 %then %return;
+
+    /* Append all four pieces (order doesn't matter; final sort in %p6_write_output) */
+    proc append base=work._p6_rows data=work._p6_hc_ndist;
+    run;
+    %if &p6_fail = 1 %then %return;
+    %_p6_ok(section=p6_freq_highcard append ndist &_p6_hc_vname);
+    %if &p6_fail = 1 %then %return;
+
+    proc append base=work._p6_rows data=work._p6_hc_piece;
+    run;
+    %if &p6_fail = 1 %then %return;
+    %_p6_ok(section=p6_freq_highcard append levels &_p6_hc_vname);
+    %if &p6_fail = 1 %then %return;
+
+    proc append base=work._p6_rows data=work._p6_hc_other;
+    run;
+    %if &p6_fail = 1 %then %return;
+    %_p6_ok(section=p6_freq_highcard append other &_p6_hc_vname);
+    %if &p6_fail = 1 %then %return;
+
+    proc append base=work._p6_rows data=work._p6_hc_miss;
+    run;
+    %if &p6_fail = 1 %then %return;
+    %_p6_ok(section=p6_freq_highcard append miss &_p6_hc_vname);
+    %if &p6_fail = 1 %then %return;
+
+    %let _p6_hci = %eval(&_p6_hci + 1);
+  %end;
+
+  %put NOTE: [06_profile] p6_freq_highcard complete;
+
+%mend p6_freq_highcard;
