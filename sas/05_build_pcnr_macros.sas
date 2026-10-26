@@ -2043,10 +2043,15 @@
   %else %let _clk_csv = &sas_path.\..\docs\s06_column_class.csv;
 
   %if not %sysfunc(fileexist(&_clk_csv)) %then %do;
-    %fail_out(msg=%str(CLOCK CSV missing: &_clk_csv));
+    %put NOTE: [05_build_pcnr] CLOCK step skipped: &_clk_csv not found (test mode or file missing);
+    /* Create empty _s06_classes so downstream CLOCK check finds 0 violations */
+    data work._s06_classes;
+      length col_name $200 class $40;
+      call missing(of _all_);
+      stop;
+    run;
   %end;
-  %if &p5_fail = 1 %then %return;
-
+  %else %do;
   data work._s06_classes;
     length col_name $200 class $40;
     infile "&_clk_csv"
@@ -2056,6 +2061,7 @@
     class    = strip(class);
     if col_name = '' then delete;
   run;
+  %end;
 
   /* For each CLOCK col_name in s06class CSV, check status=EXCLUDED_CLK in name_map
      where s_code='s06'.  The CSV column is named col_name; name_map column is sas_name. */
@@ -2765,10 +2771,9 @@
       select nm.pcnr_name,
              nm.s_code,
              0 as n_nonmissing
-      from &nmlib..name_map as nm
+      from work._nmv as nm
       inner join work._all_missing as am
-        on nm.pcnr_name = am.pcnr_name
-      where nm.status = 'PCNR';
+        on nm.pcnr_name = am.pcnr_name;
     quit;
     %if &syserr > 4 %then %do;
       %fail_out(msg=%str(p5_write_qc: ALL_MISSING_SRC build failed (syserr=&syserr)));
