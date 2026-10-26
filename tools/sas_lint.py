@@ -1069,6 +1069,42 @@ def check_per_col_pcnr_scan(path, lines):
     return hits
 
 
+# ── C26: literal 'pdd.' libref inside a macro body ───────────────────────────
+#
+# 05_build_pcnr_macros.sas is a parametric macro library (outlib=, srclib=, etc.).
+# Hard-coding 'pdd.' breaks test-mode invocations that pass outlib=work.
+# Use &outlib.. / &srclib.. / &nmlib.. / &nmvlib.. instead.
+
+_LITERAL_PDD = re.compile(r'\bpdd\.(?!pcnr_qc_workbook|pcnr_value_equiv)', re.IGNORECASE)
+
+
+def check_literal_pdd_in_macro(path, lines):
+    """Flag literal 'pdd.' libref inside a %macro...%mend block (C26).
+    Only enforced for 05_build_pcnr_macros.sas."""
+    import os as _os
+    if 'build_pcnr_macros' not in _os.path.basename(path):
+        return []
+    hits = []
+    depth = 0
+    for i, raw in enumerate(lines, 1):
+        depth += len(re.findall(r'%macro\b', raw, CI))
+        if depth > 0:
+            stripped = raw.strip()
+            # Skip full-line comments
+            if not stripped.startswith('*'):
+                # Find position of pdd. in lowercased line to check comment context
+                idx = raw.lower().find('pdd.')
+                if idx >= 0:
+                    # Skip if pdd. is preceded by /* on the same line
+                    before = raw[:idx]
+                    if '/*' not in before and re.search(_LITERAL_PDD, raw):
+                        hits.append((path, i, 'C26',
+                            "literal 'pdd.' libref inside macro body -- "
+                            "use &outlib.. or &srclib.. parameter instead"))
+        depth = max(0, depth - len(re.findall(r'%mend\b', raw, CI)))
+    return hits
+
+
 # ── runner ────────────────────────────────────────────────────────────────────
 
 CHECKS = [
@@ -1104,6 +1140,7 @@ CHECKS = [
     check_self_ref_param_default,
     check_call_execute_bare_sql,
     check_per_col_pcnr_scan,
+    check_literal_pdd_in_macro,
 ]
 
 

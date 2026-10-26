@@ -2684,10 +2684,14 @@
 
   /* Step 3b. ALL_MISSING: identify PCNR_ variables that are entirely missing
      across all spine rows and export to pcnr_all_missing.csv / pcnr_all_missing_src.csv.
-     Skip export (with NOTE) when 0 all-missing variables exist. */
+     Skip export (with NOTE) when 0 all-missing variables exist.
+     Guard: skip entirely when &outlib..pcnr does not exist (test mode). */
+
+  %local _pcnr_exists _spine_rows;
+  %let _pcnr_exists = %sysfunc(exist(&outlib..pcnr));
+  %if &_pcnr_exists %then %do;
 
   /* 3b-i. Get total spine row count */
-  %local _spine_rows;
   proc sql noprint;
     select count(*) into :_spine_rows trimmed
     from &outlib..pcnr;
@@ -2787,6 +2791,11 @@
   %end;
   %else %do;
     %put NOTE: [05_build_pcnr] ALL_MISSING: 0 all-missing variables -- export skipped;
+  %end;
+
+  %end; /* _pcnr_exists */
+  %else %do;
+    %put NOTE: [05_build_pcnr] ALL_MISSING skipped: &outlib..pcnr not found (test mode);
   %end;
 
   /* Step 4. Conflict summary (item 15) + conflict_class summary (Item 1). */

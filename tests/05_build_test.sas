@@ -1412,10 +1412,10 @@ run;
 
 %macro _tc22_run;
   %_tc_start(n=22, desc=spine-typeconflict-num-resolved-C);
-  %p5_build_accumulator(srclib=work, nmlib=work, outlib=work,
-                        spine_n=2, nvars=1,
+  %p5_build_accumulator(srclib=work, nmlib=work,
+                        spine_n=2,
                         gen_dir=%sysfunc(getoption(work)),
-                        exp_dir=%sysfunc(getoption(work)));
+                        export_dir=%sysfunc(getoption(work)));
   %_assert_pass(label=no-macro-fail);
   %if &p5_fail = 0 %then %do;
     %local _yr3_p001 _yr3_p002;
@@ -1551,8 +1551,10 @@ run;
   /* p5_fail may be 1 due to CLOCK CSV missing -- acceptable.
      It must NOT be 1 due to BEST/STRIP type error. */
   %if &p5_fail = 1 %then %do;
-    %_assert(cond=(index("&p5_fail_msg", 'BEST requires') = 0 and
-                   index("&p5_fail_msg", 'STRIP requires') = 0),
+    %local _tc24_best _tc24_strip;
+    %let _tc24_best  = %sysfunc(index(&p5_fail_msg, BEST requires));
+    %let _tc24_strip = %sysfunc(index(&p5_fail_msg, STRIP requires));
+    %_assert(cond=(&_tc24_best = 0 and &_tc24_strip = 0),
              label=no-type-error-in-recon);
   %end;
   %else %do;
@@ -1590,8 +1592,9 @@ run;
   /* Recon fires before CLOCK; p5_fail must be 1 and message must say mismatch */
   %_assert_fail(label=p5-fail-on-mismatch);
   %if &p5_fail = 1 %then %do;
-    %_assert(cond=(index("&p5_fail_msg", 'mismatch') > 0),
-             label=fail-msg-says-mismatch);
+    %local _tc25_idx;
+    %let _tc25_idx = %sysfunc(index(&p5_fail_msg, mismatch));
+    %_assert(cond=(&_tc25_idx > 0), label=fail-msg-says-mismatch);
   %end;
 %mend _tc25_run;
 %_tc25_run;
@@ -1671,8 +1674,9 @@ run;
 
   /* Also verify that the message references the failure */
   %if &p5_fail = 1 %then %do;
-    %_assert(cond=(index("&p5_fail_msg", '0 contract rows') > 0),
-             label=fail-msg-mentions-0-rows);
+    %local _tc27_idx;
+    %let _tc27_idx = %sysfunc(index(&p5_fail_msg, 0 contract rows));
+    %_assert(cond=(&_tc27_idx > 0), label=fail-msg-mentions-0-rows);
   %end;
 %mend _tc27_run;
 %_tc27_run;

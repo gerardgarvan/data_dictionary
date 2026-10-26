@@ -420,3 +420,26 @@ def test_c24_clean_on_phase5_macros():
     lines = sas_path.read_text(encoding="utf-8", errors="replace").split("\n")
     hits = sas_lint.check_call_execute_bare_sql(str(sas_path), lines)
     assert hits == [], "C24 in macros file:\n" + "\n".join(str(h) for h in hits)
+
+
+# ---------------------------------------------------------------------------
+# C26: literal 'pdd.' libref inside a macro body
+# ---------------------------------------------------------------------------
+
+def test_c26_fires_on_literal_pdd():
+    lines = ["%macro foo;", "  set pdd.pcnr;", "%mend foo;"]
+    hits = sas_lint.check_literal_pdd_in_macro("05_build_pcnr_macros.sas", lines)
+    assert any("C26" in h[2] for h in hits), f"C26 did not fire: {hits}"
+
+
+def test_c26_no_fire_outside_macro():
+    lines = ["/* open code */", "libname pdd 'P:\\path';", "data work.x; set pdd.pcnr; run;"]
+    hits = sas_lint.check_literal_pdd_in_macro("05_build_pcnr_macros.sas", lines)
+    assert hits == [], f"C26 false-positive outside macro: {hits}"
+
+
+def test_c26_clean_on_phase5_macros():
+    sas_path = ROOT / "sas" / "05_build_pcnr_macros.sas"
+    lines = sas_path.read_text(encoding="utf-8", errors="replace").split("\n")
+    hits = sas_lint.check_literal_pdd_in_macro(str(sas_path), lines)
+    assert hits == [], "C26 in macros file:\n" + "\n".join(str(h) for h in hits)
