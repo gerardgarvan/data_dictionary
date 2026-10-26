@@ -1078,6 +1078,19 @@ def check_per_col_pcnr_scan(path, lines):
 _LITERAL_PDD = re.compile(r'\bpdd\.(?!pcnr_qc_workbook|pcnr_value_equiv)', re.IGNORECASE)
 
 
+def check_sysfunc_missing(path, lines):
+    """W8: %sysfunc(missing(...)) — MISSING is not a %sysfunc-callable function.
+    Use PROC SQL (value = .) into :mv or a DATA step 0/1 flag instead."""
+    _pat = re.compile(r'%sysfunc\s*\(\s*missing\s*\(', re.IGNORECASE)
+    hits = []
+    for i, line in enumerate(lines, 1):
+        if _pat.search(line):
+            hits.append((path, i, 'W8',
+                '%sysfunc(missing(...)) — MISSING cannot be called via %sysfunc; '
+                'use PROC SQL (val = .) into :mv or a DATA step 0/1 flag'))
+    return hits
+
+
 def check_literal_pdd_in_macro(path, lines):
     """Flag literal 'pdd.' libref inside a %macro...%mend block (C26).
     Only enforced for 05_build_pcnr_macros.sas."""
@@ -1140,6 +1153,7 @@ CHECKS = [
     check_self_ref_param_default,
     check_call_execute_bare_sql,
     check_per_col_pcnr_scan,
+    check_sysfunc_missing,
     check_literal_pdd_in_macro,
 ]
 

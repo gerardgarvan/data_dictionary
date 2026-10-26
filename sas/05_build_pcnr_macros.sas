@@ -2764,17 +2764,33 @@
     %put NOTE: [05_build_pcnr] pcnr_all_missing.csv written (&_n_all_missing variables);
 
     /* 3b-vi. Build per-source non-missing counts for all-missing PCNR_ vars.
-       For each pcnr_name in _all_missing, get contributing s_codes from _nmv.
-       All counts will be 0 for truly all-missing vars; record for completeness. */
-    proc sql noprint;
-      create table work._all_missing_src as
-      select nm.pcnr_name,
-             nm.s_code,
-             0 as n_nonmissing
-      from work._nmv as nm
-      inner join work._all_missing as am
-        on nm.pcnr_name = am.pcnr_name;
-    quit;
+       For each pcnr_name in _all_missing, expand s_codes_contributing (space-separated
+       string from _nmv) into one row per s_code.  _nmv has no s_code column -- use a
+       DATA step scan loop so this works in both live and test-fixture modes. */
+    /* Expand s_codes_contributing (space-separated) into one row per s_code.
+       Hash lookup on _all_missing filters to only all-missing pcnr_names. */
+    data work._all_missing_src;
+      length pcnr_name $200 s_code $4;
+      n_nonmissing = 0;
+      if _n_ = 1 then do;
+        declare hash _ham(dataset:'work._all_missing');
+        _ham.definekey('pcnr_name');
+        _ham.definedone();
+      end;
+      set work._nmv;
+      if _ham.check() = 0 then do;
+        /* this pcnr_name is all-missing; expand each contributing s_code */
+        _i = 1;
+        _tok = scan(s_codes_contributing, _i, ' ');
+        do while(_tok ne '');
+          s_code = _tok;
+          output;
+          _i + 1;
+          _tok = scan(s_codes_contributing, _i, ' ');
+        end;
+      end;
+      keep pcnr_name s_code n_nonmissing;
+    run;
     %if &syserr > 4 %then %do;
       %fail_out(msg=%str(p5_write_qc: ALL_MISSING_SRC build failed (syserr=&syserr)));
       %return;

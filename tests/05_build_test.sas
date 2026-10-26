@@ -1503,9 +1503,14 @@ run;
     %_assert(cond=(%bquote(&_f1_p001)=%bquote(s09)), label=P001-F-still-s09);
     /* P002: NULL from s19 must not fill (treated as missing).
        PCNR_SCORE is numeric (length=8); missing numeric resolves to '.' in macro var.
-       %bquote comparison doesn't work for numeric missing — use %sysfunc(missing()). */
+       %sysfunc(missing()) is invalid -- MISSING is not a %sysfunc-callable function.
+       Use PROC SQL to compute a 0/1 flag instead. */
     %local _p002_miss;
-    %let _p002_miss = %sysfunc(missing(&_sc_p002));
+    proc sql noprint;
+      select (PCNR_SCORE = .) into :_p002_miss trimmed
+      from work._pcnr_accum
+      where norm_psid = 'P002';
+    quit;
     %_assert(cond=(&_p002_miss = 1), label=P002-no-fill-from-NULL);
     %_assert(cond=(%bquote(&_f1_p002)=%bquote()), label=P002-F-blank);
     %_assert(cond=(&_n_conflicts=0), label=no-conflicts);
