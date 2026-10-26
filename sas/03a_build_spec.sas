@@ -617,7 +617,7 @@ quit;
       order by a.file_code, a.sas_name;
     quit;
 
-    %put WARNING: [03a_build_spec] &_n_dup upcase-dup groups remain after suffix assignment -- resolving;
+    %put NOTE: [03a_build_spec] &_n_dup upcase-dup groups remain after suffix assignment -- resolving (expected for headers that differ only in case);
 
     /* Write to a NEW dataset (never data X; set X;) */
     data work.spec_named_fixed;
@@ -1333,16 +1333,21 @@ data work.spec_final;
     else notes = 'forced to char -- no numeric informat parsed 100%';
   end;
 
-  /* src_encoding joined from file_list (D-23: wlatin1 for 7 files, utf-8 for rest) */
-  length src_encoding $10;
+  /* D-23: src_encoding is NOT declared here; it is joined from work.file_list below.
+     Declaring it here would create a duplicate column in the join and silently keep
+     the blank default instead of the wlatin1 value (WARNING: variable already exists). */
   keep file_code col_order src_name orig_col_name sas_name sas_type length
-       informat format notes xlsx_max_len src_encoding;
+       informat format notes xlsx_max_len;
 run;
 
-/* Join src_encoding from work.file_list into work.spec_final */
+/* Join src_encoding from work.file_list into work.spec_final.
+   D-23: wlatin1 for s03/s07/s09/s10/s12/s15/s17; utf-8 for all others.
+   Explicit column list avoids the "variable already exists" duplicate warning. */
 proc sql noprint;
   create table work.spec_final_enc as
-  select s.*, f.src_encoding
+  select s.file_code, s.col_order, s.src_name, s.orig_col_name, s.sas_name,
+         s.sas_type, s.length, s.informat, s.format, s.notes, s.xlsx_max_len,
+         f.src_encoding
   from work.spec_final s
   left join work.file_list f on s.file_code = f.s_code;
 quit;
@@ -1485,15 +1490,24 @@ quit;
 %mend _assert_spec_final;
 
 
-/* --- 5f.3. 10-row sample of XLSX char columns --- */
+/* --- 5f.3. 10-row sample of XLSX char columns.
+   Use a DATA step counter to avoid the "Statement terminated early due to OUTOBS="
+   note that PROC SQL outobs= produces. --- */
 %put NOTE: [03a_build_spec] 10-row sample XLSX char cols (file_code sas_name xlsx_max_len length informat):;
-proc sql outobs=10;
+proc sql noprint;
+  create table work._xlsx_c_sample as
   select s.file_code, s.sas_name, s.xlsx_max_len, s.length, s.informat
   from work.spec_final s
   inner join work.file_list f on s.file_code = f.s_code
   where f.ftype = 'xlsx' and s.sas_type = 'C'
   order by s.file_code, s.col_order;
 quit;
+data _null_;
+  set work._xlsx_c_sample;
+  if _n_ > 10 then stop;
+  put file_code= sas_name= xlsx_max_len= length= informat=;
+run;
+proc datasets lib=work nolist nowarn; delete _xlsx_c_sample; quit;
 
 
 /* --- 5g. Persist pdd.import_spec (includes src_encoding column, D-23) --- */
@@ -1532,6 +1546,42 @@ run;
   %put NOTE: [03a_build_spec] pdd.import_spec: &_nfc distinct file_codes &_nspec total rows -- OK;
 %mend _assert_spec_complete;
 %_assert_spec_complete;
+
+
+/* --- D-23 encoding assert: exactly 7 distinct file_codes with src_encoding='wlatin1'
+   (s03 s07 s09 s10 s12 s15 s17); all others 'utf-8'; no blanks. --- */
+%macro _assert_src_encoding;
+  %local _n_wlatin _n_blank _n_bad _wlatin_codes;
+  %let _n_wlatin = -1;
+  %let _n_blank  = -1;
+  %let _n_bad    = -1;
+  proc sql noprint;
+    /* Count distinct file_codes with wlatin1 */
+    select count(distinct file_code) into :_n_wlatin trimmed
+    from pdd.import_spec
+    where strip(src_encoding) = 'wlatin1';
+    /* Count rows with blank src_encoding */
+    select count(*) into :_n_blank trimmed
+    from pdd.import_spec
+    where missing(src_encoding) or strip(src_encoding) = '';
+    /* Count rows with unexpected encoding value (not utf-8 or wlatin1) */
+    select count(*) into :_n_bad trimmed
+    from pdd.import_spec
+    where strip(src_encoding) not in ('utf-8', 'wlatin1');
+    /* List the wlatin1 file_codes for confirmation */
+    select distinct file_code into :_wlatin_codes separated by ' '
+    from pdd.import_spec
+    where strip(src_encoding) = 'wlatin1';
+  quit;
+  %if &_n_blank > 0 %then
+    %fail_out(msg=%str(D-23 assert: &_n_blank pdd.import_spec rows have blank src_encoding));
+  %if &_n_bad > 0 %then
+    %fail_out(msg=%str(D-23 assert: &_n_bad pdd.import_spec rows have unexpected src_encoding (not utf-8 or wlatin1)));
+  %if &_n_wlatin ne 7 %then
+    %fail_out(msg=%str(D-23 assert: expected exactly 7 wlatin1 file_codes but found &_n_wlatin (&_wlatin_codes)));
+  %put NOTE: [03a_build_spec] D-23 encoding assert passed: 7 wlatin1 file_codes (&_wlatin_codes) all others utf-8 no blanks;
+%mend _assert_src_encoding;
+%_assert_src_encoding;
 
 
 /* ============================================================

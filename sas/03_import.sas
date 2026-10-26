@@ -339,8 +339,8 @@ data work.spec_gen;
   format        = strip(format);
   notes         = strip(notes);
   src_encoding  = strip(src_encoding);
-  /* Default to utf-8 if blank (backward compat with older spec files) */
-  if strip(src_encoding) = '' then src_encoding = 'utf-8';
+  /* D-23: no silent fallback -- blank src_encoding means spec was not regenerated.
+     Guard below fires %fail_out if any blank is found. */
   /* Rename length_ -> length after read (length is a reserved word in step
      context but fine as a variable name after assignment) */
   rename length_ = spec_length;
@@ -348,6 +348,34 @@ run;
 options errors=20;
 
 %put NOTE: [03_import] work.spec_gen loaded;
+
+/* D-23 guard: src_encoding must be non-blank and in ('utf-8','wlatin1') for every row.
+   A blank means 03a_build_spec.sas was not re-run after the D-23 fix. */
+%macro _assert_spec_encoding;
+  %local _n_blank_enc _n_bad_enc _n_wlatin_enc;
+  %let _n_blank_enc  = -1;
+  %let _n_bad_enc    = -1;
+  %let _n_wlatin_enc = -1;
+  proc sql noprint;
+    select count(*) into :_n_blank_enc trimmed
+    from work.spec_gen
+    where missing(src_encoding) or strip(src_encoding) = '';
+    select count(*) into :_n_bad_enc trimmed
+    from work.spec_gen
+    where strip(src_encoding) not in ('utf-8', 'wlatin1');
+    select count(distinct file_code) into :_n_wlatin_enc trimmed
+    from work.spec_gen
+    where strip(src_encoding) = 'wlatin1';
+  quit;
+  %if &_n_blank_enc > 0 %then
+    %fail_out(msg=%str(D-23: &_n_blank_enc rows in work.spec_gen have blank src_encoding -- rerun 03a_build_spec.sas));
+  %if &_n_bad_enc > 0 %then
+    %fail_out(msg=%str(D-23: &_n_bad_enc rows in work.spec_gen have invalid src_encoding (not utf-8 or wlatin1)));
+  %if &_n_wlatin_enc ne 7 %then
+    %fail_out(msg=%str(D-23: expected 7 wlatin1 file_codes in work.spec_gen but found &_n_wlatin_enc -- rerun 03a_build_spec.sas));
+  %put NOTE: [03_import] D-23 encoding guard passed: 7 wlatin1 file_codes confirmed;
+%mend _assert_spec_encoding;
+%_assert_spec_encoding;
 
 /* If import_spec_overrides.csv exists, read and merge (override wins) */
 %macro _apply_overrides;
@@ -375,7 +403,7 @@ options errors=20;
       format        = strip(format);
       notes         = strip(notes);
       src_encoding  = strip(src_encoding);
-      if strip(src_encoding) = '' then src_encoding = 'utf-8';
+      /* D-23: no silent fallback -- any blank will be caught by _assert_spec_encoding */
       rename length_ = spec_length;
     run;
     options errors=20;
@@ -491,9 +519,9 @@ data _null_;
     if strip(file_code) = 's18' then _target = 'work.src_s18_raw';
     else _target = cats('pdd.src_', strip(file_code));
     _fpath = strip(full_path);
-    /* D-23: use per-file encoding from spec (wlatin1 for 7 files, utf-8 for rest) */
+    /* D-23: use per-file encoding from spec (wlatin1 for 7 files, utf-8 for rest).
+       No fallback: blank src_encoding means _assert_spec_encoding did not fire (impossible). */
     _enc = strip(src_encoding);
-    if _enc = '' then _enc = 'utf-8';
   end;
 
   _nc + 1;
