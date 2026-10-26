@@ -356,8 +356,10 @@
     %let _p6_batch_b = %eval(&_p6_batch_b + &_p6_batch_size);
   %end;
 
-  /* Include the generated file */
+  /* Include the generated file -- suppress listing output while keeping ODS datasets */
+  ods listing close;
   %include "&_p6_gen_file";
+  ods listing;
   %if &p6_fail = 1 %then %return;
   %_p6_ok(section=p6_classify_vars step 3 nlevels include);
   %if &p6_fail = 1 %then %return;
@@ -476,11 +478,13 @@
     %if &p6_fail = 1 %then %return;
 
     /* Plausibility: ONE PROC MEANS min/max across all candidates */
+    ods listing close;
     ods output summary=work._p6_np_stats;
     proc means data=&lib..&ds stackodsoutput min max;
       var &_p6_np_varlist;
     run;
     ods output close;
+    ods listing;
     %if &p6_fail = 1 %then %return;
     %_p6_ok(section=p6_classify_vars step 4 name-pattern PROC MEANS);
     %if &p6_fail = 1 %then %return;
@@ -1076,11 +1080,13 @@
   %end;
 
   /* ONE PROC MEANS with stackodsoutput — avoids autoname truncation on long varnames */
+  ods listing close;
   ods output summary=work._p6_cn_stats;
   proc means data=&lib..&ds stackodsoutput n nmiss mean std median q1 q3 min max;
     var &_p6_cn_varlist;
   run;
   ods output close;
+  ods listing;
   %if &p6_fail = 1 %then %return;
   %_p6_ok(section=p6_stats_contnum proc means);
   %if &p6_fail = 1 %then %return;

@@ -17,6 +17,9 @@
 ==========================================================================*/
 
 options nosyntaxcheck nomlogic nomprint nosymbolgen;
+/* Suppress SAS listing output for the entire test run.
+   ODS OUTPUT (dataset destinations) is unaffected by listing close. */
+ods listing close;
 
 /*==========================================================================
   SECTION 0 -- Test harness macros (all defined before first call, C13)
@@ -936,19 +939,21 @@ run;
   %let _f = 0; %if %eval(&_zzout_cnt = 0) %then %let _f = 1; %_assert(flag=&_f, label=ZZ_OUT-absent-no-prefix);
   %let _f = 0; %if %eval(&_psid_cnt = 0) %then %let _f = 1;  %_assert(flag=&_f, label=NORM_PSID-absent);
 
-  /* All T_ variables (except T_LINK which is not in _t_ds) must be present.
-     Variables in _t_ds: T_BIN T_L20 T_L21 T_H21 T_HTIE T_LONG T_RSV
-                         T_DT T_DTM T_TM T_ISO T_X_DATE T_UNF T_ALLMN
-                         T_ALLMC T_ALLMD T_NA = 17 variables.
-     T_LINK not in _t_ds so excluded list from name_map does not remove any _t_ds var.
-     Expected distinct variable count = 17. */
-  %local _nvars;
+  /* All T_ variables in _t_ds must be present (ZZ_OUT excluded by prefix,
+     T_LINK excluded by name_map but not in _t_ds anyway).
+     Derive expected count from dictionary.columns rather than hardcode,
+     so adding fixture variables does not require updating this assertion. */
+  %local _nvars _expected_nvars;
   proc sql noprint;
+    select count(*) into :_expected_nvars trimmed
+    from dictionary.columns
+    where libname='WORK' and memname='_T_DS'
+      and upcase(name) like 'T_%';
     select count(distinct variable) into :_nvars trimmed
     from work.prf_test;
   quit;
-  %let _f = 0; %if %eval(&_nvars = 17) %then %let _f = 1;
-  %_assert(flag=&_f, label=var-count-17);
+  %let _f = 0; %if %eval(&_nvars = &_expected_nvars) %then %let _f = 1;
+  %_assert(flag=&_f, label=var-count-matches-fixture);
 
   /* Sub-case: require_name_map=1 with name_map deleted → expected-fail */
   proc datasets lib=work nolist; delete name_map; quit;
@@ -1124,37 +1129,42 @@ run;
   %let _f = 0; %if %eval(&_allm_cnt = 56) %then %let _f = 1;
   %_assert(flag=&_f, label=TC03-56-all-missing-vars);
 
-  /* 3. Compare PCNR_SEX level counts to PROC FREQ */
+  /* 3. Compare PCNR_SEX level counts to PROC FREQ.
+     Rule: engine level = strip(level); freq level = strip(put(var,$200.)).
+     Join key: strip(a.level) = strip(b.level) (case-sensitive, blank-stripped).
+     MISSING stat from engine matched to missing() row from PROC FREQ / MISSING. */
   proc freq data=pdd.pcnr noprint;
     table &_sexvar / missing out=work._tc03_sex_freq;
   run;
 
   proc sql noprint;
-    create table work._tc03_sex_delta as
-      select a.level, a.n as n_profile, b.count as n_freq,
-             abs(a.n - b.count) as delta
+    create table work._tc03_sex_all as
+      select coalesce(a.level, b.freq_level) as level length=200,
+             a.n                              as n_engine,
+             b.count                          as n_freq
       from (select strip(level) as level, n
             from work.prf_pcnr
             where variable=upcase("&_sexvar") and stat in ('LEVEL','MISSING')) a
-      full join (select strip(put(&_sexvar, $200.)) as level, count
+      full join (select strip(put(&_sexvar, $200.)) as freq_level, count
                  from work._tc03_sex_freq) b
-        on strip(a.level) = strip(b.level)
-      where abs(a.n - b.count) > 0 or a.n is null or b.count is null;
+        on strip(a.level) = strip(b.freq_level);
   quit;
+
+  %put NOTE: [TC-03-DIAG] SEX full outer join (engine vs PROC FREQ, all rows):;
+  %put NOTE: [TC-03-DIAG] Rule: engine=strip(level) PROC_FREQ=strip(put(var comma200.)) join=case-sensitive-stripped;
+  data _null_;
+    set work._tc03_sex_all;
+    put "TC03-DIAG " variable='SEX' level= n_engine= n_freq=;
+  run;
 
   %local _sex_delta;
   proc sql noprint;
     select count(*) into :_sex_delta trimmed
-    from work._tc03_sex_delta;
+    from work._tc03_sex_all
+    where n_engine ne n_freq or n_engine is null or n_freq is null;
   quit;
   %let _f = 0; %if %eval(&_sex_delta = 0) %then %let _f = 1;
   %_assert(flag=&_f, label=TC03-sex-levels-match-freq);
-
-  /* Diagnostic: print mismatches if sex delta > 0 */
-  %if &_sex_delta > 0 %then %do;
-    %put NOTE: [TC-03-DIAG] Sex level mismatches (&_sex_delta rows). Engine vs PROC FREQ:;
-    proc print data=work._tc03_sex_delta noobs label; run;
-  %end;
 
   /* 4. Compare PCNR_PATIENT_TYPE level counts to PROC FREQ */
   proc freq data=pdd.pcnr noprint;
@@ -1162,31 +1172,33 @@ run;
   run;
 
   proc sql noprint;
-    create table work._tc03_pt_delta as
-      select a.level, a.n as n_profile, b.count as n_freq,
-             abs(a.n - b.count) as delta
+    create table work._tc03_pt_all as
+      select coalesce(a.level, b.freq_level) as level length=200,
+             a.n                              as n_engine,
+             b.count                          as n_freq
       from (select strip(level) as level, n
             from work.prf_pcnr
             where variable=upcase("&_ptvar") and stat in ('LEVEL','MISSING')) a
-      full join (select strip(put(&_ptvar, $200.)) as level, count
+      full join (select strip(put(&_ptvar, $200.)) as freq_level, count
                  from work._tc03_pt_freq) b
-        on strip(a.level) = strip(b.level)
-      where abs(a.n - b.count) > 0 or a.n is null or b.count is null;
+        on strip(a.level) = strip(b.freq_level);
   quit;
+
+  %put NOTE: [TC-03-DIAG] PATIENT_TYPE full outer join (engine vs PROC FREQ, all rows):;
+  %put NOTE: [TC-03-DIAG] Rule: engine=strip(level) PROC_FREQ=strip(put(var comma200.)) join=case-sensitive-stripped;
+  data _null_;
+    set work._tc03_pt_all;
+    put "TC03-DIAG " variable='PATIENT_TYPE' level= n_engine= n_freq=;
+  run;
 
   %local _pt_delta;
   proc sql noprint;
     select count(*) into :_pt_delta trimmed
-    from work._tc03_pt_delta;
+    from work._tc03_pt_all
+    where n_engine ne n_freq or n_engine is null or n_freq is null;
   quit;
   %let _f = 0; %if %eval(&_pt_delta = 0) %then %let _f = 1;
   %_assert(flag=&_f, label=TC03-pt-levels-match-freq);
-
-  /* Diagnostic: print mismatches if pt delta > 0 */
-  %if &_pt_delta > 0 %then %do;
-    %put NOTE: [TC-03-DIAG] Patient_Type level mismatches (&_pt_delta rows). Engine vs PROC FREQ:;
-    proc print data=work._tc03_pt_delta noobs label; run;
-  %end;
 
   /* 5. Independent missing count for every PCNR_ variable.
      Numeric vars: PROC MEANS NMISS via ODS OUTPUT (avoids "Multiple lengths" from
