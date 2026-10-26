@@ -456,7 +456,7 @@
     select count(*) into :_p6_np_count trimmed
     from work._p6_joined
     where type = 'num'
-      and compress(format, '.0123456789') = ''
+      and prxchange('s/\d*\.\d*$//', 1, strip(format)) = ''
       and (upcase(reverse(strip(name))) like upcase(reverse('_DATE') || '%')
            or upcase(reverse(strip(name))) like upcase(reverse('_DTTM') || '%'));
   quit;
@@ -469,7 +469,7 @@
       select strip(name) into :_p6_np_varlist separated by ' '
       from work._p6_joined
       where type = 'num'
-        and compress(format, '.0123456789') = ''
+        and prxchange('s/\d*\.\d*$//', 1, strip(format)) = ''
         and (upcase(reverse(strip(name))) like upcase(reverse('_DATE') || '%')
              or upcase(reverse(strip(name))) like upcase(reverse('_DTTM') || '%'));
     quit;
@@ -527,17 +527,17 @@
 
   /* Build work._p6_vars with var_class assignment via DATA-step logic (C3: no open-code %if) */
   data work._p6_vars;
-    length name $200 type $8 format $32 var_class $12 date_kind $12 display_format $32
+    length name $200 type $8 format $49 var_class $12 date_kind $12 display_format $32
            _uname $200 _is_np 8;
 
     /* Define the exact date/datetime/time format sets (stripped of width/decimals) */
-    length _fmt_stripped $32 _date_kind $12;
+    length _fmt_stripped $49 _date_kind $12;
     retain _dummy 0; /* suppress uninitialized note */
 
     set work._p6_joined;
 
-    /* Normalize format: strip width/decimals */
-    _fmt_stripped = upcase(compress(format, '.0123456789'));
+    /* Normalize format: strip trailing width/decimals only (e.g. E8601DA10. -> E8601DA) */
+    _fmt_stripped = upcase(prxchange('s/\d*\.\d*$//', 1, strip(format)));
 
     /* Initialize classification outputs */
     var_class      = '';

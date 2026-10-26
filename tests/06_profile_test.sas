@@ -139,6 +139,9 @@ data work._t_ds;
     T_DTM    8
     T_TM     8
     T_ISO    8
+    T_ISO2   8
+    T_ISO3   8
+    T_ISO4   8
     T_X_DATE 8
     T_UNF    8
     T_ALLMN  8
@@ -148,10 +151,13 @@ data work._t_ds;
     ZZ_OUT   8
     ;
 
-  format T_DT  DATE9.
-         T_DTM DATETIME20.
-         T_TM  TIME8.
-         T_ISO E8601DA.
+  format T_DT   DATE9.
+         T_DTM  DATETIME20.
+         T_TM   TIME8.
+         T_ISO  E8601DA.
+         T_ISO2 E8601DT26.6
+         T_ISO3 B8601DA10.
+         T_ISO4 E8601TM15.6
          T_ALLMD DATE9.
          ;
 
@@ -225,8 +231,9 @@ data work._t_ds;
     /* T_LONG: $300 string, common 200-char prefix, differs at char 201 */
     T_LONG = repeat('X', 199) || put(mod(_i - 1, 10) + 1, z3.);
 
-    /* T_RSV: includes literal levels 'OTHER' and 'MISSING' among real values */
-    if      _i <= 10 then T_RSV = 'OTHER';
+    /* T_RSV: includes literal levels 'OTHER' and 'MISSING' among real values.
+       OTHER=11 (boundary above small-cell), MISSING=9 (small-cell), rest 10 each. */
+    if      _i <= 11 then T_RSV = 'OTHER';
     else if _i <= 20 then T_RSV = 'MISSING';
     else if _i <= 30 then T_RSV = 'REAL_A';
     else if _i <= 40 then T_RSV = 'REAL_B';
@@ -243,6 +250,15 @@ data work._t_ds;
 
     /* T_ISO: 3 distinct ISO-date values (same numeric base as T_DT) */
     T_ISO = '01JAN2020'd + mod(_i - 1, 3);
+
+    /* T_ISO2: E8601DT (ISO 8601 datetime) -- 3 distinct values */
+    T_ISO2 = '01JAN2020:00:00:00'dt + mod(_i - 1, 3) * 3600;
+
+    /* T_ISO3: B8601DA (Basic ISO 8601 date) -- 3 distinct values */
+    T_ISO3 = '01JAN2020'd + mod(_i - 1, 3);
+
+    /* T_ISO4: E8601TM (ISO 8601 time) -- 3 distinct values */
+    T_ISO4 = mod(_i - 1, 3) * 3600;
 
     /* T_X_DATE: no format, name ends _DATE, SAS-date-range values (1980-2020) */
     T_X_DATE = 7305 + mod(_i - 1, 21);   /* 7305 = 01JAN1980 */
@@ -289,7 +305,7 @@ run;
   %_tc_start(n=01, desc=classification);
 
   %local _cls_l20 _cls_l21 _cls_h21 _cls_dt _cls_dtm _cls_tm
-         _cls_iso _cls_xd _cls_unf _cls_bin;
+         _cls_iso _cls_iso2 _cls_iso3 _cls_iso4 _cls_xd _cls_unf _cls_bin;
 
   proc sql noprint;
     select max(case when variable='T_L20'    then strip(var_class) end),
@@ -299,13 +315,17 @@ run;
            max(case when variable='T_DTM'    then strip(var_class) end),
            max(case when variable='T_TM'     then strip(var_class) end),
            max(case when variable='T_ISO'    then strip(var_class) end),
+           max(case when variable='T_ISO2'   then strip(var_class) end),
+           max(case when variable='T_ISO3'   then strip(var_class) end),
+           max(case when variable='T_ISO4'   then strip(var_class) end),
            max(case when variable='T_X_DATE' then strip(var_class) end),
            max(case when variable='T_UNF'    then strip(var_class) end),
            max(case when variable='T_BIN'    then strip(var_class) end)
-    into :_cls_l20 trimmed, :_cls_l21 trimmed, :_cls_h21 trimmed,
-         :_cls_dt  trimmed, :_cls_dtm  trimmed, :_cls_tm  trimmed,
-         :_cls_iso trimmed, :_cls_xd   trimmed, :_cls_unf trimmed,
-         :_cls_bin trimmed
+    into :_cls_l20  trimmed, :_cls_l21  trimmed, :_cls_h21  trimmed,
+         :_cls_dt   trimmed, :_cls_dtm  trimmed, :_cls_tm   trimmed,
+         :_cls_iso  trimmed, :_cls_iso2 trimmed, :_cls_iso3 trimmed,
+         :_cls_iso4 trimmed, :_cls_xd   trimmed, :_cls_unf  trimmed,
+         :_cls_bin  trimmed
     from work.prf_test;
   quit;
 
@@ -330,6 +350,18 @@ run;
 
   %let _f = 0; %if %bquote(&_cls_iso) = DATE %then %let _f = 1;
   %_assert(flag=&_f, label=T_ISO-DATE);
+
+  /* E8601DT: datetime class -> var_class=DATE */
+  %let _f = 0; %if %bquote(&_cls_iso2) = DATE %then %let _f = 1;
+  %_assert(flag=&_f, label=T_ISO2-E8601DT-DATE);
+
+  /* B8601DA: date class -> var_class=DATE */
+  %let _f = 0; %if %bquote(&_cls_iso3) = DATE %then %let _f = 1;
+  %_assert(flag=&_f, label=T_ISO3-B8601DA-DATE);
+
+  /* E8601TM: time class -> var_class=DATE */
+  %let _f = 0; %if %bquote(&_cls_iso4) = DATE %then %let _f = 1;
+  %_assert(flag=&_f, label=T_ISO4-E8601TM-DATE);
 
   %let _f = 0; %if %bquote(&_cls_xd) = DATE %then %let _f = 1;
   %_assert(flag=&_f, label=T_X_DATE-DATE-name-pattern);
@@ -466,42 +498,61 @@ run;
   %_tc_start(n=07, desc=date-vars);
 
   %local _dk_dt _df_dt _dk_dtm _df_dtm _dk_tm _df_tm
-         _dk_iso _df_iso _dk_xd _df_xd;
+         _dk_iso _df_iso _dk_iso2 _df_iso2 _dk_iso3 _df_iso3 _dk_iso4 _df_iso4
+         _dk_xd _df_xd;
 
   proc sql noprint;
     select
-      max(case when variable='T_DT'     then strip(date_kind) end),
-      max(case when variable='T_DT'     then strip(display_format) end),
-      max(case when variable='T_DTM'    then strip(date_kind) end),
-      max(case when variable='T_DTM'    then strip(display_format) end),
-      max(case when variable='T_TM'     then strip(date_kind) end),
-      max(case when variable='T_TM'     then strip(display_format) end),
-      max(case when variable='T_ISO'    then strip(date_kind) end),
-      max(case when variable='T_ISO'    then strip(display_format) end),
+      max(case when variable='T_DT'    then strip(date_kind) end),
+      max(case when variable='T_DT'    then strip(display_format) end),
+      max(case when variable='T_DTM'   then strip(date_kind) end),
+      max(case when variable='T_DTM'   then strip(display_format) end),
+      max(case when variable='T_TM'    then strip(date_kind) end),
+      max(case when variable='T_TM'    then strip(display_format) end),
+      max(case when variable='T_ISO'   then strip(date_kind) end),
+      max(case when variable='T_ISO'   then strip(display_format) end),
+      max(case when variable='T_ISO2'  then strip(date_kind) end),
+      max(case when variable='T_ISO2'  then strip(display_format) end),
+      max(case when variable='T_ISO3'  then strip(date_kind) end),
+      max(case when variable='T_ISO3'  then strip(display_format) end),
+      max(case when variable='T_ISO4'  then strip(date_kind) end),
+      max(case when variable='T_ISO4'  then strip(display_format) end),
       max(case when variable='T_X_DATE' then strip(date_kind) end),
       max(case when variable='T_X_DATE' then strip(display_format) end)
-    into :_dk_dt  trimmed, :_df_dt  trimmed,
-         :_dk_dtm trimmed, :_df_dtm trimmed,
-         :_dk_tm  trimmed, :_df_tm  trimmed,
-         :_dk_iso trimmed, :_df_iso trimmed,
-         :_dk_xd  trimmed, :_df_xd  trimmed
+    into :_dk_dt   trimmed, :_df_dt   trimmed,
+         :_dk_dtm  trimmed, :_df_dtm  trimmed,
+         :_dk_tm   trimmed, :_df_tm   trimmed,
+         :_dk_iso  trimmed, :_df_iso  trimmed,
+         :_dk_iso2 trimmed, :_df_iso2 trimmed,
+         :_dk_iso3 trimmed, :_df_iso3 trimmed,
+         :_dk_iso4 trimmed, :_df_iso4 trimmed,
+         :_dk_xd   trimmed, :_df_xd   trimmed
     from work.prf_test
     where stat not in ('LEVEL','OTHER','MISSING','N_DISTINCT');
   quit;
 
   %local _f;
-  %let _f = 0; %if %bquote(&_dk_dt)  = DATE     %then %let _f = 1; %_assert(flag=&_f, label=T_DT-date_kind-DATE);
-  %let _f = 0; %if %bquote(&_dk_dtm) = DATETIME  %then %let _f = 1; %_assert(flag=&_f, label=T_DTM-date_kind-DATETIME);
-  %let _f = 0; %if %bquote(&_dk_tm)  = TIME      %then %let _f = 1; %_assert(flag=&_f, label=T_TM-date_kind-TIME);
-  %let _f = 0; %if %bquote(&_dk_iso) = DATE      %then %let _f = 1; %_assert(flag=&_f, label=T_ISO-date_kind-DATE);
-  %let _f = 0; %if %bquote(&_dk_xd)  = DATE      %then %let _f = 1; %_assert(flag=&_f, label=T_X_DATE-date_kind-DATE);
+  %let _f = 0; %if %bquote(&_dk_dt)   = DATE     %then %let _f = 1; %_assert(flag=&_f, label=T_DT-date_kind-DATE);
+  %let _f = 0; %if %bquote(&_dk_dtm)  = DATETIME  %then %let _f = 1; %_assert(flag=&_f, label=T_DTM-date_kind-DATETIME);
+  %let _f = 0; %if %bquote(&_dk_tm)   = TIME      %then %let _f = 1; %_assert(flag=&_f, label=T_TM-date_kind-TIME);
+  %let _f = 0; %if %bquote(&_dk_iso)  = DATE      %then %let _f = 1; %_assert(flag=&_f, label=T_ISO-date_kind-DATE);
+  /* T_ISO2: E8601DT is DATETIME class */
+  %let _f = 0; %if %bquote(&_dk_iso2) = DATETIME  %then %let _f = 1; %_assert(flag=&_f, label=T_ISO2-E8601DT-date_kind-DATETIME);
+  /* T_ISO3: B8601DA is DATE class */
+  %let _f = 0; %if %bquote(&_dk_iso3) = DATE      %then %let _f = 1; %_assert(flag=&_f, label=T_ISO3-B8601DA-date_kind-DATE);
+  /* T_ISO4: E8601TM is TIME class */
+  %let _f = 0; %if %bquote(&_dk_iso4) = TIME      %then %let _f = 1; %_assert(flag=&_f, label=T_ISO4-E8601TM-date_kind-TIME);
+  %let _f = 0; %if %bquote(&_dk_xd)   = DATE      %then %let _f = 1; %_assert(flag=&_f, label=T_X_DATE-date_kind-DATE);
 
   /* display_format non-blank for each DATE-class variable */
-  %let _f = 0; %if %bquote(&_df_dt)  ne %bquote() %then %let _f = 1; %_assert(flag=&_f, label=T_DT-display_format-set);
-  %let _f = 0; %if %bquote(&_df_dtm) ne %bquote() %then %let _f = 1; %_assert(flag=&_f, label=T_DTM-display_format-set);
-  %let _f = 0; %if %bquote(&_df_tm)  ne %bquote() %then %let _f = 1; %_assert(flag=&_f, label=T_TM-display_format-set);
-  %let _f = 0; %if %bquote(&_df_iso) ne %bquote() %then %let _f = 1; %_assert(flag=&_f, label=T_ISO-display_format-set);
-  %let _f = 0; %if %bquote(&_df_xd)  = DATE9     %then %let _f = 1; %_assert(flag=&_f, label=T_X_DATE-display_format-DATE9);
+  %let _f = 0; %if %bquote(&_df_dt)   ne %bquote() %then %let _f = 1; %_assert(flag=&_f, label=T_DT-display_format-set);
+  %let _f = 0; %if %bquote(&_df_dtm)  ne %bquote() %then %let _f = 1; %_assert(flag=&_f, label=T_DTM-display_format-set);
+  %let _f = 0; %if %bquote(&_df_tm)   ne %bquote() %then %let _f = 1; %_assert(flag=&_f, label=T_TM-display_format-set);
+  %let _f = 0; %if %bquote(&_df_iso)  ne %bquote() %then %let _f = 1; %_assert(flag=&_f, label=T_ISO-display_format-set);
+  %let _f = 0; %if %bquote(&_df_iso2) ne %bquote() %then %let _f = 1; %_assert(flag=&_f, label=T_ISO2-display_format-set);
+  %let _f = 0; %if %bquote(&_df_iso3) ne %bquote() %then %let _f = 1; %_assert(flag=&_f, label=T_ISO3-display_format-set);
+  %let _f = 0; %if %bquote(&_df_iso4) ne %bquote() %then %let _f = 1; %_assert(flag=&_f, label=T_ISO4-display_format-set);
+  %let _f = 0; %if %bquote(&_df_xd)  = %str(DATE9.) %then %let _f = 1; %_assert(flag=&_f, label=T_X_DATE-display_format-DATE9);
 
   /* Each DATE var must have exactly 9 STAT rows (N N_MISSING MEAN SD MEDIAN Q1 Q3 MIN MAX) */
   %local _nstat_dt _nstat_dtm;
@@ -1099,6 +1150,12 @@ run;
   %let _f = 0; %if %eval(&_sex_delta = 0) %then %let _f = 1;
   %_assert(flag=&_f, label=TC03-sex-levels-match-freq);
 
+  /* Diagnostic: print mismatches if sex delta > 0 */
+  %if &_sex_delta > 0 %then %do;
+    %put NOTE: [TC-03-DIAG] Sex level mismatches (&_sex_delta rows). Engine vs PROC FREQ:;
+    proc print data=work._tc03_sex_delta noobs label; run;
+  %end;
+
   /* 4. Compare PCNR_PATIENT_TYPE level counts to PROC FREQ */
   proc freq data=pdd.pcnr noprint;
     table &_ptvar / missing out=work._tc03_pt_freq;
@@ -1125,75 +1182,74 @@ run;
   %let _f = 0; %if %eval(&_pt_delta = 0) %then %let _f = 1;
   %_assert(flag=&_f, label=TC03-pt-levels-match-freq);
 
-  /* 5. Independent one-pass missing count for every variable */
-  /* Build array-based counts via DATA step (one pass over pdd.pcnr) */
+  /* Diagnostic: print mismatches if pt delta > 0 */
+  %if &_pt_delta > 0 %then %do;
+    %put NOTE: [TC-03-DIAG] Patient_Type level mismatches (&_pt_delta rows). Engine vs PROC FREQ:;
+    proc print data=work._tc03_pt_delta noobs label; run;
+  %end;
+
+  /* 5. Independent missing count for every PCNR_ variable.
+     Numeric vars: PROC MEANS NMISS via ODS OUTPUT (avoids "Multiple lengths" from
+     DATA-step arrays when char vars have differing declared lengths).
+     Char vars: PROC SQL sum(missing()) per variable. */
   proc contents data=pdd.pcnr out=work._tc03_cols noprint; run;
 
-  /* Numeric variables */
+  %local _pcnr_num_vars _pcnr_chr_vars;
   proc sql noprint;
-    select name into :_num_vars separated by ' '
+    select name into :_pcnr_num_vars separated by ' '
     from work._tc03_cols
     where type=1 and upcase(name) like 'PCNR_%'
     order by name;
-  quit;
-
-  %local _n_nv;
-  proc sql noprint;
-    select count(*) into :_n_nv trimmed
-    from work._tc03_cols
-    where type=1 and upcase(name) like 'PCNR_%';
-  quit;
-
-  /* Character variables */
-  proc sql noprint;
-    select name into :_chr_vars separated by ' '
+    select name into :_pcnr_chr_vars separated by ' '
     from work._tc03_cols
     where type=2 and upcase(name) like 'PCNR_%'
     order by name;
   quit;
 
-  %local _n_cv;
+  /* Numeric: use PROC MEANS stackodsoutput */
+  ods output summary = work._tc03_num_miss_raw;
+  proc means data=pdd.pcnr nmiss stackodsoutput;
+    var &_pcnr_num_vars;
+  run;
+  ods output close;
+
+  data work._tc03_indep_miss_num;
+    length varname $32 n_miss 8;
+    set work._tc03_num_miss_raw(keep=Variable NMiss rename=(Variable=varname NMiss=n_miss));
+    varname = upcase(strip(varname));
+  run;
+
+  /* Character: PROC SQL one-pass sum of missing() per variable.
+     missing() returns 1 for blank or null, 0 otherwise (numeric and char). */
+  %local _tc03_chr_sql;
   proc sql noprint;
-    select count(*) into :_n_cv trimmed
+    select cat('sum(missing(', strip(name), ')) as ', strip(name))
+    into :_tc03_chr_sql separated by ','
     from work._tc03_cols
-    where type=2 and upcase(name) like 'PCNR_%';
+    where type=2 and upcase(name) like 'PCNR_%'
+    order by name;
   quit;
 
-  /* One-pass DATA step counting missing per variable */
+  proc sql noprint;
+    create table work._tc03_chr_miss_wide as
+      select &_tc03_chr_sql
+      from pdd.pcnr;
+  quit;
+
+  /* Transpose wide row to long */
+  proc transpose data=work._tc03_chr_miss_wide
+                 out=work._tc03_indep_miss_chr(rename=(_name_=varname col1=n_miss));
+  run;
+
+  data work._tc03_indep_miss_chr;
+    set work._tc03_indep_miss_chr(keep=varname n_miss);
+    varname = upcase(strip(varname));
+  run;
+
+  /* Stack numeric + character */
   data work._tc03_indep_miss;
-    length varname $32 n_miss 8;
-    array _nv {&_n_nv} &_num_vars;
-    array _cv {&_n_cv} $ &_chr_vars;
-    keep varname n_miss;
-
-    /* Initialize accumulators (numeric vars) */
-    array _nm_cnt {&_n_nv} _temporary_;
-    array _cm_cnt {&_n_cv} _temporary_;
-    do _j = 1 to &_n_nv; _nm_cnt(_j) = 0; end;
-    do _j = 1 to &_n_cv; _cm_cnt(_j) = 0; end;
-    retain _nm_cnt _cm_cnt;
-
-    set pdd.pcnr end=_eof;
-    do _j = 1 to &_n_nv;
-      if _nv(_j) = . then _nm_cnt(_j) = _nm_cnt(_j) + 1;
-    end;
-    do _j = 1 to &_n_cv;
-      if strip(_cv(_j)) = '' then _cm_cnt(_j) = _cm_cnt(_j) + 1;
-    end;
-
-    if _eof then do;
-      do _j = 1 to &_n_nv;
-        varname = upcase(vname(_nv(_j)));
-        n_miss  = _nm_cnt(_j);
-        output;
-      end;
-      do _j = 1 to &_n_cv;
-        varname = upcase(vname(_cv(_j)));
-        n_miss  = _cm_cnt(_j);
-        output;
-      end;
-    end;
-    drop _j;
+    set work._tc03_indep_miss_num
+        work._tc03_indep_miss_chr;
   run;
 
   /* Compare independent counts to profile MISSING / N_MISSING rows */
@@ -1219,6 +1275,12 @@ run;
   quit;
   %let _f = 0; %if %eval(&_miss_delta = 0) %then %let _f = 1;
   %_assert(flag=&_f, label=TC03-missing-counts-match-indep);
+
+  /* Diagnostic: print first 20 missing-count mismatches */
+  %if &_miss_delta > 0 %then %do;
+    %put NOTE: [TC-03-DIAG] Missing-count mismatches (&_miss_delta vars). First 20:;
+    proc print data=work._tc03_miss_delta(obs=20) noobs label; run;
+  %end;
 
   /* 6. Class-specific reconciliation = 41150 for every variable */
   proc sql noprint;
