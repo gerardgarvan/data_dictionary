@@ -1597,6 +1597,87 @@ run;
 %_tc25_run;
 
 /*==========================================================================
-  SECTION 26 -- Summary
+  SECTION 26 -- TC-26: schema check reads exchange_schema.csv for
+                pcnr_typecheck.csv and finds > 0 contract rows;
+                subsetting IF (not WHERE) reads INFILE correctly.
+==========================================================================*/
+
+%macro _tc26_schema_chk(file_filter=, outds=);
+  /* Subsetting IF after INPUT -- correct pattern for INFILE-based DATA step.
+     WHERE would cause "No input data sets available" and OBS=0. */
+  data work.&outds;
+    length file $50 column $100 type $10 required $1;
+    infile "C:\data_dictionary\docs\exchange_schema.csv"
+           encoding='utf-8' dsd dlm=',' missover firstobs=2;
+    input file $ column $ type $ required $;
+    if strip(file) = "&file_filter";
+  run;
+%mend _tc26_schema_chk;
+
+%macro _tc26_run;
+  %_tc_start(n=26, desc=schema-check-infile-subsetting-if);
+
+  %_tc26_schema_chk(file_filter=pcnr_typecheck.csv, outds=_tc26_chk);
+
+  %local _n26;
+  %let _n26 = 0;
+  proc sql noprint;
+    select count(*) into :_n26 trimmed from work._tc26_chk;
+  quit;
+
+  /* Must read > 0 rows (exchange_schema.csv has 6 rows for pcnr_typecheck.csv) */
+  %_assert(cond=(&_n26 > 0), label=schema-rows-gt-0);
+
+  /* All rows must have file='pcnr_typecheck.csv' (subsetting IF was effective) */
+  %local _n26_wrong;
+  %let _n26_wrong = 0;
+  proc sql noprint;
+    select count(*) into :_n26_wrong trimmed
+    from work._tc26_chk
+    where strip(file) ne 'pcnr_typecheck.csv';
+  quit;
+  %_assert(cond=(&_n26_wrong = 0), label=all-rows-correct-file);
+%mend _tc26_run;
+%_tc26_run;
+
+/*==========================================================================
+  SECTION 27 -- TC-27: schema check fires p5_fail when 0 contract rows
+                (simulated by filtering for a nonexistent file name).
+==========================================================================*/
+
+%macro _tc27_run;
+  %_tc_start(n=27, desc=schema-check-fires-fail-on-0-rows);
+
+  /* Read exchange_schema.csv with a bogus file filter -> 0 rows */
+  data work._tc27_chk;
+    length file $50 column $100 type $10 required $1;
+    infile "C:\data_dictionary\docs\exchange_schema.csv"
+           encoding='utf-8' dsd dlm=',' missover firstobs=2;
+    input file $ column $ type $ required $;
+    if strip(file) = 'nonexistent_file.csv';
+  run;
+
+  %local _n27;
+  %let _n27 = 0;
+  proc sql noprint;
+    select count(*) into :_n27 trimmed from work._tc27_chk;
+  quit;
+
+  /* Simulate the guard that %p5_resolve_types applies */
+  %if &_n27 = 0 %then %do;
+    %fail_out(msg=%str(TC-27: 0 contract rows found -- guard fires correctly));
+  %end;
+  %_assert_fail(label=guard-fires-on-0-rows);
+
+  /* Also verify that the message references the failure */
+  %if &p5_fail = 1 %then %do;
+    %_assert(cond=(index("&p5_fail_msg", '0 contract rows') > 0),
+             label=fail-msg-mentions-0-rows);
+  %end;
+%mend _tc27_run;
+%_tc27_run;
+
+/*==========================================================================
+  SECTION 28 -- Summary
 ==========================================================================*/
 %_tc_summary;

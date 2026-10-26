@@ -825,6 +825,47 @@ def check_datalines_in_macro(path, lines):
     return hits
 
 
+# ── C23: WHERE statement in a DATA step that reads via INFILE ─────────────────
+#
+# A DATA step that reads external data with INFILE/INPUT does not have an input
+# dataset, so a WHERE statement causes "ERROR: No input data sets available for
+# WHERE statement" and produces 0 observations.  Use a subsetting IF after the
+# INPUT statement instead.
+
+_DATA_KWD   = re.compile(r'^\s*data\b', CI)
+_RUN_KWD    = re.compile(r'^\s*run\s*;', CI)
+_INFILE_KWD = re.compile(r'\binfile\b', CI)
+_SET_MERGE  = re.compile(r'^\s*(set|merge)\b', CI)
+_WHERE_STMT = re.compile(r'^\s*where\b', CI)
+
+def check_infile_where(path, lines):
+    """Flag WHERE statements inside DATA steps that use INFILE (no SET/MERGE)."""
+    hits = []
+    in_data = False
+    has_infile = False
+    has_set_merge = False
+    for i, raw in enumerate(lines, 1):
+        if re.search(_DATA_KWD, raw):
+            in_data = True
+            has_infile = False
+            has_set_merge = False
+            continue
+        if in_data:
+            if re.search(_RUN_KWD, raw):
+                in_data = False
+                continue
+            if re.search(_INFILE_KWD, raw):
+                has_infile = True
+            if re.search(_SET_MERGE, raw):
+                has_set_merge = True
+            if has_infile and not has_set_merge and re.search(_WHERE_STMT, raw):
+                hits.append((path, i, 'C23',
+                    'WHERE statement in a DATA step that reads via INFILE -- '
+                    'WHERE requires an input dataset and will produce 0 observations; '
+                    'use a subsetting IF after the INPUT statement instead'))
+    return hits
+
+
 # ── W5: %run_hash_guard call not followed by pdd_hash_ok check ───────────────
 #
 # %run_hash_guard sets pdd_hash_ok=1 only on success.  If the caller does not
@@ -1009,6 +1050,7 @@ CHECKS = [
     check_name_c_temp_vars,
     check_sysfunc_put_input,
     check_datalines_in_macro,
+    check_infile_where,
     check_hash_guard_no_ok,
     check_prxchange_anchor_no_strip,
     check_cats_space_args,
