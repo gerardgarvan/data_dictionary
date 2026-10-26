@@ -126,33 +126,40 @@
    Exact copy from 02_source_guard.sas Section 3.
    ============================================================ */
 
+/* D-23 (2026-10-25): 7 source files contain Windows-1252 byte 0xDF in
+   Base_Procedure_1.  Import with encoding='wlatin1' (SAS transcodes to UTF-8;
+   ASCII bytes unchanged).  All other files stay encoding='utf-8'.
+   src_encoding column is written to pdd.import_spec and import_spec_generated.csv
+   so 03_import.sas can use the correct per-file encoding. */
 data work.file_list;
-  length s_code $4 filename $200 ftype $5 full_path $500;
+  length s_code $4 filename $200 ftype $5 full_path $500 src_encoding $10;
   infile datalines dsd dlm='|' truncover;
-  input s_code $ filename $ ftype $;
+  input s_code $ filename $ ftype $ src_encoding $;
   full_path = cats("&raw_master.\", filename);
+  /* Default encoding is utf-8; datalines overrides for wlatin1 files */
+  if strip(src_encoding) = '' then src_encoding = 'utf-8';
   file_id + 1;
   datalines;
-s01|2018-2022_PACU_STAY_20260813.csv|csv
-s02|2018_2019_2020_Induction_Emergent20231121.csv|csv
-s03|2018_2019_CPT_ROLLUP_X_MASTER_DATASET_20200801.csv|csv
-s04|2018_2019_ENCOUNTER_Crypto_Data_20260814.csv|csv
-s05|2018_2019_MRN_Crypto_Data20260814.csv|csv
-s06|2018_2019_Precede_Database.xlsx|xlsx
-s07|2018_2019_X_MASTER_DATASET_20200801.csv|csv
-s08|2018_2022_COLONOSCOPY_20240118.xlsx|xlsx
-s09|2018_2022_X_MASTER_DATASET_20240402.csv|csv
-s10|2020_CPT_ROLLUP_X_MASTER_DATASET_20210609.csv|csv
-s11|2020_Precede_Database_Edu.xlsx|xlsx
-s12|2020_X_MASTER_DATASET_20210519.csv|csv
-s13|2021_Education_20240124.csv|csv
-s14|2021_Frailty_20240123.csv|csv
-s15|2021_X_MASTER_DATASET_20230512.csv|csv
-s16|2022_Education_20240124.csv|csv
-s17|2022_MASTER_DATASET_20231024.csv|csv
-s18|2022_RES_20230927.csv|csv
-s19|ALL_AIM2_MASTER_DATASET_20210917.xlsx|xlsx
-s20|All_YEARS_LAT_LONG_20231127.csv|csv
+s01|2018-2022_PACU_STAY_20260813.csv|csv|utf-8
+s02|2018_2019_2020_Induction_Emergent20231121.csv|csv|utf-8
+s03|2018_2019_CPT_ROLLUP_X_MASTER_DATASET_20200801.csv|csv|wlatin1
+s04|2018_2019_ENCOUNTER_Crypto_Data_20260814.csv|csv|utf-8
+s05|2018_2019_MRN_Crypto_Data20260814.csv|csv|utf-8
+s06|2018_2019_Precede_Database.xlsx|xlsx|utf-8
+s07|2018_2019_X_MASTER_DATASET_20200801.csv|csv|wlatin1
+s08|2018_2022_COLONOSCOPY_20240118.xlsx|xlsx|utf-8
+s09|2018_2022_X_MASTER_DATASET_20240402.csv|csv|wlatin1
+s10|2020_CPT_ROLLUP_X_MASTER_DATASET_20210609.csv|csv|wlatin1
+s11|2020_Precede_Database_Edu.xlsx|xlsx|utf-8
+s12|2020_X_MASTER_DATASET_20210519.csv|csv|wlatin1
+s13|2021_Education_20240124.csv|csv|utf-8
+s14|2021_Frailty_20240123.csv|csv|utf-8
+s15|2021_X_MASTER_DATASET_20230512.csv|csv|wlatin1
+s16|2022_Education_20240124.csv|csv|utf-8
+s17|2022_MASTER_DATASET_20231024.csv|csv|wlatin1
+s18|2022_RES_20230927.csv|csv|utf-8
+s19|ALL_AIM2_MASTER_DATASET_20210917.xlsx|xlsx|utf-8
+s20|All_YEARS_LAT_LONG_20231127.csv|csv|utf-8
 ;
 
 %put NOTE: [03a_build_spec] work.file_list built;
@@ -1326,9 +1333,23 @@ data work.spec_final;
     else notes = 'forced to char -- no numeric informat parsed 100%';
   end;
 
+  /* src_encoding joined from file_list (D-23: wlatin1 for 7 files, utf-8 for rest) */
+  length src_encoding $10;
   keep file_code col_order src_name orig_col_name sas_name sas_type length
-       informat format notes xlsx_max_len;
+       informat format notes xlsx_max_len src_encoding;
 run;
+
+/* Join src_encoding from work.file_list into work.spec_final */
+proc sql noprint;
+  create table work.spec_final_enc as
+  select s.*, f.src_encoding
+  from work.spec_final s
+  left join work.file_list f on s.file_code = f.s_code;
+quit;
+data work.spec_final;
+  set work.spec_final_enc;
+run;
+proc datasets lib=work nolist nowarn; delete spec_final_enc; quit;
 
 proc datasets lib=work nolist nowarn;
   delete spec_final_base spec_with_lens spec_typed spec_named spec_src
@@ -1475,7 +1496,7 @@ proc sql outobs=10;
 quit;
 
 
-/* --- 5g. Persist pdd.import_spec --- */
+/* --- 5g. Persist pdd.import_spec (includes src_encoding column, D-23) --- */
 data pdd.import_spec;
   set work.spec_final (drop=xlsx_max_len);
 run;
@@ -1520,8 +1541,8 @@ run;
 data _null_;
   file "C:\data_dictionary\docs\import_spec_generated.csv"
        lrecl=5000 encoding='utf-8';
-  /* Header line */
-  put 'file_code,col_order,src_name,orig_col_name,sas_name,sas_type,length,informat,format,notes';
+  /* Header line -- includes src_encoding (D-23) */
+  put 'file_code,col_order,src_name,orig_col_name,sas_name,sas_type,length,informat,format,notes,src_encoding';
 run;
 
 data _null_;
@@ -1531,7 +1552,7 @@ data _null_;
 
   /* Quote a field: surround with " and double any internal " */
   length _q_fc $10 _q_co $12 _q_sn $300 _q_oc $300 _q_nm $40 _q_st $4
-         _q_le $12 _q_inf $34 _q_fmt $34 _q_no $600;
+         _q_le $12 _q_inf $34 _q_fmt $34 _q_no $600 _q_enc $12;
 
   /* All fields stripped before quoting -- no padded values in output */
   _q_fc  = strip(file_code);
@@ -1544,9 +1565,10 @@ data _null_;
   _q_inf = '"' || tranwrd(strip(informat),        '"', '""') || '"';
   _q_fmt = '"' || tranwrd(strip(format),          '"', '""') || '"';
   _q_no  = '"' || tranwrd(strip(notes),           '"', '""') || '"';
+  _q_enc = strip(src_encoding);
 
   put _q_fc ',' _q_co ',' _q_sn ',' _q_oc ',' _q_nm ',' _q_st ','
-      _q_le ',' _q_inf ',' _q_fmt ',' _q_no;
+      _q_le ',' _q_inf ',' _q_fmt ',' _q_no ',' _q_enc;
 run;
 
 %put NOTE: [03a_build_spec] docs\import_spec_generated.csv written;
@@ -1641,3 +1663,80 @@ quit;
 
 %put NOTE: [03a_build_spec] === Phase 3 Plan 01 complete ===;
 %restore_log;
+
+
+/* ============================================================
+   %p3_assert_encoding -- Post-import UTF-8 guard (D-23)
+   Loops over pdd.src_s01..pdd.src_s20 and checks every character
+   column for bytes outside ASCII range (verify > 0).  After
+   applying wlatin1 encoding on the 7 affected files this guard
+   should find 0 violations.  If violations remain, the log shows
+   the source code, column name, and row count -- no values are
+   printed.
+
+   Safe proxy for non-UTF-8 bytes:
+     verify(val, collate(0,127)) > 0
+   detects any byte with decimal code > 127 (includes Windows-1252
+   0xDF = 0223 decimal = byte 223).  Available in Base SAS without
+   any options.
+
+   Call this macro after all pdd.src_sNN datasets are written (i.e.
+   at the end of 03_import.sas or after the full import block).
+   ============================================================ */
+%macro p3_assert_encoding;
+  %local _s_list _i _sc _nc _j _col _n_viol _total_viol;
+  %let _total_viol = 0;
+
+  /* Build list of all src_sNN datasets that exist */
+  %let _s_list = s01 s02 s03 s04 s05 s07 s09 s10 s12 s13 s14 s15 s16 s17 s18 s20;
+
+  %do _i = 1 %to %sysfunc(countw(&_s_list));
+    %let _sc = %scan(&_s_list, &_i);
+
+    %if %sysfunc(exist(pdd.src_&_sc)) %then %do;
+      /* Get character column names for this source dataset */
+      %let _nc = 0;
+      proc sql noprint;
+        select count(*) into :_nc trimmed
+        from dictionary.columns
+        where upcase(libname) = 'PDD'
+          and upcase(memname) = upcase("SRC_&_sc")
+          and type = 'char';
+        select name
+        into :_enc_col1-:_enc_col9999
+        from dictionary.columns
+        where upcase(libname) = 'PDD'
+          and upcase(memname) = upcase("SRC_&_sc")
+          and type = 'char'
+        order by varnum;
+      quit;
+
+      %if &_nc > 0 %then %do;
+        %do _j = 1 %to &_nc;
+          %let _col = &&_enc_col&_j;
+          %let _n_viol = 0;
+          proc sql noprint;
+            select count(*) into :_n_viol trimmed
+            from pdd.src_&_sc
+            where verify(strip("&_col"n), collate(0,127)) > 0;
+          quit;
+          %if &_n_viol > 0 %then %do;
+            %put ERROR: [p3_assert_encoding] &_sc column &_col has &_n_viol rows with non-ASCII bytes;
+            %let _total_viol = %eval(&_total_viol + &_n_viol);
+          %end;
+        %end;
+      %end;
+      %put NOTE: [p3_assert_encoding] &_sc checked (&_nc char cols);
+    %end;
+    %else %do;
+      %put NOTE: [p3_assert_encoding] pdd.src_&_sc not found -- skipping;
+    %end;
+  %end;
+
+  %if &_total_viol > 0 %then %do;
+    %put ERROR: [p3_assert_encoding] total non-ASCII byte violations: &_total_viol -- check src_encoding in import spec (D-23);
+  %end;
+  %else %do;
+    %put NOTE: [p3_assert_encoding] all character columns are clean (0 non-ASCII byte violations);
+  %end;
+%mend p3_assert_encoding;

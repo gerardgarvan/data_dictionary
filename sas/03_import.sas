@@ -318,15 +318,17 @@ s20|All_YEARS_LAT_LONG_20231127.csv|csv
    SECTION 4 -- Spec load + override merge
    ============================================================ */
 
-/* Read import_spec_generated.csv into work.spec_gen */
+/* Read import_spec_generated.csv into work.spec_gen
+   Column src_encoding (D-23) read from 11th field: 'utf-8' or 'wlatin1'. */
 options errors=1;
 data work.spec_gen;
   length file_code $4 col_order 8 src_name $256 orig_col_name $256
-         sas_name $32 sas_type $1 length_ 8 informat $16 format $16 notes $200;
+         sas_name $32 sas_type $1 length_ 8 informat $16 format $16 notes $200
+         src_encoding $10;
   infile "C:\data_dictionary\docs\import_spec_generated.csv"
          encoding='utf-8' dsd dlm=',' missover firstobs=2 lrecl=32767;
   input file_code $ col_order src_name $ orig_col_name $ sas_name $
-        sas_type $ length_ informat $ format $ notes $;
+        sas_type $ length_ informat $ format $ notes $ src_encoding $;
   /* Strip all character fields to remove CSV padding */
   file_code     = strip(file_code);
   src_name      = strip(src_name);
@@ -336,6 +338,9 @@ data work.spec_gen;
   informat      = strip(informat);
   format        = strip(format);
   notes         = strip(notes);
+  src_encoding  = strip(src_encoding);
+  /* Default to utf-8 if blank (backward compat with older spec files) */
+  if strip(src_encoding) = '' then src_encoding = 'utf-8';
   /* Rename length_ -> length after read (length is a reserved word in step
      context but fine as a variable name after assignment) */
   rename length_ = spec_length;
@@ -355,11 +360,12 @@ options errors=20;
     options errors=1;
     data work.spec_ovr;
       length file_code $4 col_order 8 src_name $256 orig_col_name $256
-             sas_name $32 sas_type $1 length_ 8 informat $16 format $16 notes $200;
+             sas_name $32 sas_type $1 length_ 8 informat $16 format $16 notes $200
+             src_encoding $10;
       infile "&_ovr_path"
              encoding='utf-8' dsd dlm=',' missover firstobs=2 lrecl=32767;
       input file_code $ col_order src_name $ orig_col_name $ sas_name $
-            sas_type $ length_ informat $ format $ notes $;
+            sas_type $ length_ informat $ format $ notes $ src_encoding $;
       file_code     = strip(file_code);
       src_name      = strip(src_name);
       orig_col_name = strip(orig_col_name);
@@ -368,6 +374,8 @@ options errors=20;
       informat      = strip(informat);
       format        = strip(format);
       notes         = strip(notes);
+      src_encoding  = strip(src_encoding);
+      if strip(src_encoding) = '' then src_encoding = 'utf-8';
       rename length_ = spec_length;
     run;
     options errors=20;
@@ -456,7 +464,9 @@ data _null_;
 run;
 
 /* Generate one DATA step per CSV file; emit all sections at last.file_code.
-   Arrays buffer column metadata; type branching is DATA-step if/then/else. */
+   Arrays buffer column metadata; type branching is DATA-step if/then/else.
+   src_encoding (D-23) is buffered per file and written to the INFILE option
+   so wlatin1 files are transcoded to UTF-8 by SAS on read. */
 %let _gen_chk_fail = 0;
 data _null_;
   array _sn  {2000} $32  _sn1-_sn2000;   /* sas_name */
@@ -464,10 +474,10 @@ data _null_;
   array _sl  {2000}      _sl1-_sl2000;   /* spec_length */
   array _si  {2000} $40  _si1-_si2000;   /* informat */
   array _so  {2000} $256 _so1-_so2000;   /* orig_col_name */
-  length _target $50 _fpath $500;
+  length _target $50 _fpath $500 _enc $10;
   retain _sn1-_sn2000 ' ' _st1-_st2000 ' ' _sl1-_sl2000 0
          _si1-_si2000 ' ' _so1-_so2000 ' '
-         _nc 0 _target _fpath ' ';
+         _nc 0 _target _fpath _enc ' ';
   retain _chk_fail 0;
   length line $2000;
 
@@ -481,6 +491,9 @@ data _null_;
     if strip(file_code) = 's18' then _target = 'work.src_s18_raw';
     else _target = cats('pdd.src_', strip(file_code));
     _fpath = strip(full_path);
+    /* D-23: use per-file encoding from spec (wlatin1 for 7 files, utf-8 for rest) */
+    _enc = strip(src_encoding);
+    if _enc = '' then _enc = 'utf-8';
   end;
 
   _nc + 1;
@@ -503,8 +516,10 @@ data _null_;
     end;
     put line;
     put '  options errors=1;';
+    /* D-23: encoding= from src_encoding column; wlatin1 files get wlatin1 here */
     line = cats("  infile '", strip(_fpath),
-                "' encoding='utf-8' dlm=',' dsd truncover firstobs=2 lrecl=32767;");
+                "' encoding='", strip(_enc),
+                "' dlm=',' dsd truncover firstobs=2 lrecl=32767;");
     put line;
 
     /* LENGTH statement */

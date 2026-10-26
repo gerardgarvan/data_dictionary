@@ -76,7 +76,17 @@ def main() -> int:
     for fname, sheet_name in csv_specs:
         p = exchange / fname
         logging.info("Reading %s", p)
-        csv_data[sheet_name] = read_csv(p)
+        try:
+            csv_data[sheet_name] = read_csv(p)
+        except UnicodeDecodeError as exc:
+            # Report location without printing data values (D-23 hardening)
+            line_no = exc.start // max(1, exc.end - exc.start) if exc.end > exc.start else exc.start
+            print(
+                f"ERROR: UnicodeDecodeError in {p}"
+                f" line ~{line_no} col {exc.start}"
+                f" pcnr_name=unknown"
+            )
+            sys.exit(1)
 
     # Validate columns and cap before writing (item 18)
     for _, sheet_name in csv_specs:

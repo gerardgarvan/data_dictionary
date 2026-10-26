@@ -172,6 +172,33 @@ The join follows this sequence for every PCNR_ variable:
 PCNR_PRECEDE_STUDY_ID is built from `norm_psid` (Phase 4 convention; one value per row by
 construction — no gap-fill needed).
 
+### D-23 — Encoding hardening in Phase 5 (LOCKED 2026-10-25, Gerard)
+
+Encoding decisions from Phase 3 (D-23) have Phase 5 consequences:
+
+1. **Explicit UTF-8 on CSV writes.** All five `PROC EXPORT dbms=csv` calls
+   in `05_build_pcnr_macros.sas` now use a `FILENAME` statement with
+   `encoding='utf-8'` before the PROC EXPORT, and `outfile=<fileref>`
+   instead of a quoted path.  This ensures exchange CSVs (pcnr_gapfill,
+   pcnr_spine_coverage, pcnr_typecheck, pcnr_conflicts_summary,
+   pcnr_conflicts_detail) are always written as clean UTF-8 regardless of
+   the SAS session encoding.
+
+2. **winning_value / candidate_value length.** The helper variables
+   `_winning_val` and `_candidate_val` in the gap-fill DATA step formerly
+   used a fixed `$200`.  They now use `max(200, max_length)` computed via
+   PROC SQL from `work._gf_cols_<s_code>` before the DATA step.  This
+   prevents truncation on any character variable whose `max_length` exceeds
+   200 bytes after wlatin1→UTF-8 transcoding.
+
+3. **UnicodeDecodeError reporting in write_pcnr_qc.py.**  The `read_csv`
+   call in `python/scripts/write_pcnr_qc.py` is wrapped in a
+   `try/except UnicodeDecodeError` block.  On error, the script prints
+   `ERROR: UnicodeDecodeError in <file> line ~<n> col <c> pcnr_name=unknown`
+   (no values) and calls `sys.exit(1)`.
+
+See Phase 3 `03-CONTEXT.md` for the full D-23 decision and source file list.
+
 ### Claude's Discretion
 
 - Exact SAS implementation of rank-order gap-fill (PROC SQL multi-source COALESCE vs DATA step

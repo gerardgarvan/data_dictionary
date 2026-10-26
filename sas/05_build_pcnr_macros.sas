@@ -522,11 +522,13 @@
     %next_cov:
   %end;
 
-  /* Export coverage CSV */
+  /* Export coverage CSV -- explicit UTF-8 FILENAME before PROC EXPORT (D-23) */
+  filename _exp01 "&export_dir.\pcnr_spine_coverage.csv" encoding='utf-8';
   proc export data=work._spine_coverage
-    outfile="&export_dir.\pcnr_spine_coverage.csv"
+    outfile=_exp01
     dbms=csv replace;
   run;
+  filename _exp01 clear;
 
   %put NOTE: [05_build_pcnr] pcnr_spine_coverage.csv written to export_dir;
 
@@ -827,11 +829,13 @@
     %if &p5_fail = 1 %then %return;
   %end;
 
-  /* Export typecheck summary (per pcnr_name+s_code, includes n_null_as_missing) */
+  /* Export typecheck summary -- explicit UTF-8 FILENAME before PROC EXPORT (D-23) */
+  filename _exp02 "&export_dir.\pcnr_typecheck.csv" encoding='utf-8';
   proc export data=work._typecheck_sources
-    outfile="&export_dir.\pcnr_typecheck.csv"
+    outfile=_exp02
     dbms=csv replace;
   run;
+  filename _exp02 clear;
   /* Also persist to outlib for audit */
   data &outlib..qc_pcnr_typecheck_src;
     set work._typecheck_sources;
@@ -1556,7 +1560,19 @@
     stop;
   run;
 
-  /* Step 4b. DATA step: MERGE accumulator with source; %include generated code;
+  /* Step 4b. Compute max char length across all PCNR_ C variables for this source.
+     winning_value / candidate_value are stored as char; use max(200, max_length) to
+     avoid truncation on long values while keeping a sensible floor (D-23 hardening). */
+  %local _maxclen;
+  %let _maxclen = 200;
+  proc sql noprint;
+    select max(200, max(case when result_type = 'C' then max_length else 0 end))
+      into :_maxclen trimmed
+    from work._gf_cols_&s_code;
+  quit;
+  %if %length(&_maxclen) = 0 or &_maxclen = %str() %then %let _maxclen = 200;
+
+  /* DATA step: MERGE accumulator with source; %include generated code;
      OUTPUT to work._pcnr_next, with conditional side-outputs. */
   data work._pcnr_next
        work._conflicts_&s_code (keep=norm_psid pcnr_name conflict_type
@@ -1564,10 +1580,10 @@
                                      candidate_s_code candidate_value
                                      value_type)
        work._prov_&s_code      (keep=norm_psid pcnr_name src_s_code);
-    length _conflict_type $20 _winning_sc $4 _winning_val $200
-           _candidate_sc $4 _candidate_val $200 _value_type $1
+    length _conflict_type $20 _winning_sc $4 _winning_val $&_maxclen
+           _candidate_sc $4 _candidate_val $&_maxclen _value_type $1
            _pcnr_name_c $200 conflict_type $20 winning_s_code $4
-           winning_value $200 candidate_s_code $4 candidate_value $200
+           winning_value $&_maxclen candidate_s_code $4 candidate_value $&_maxclen
            value_type $1 pcnr_name $200 src_s_code $4;
     merge work._pcnr_accum (in=_a)
           work._src_&s_code (in=_b);
@@ -1724,7 +1740,7 @@
                            spine_n=&spine_n, gen_dir=&gen_dir);
       %end;
       %else %do;
-        %put NOTE: [05_build_pcnr] Pass 3: source &_sc all vars pinned -- skipped;
+        %put NOTE: [05_build_pcnr] Pass 3: source &_sc contributes 0 PCNR vars (all vars pinned) -- skipped;
       %end;
     %end;
   %end;
@@ -2321,10 +2337,13 @@
 
   %put NOTE: [05_build_pcnr] GAPFILL identity assertions passed for all &_n_nmv2 variables;
 
+  /* Explicit UTF-8 FILENAME before PROC EXPORT (D-23) */
+  filename _exp03 "&export_dir.\pcnr_gapfill.csv" encoding='utf-8';
   proc export data=work._gapfill_summary
-    outfile="&export_dir.\pcnr_gapfill.csv"
+    outfile=_exp03
     dbms=csv replace;
   run;
+  filename _exp03 clear;
   %put NOTE: [05_build_pcnr] pcnr_gapfill.csv written to export_dir;
 
   /* Step 4. Conflict summary (item 15) */
@@ -2338,10 +2357,13 @@
     group by pcnr_name, conflict_type;
   quit;
 
+  /* Explicit UTF-8 FILENAME before PROC EXPORT (D-23) */
+  filename _exp04 "&export_dir.\pcnr_conflicts_summary.csv" encoding='utf-8';
   proc export data=work._conflict_summary
-    outfile="&export_dir.\pcnr_conflicts_summary.csv"
+    outfile=_exp04
     dbms=csv replace;
   run;
+  filename _exp04 clear;
   %put NOTE: [05_build_pcnr] pcnr_conflicts_summary.csv written to export_dir;
 
   /* Step 5. Conflict detail -- cap at 5,000 rows */
@@ -2355,10 +2377,13 @@
     set &outlib..qc_pcnr_conflicts (obs=5000);
   run;
 
+  /* Explicit UTF-8 FILENAME before PROC EXPORT (D-23) */
+  filename _exp05 "&export_dir.\pcnr_conflicts_detail.csv" encoding='utf-8';
   proc export data=work._conflicts_cap
-    outfile="&export_dir.\pcnr_conflicts_detail.csv"
+    outfile=_exp05
     dbms=csv replace;
   run;
+  filename _exp05 clear;
 
   %if &_n_total_conflicts > 5000 %then %do;
     %put NOTE: [05_build_pcnr] conflicts detail capped at 5000 rows, full table in &outlib..qc_pcnr_conflicts (total=&_n_total_conflicts);
