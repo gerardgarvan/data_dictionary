@@ -2694,42 +2694,21 @@
   %end;
   %put NOTE: [05_build_pcnr] ALL_MISSING: spine row count = &_spine_rows;
 
-  /* 3b-ii. Enumerate PCNR_ columns via dictionary.columns; generate per-column
-     PROC SQL INSERT to accumulate missing counts into work._all_missing_raw. */
-  proc sql noprint;
-    create table work._all_missing_raw (pcnr_name char(200), n_missing num);
-  quit;
-
-  data _null_;
-    /* Read PCNR_ columns from dictionary for outlib.PCNR */
-    set sashelp.vcolumn (where=(
-        upcase(libname) = upcase("&outlib")
-      and upcase(memname) = 'PCNR'
-      and substr(upcase(name), 1, 5) = 'PCNR_'
-    ));
-    length _stmt $500;
-    _stmt = cat(
-      "insert into work._all_missing_raw select '",
-      strip(name), "', count(*) from &outlib..pcnr where missing(",
-      strip(name), ");"
-    );
-    call execute(_stmt);
-    call missing(of _all_);
-  run;
-  %if &syserr > 4 %then %do;
-    %fail_out(msg=%str(p5_write_qc: ALL_MISSING per-column insert generation failed (syserr=&syserr)));
-    %return;
-  %end;
-
-  /* 3b-iii. Filter to variables where all rows are missing */
+  /* 3b-ii. Derive all-missing variables from work._gapfill_summary.
+     A variable is all-missing when n_missing = &_spine_rows (every spine row
+     is blank for that column).  work._gapfill_summary was built in Step 3
+     above and already holds (pcnr_name, n_missing) -- no per-column table scan
+     needed.  This avoids the DATA _NULL_ + CALL EXECUTE bare-SQL pattern (C24)
+     that generates N full-table passes across &outlib..pcnr. */
   proc sql noprint;
     create table work._all_missing as
-    select pcnr_name, n_missing
-    from work._all_missing_raw
+    select pcnr_name,
+           n_missing
+    from work._gapfill_summary
     where n_missing = &_spine_rows;
   quit;
   %if &syserr > 4 %then %do;
-    %fail_out(msg=%str(p5_write_qc: ALL_MISSING filter step failed (syserr=&syserr)));
+    %fail_out(msg=%str(p5_write_qc: ALL_MISSING derivation from gapfill summary failed (syserr=&syserr)));
     %return;
   %end;
 

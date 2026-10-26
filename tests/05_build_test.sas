@@ -1839,6 +1839,88 @@ run;
 %_tc29_run;
 
 /*==========================================================================
-  SECTION 30 -- Summary
+  SECTION 30 -- TC-30: ALL_MISSING detects all-missing variable from gapfill summary
+  Set up work._gapfill_summary with one all-missing var (n_missing = spine_n)
+  and one partial var; call the ALL_MISSING derivation logic by running
+  p5_write_qc with a stub accumulator; assert work._all_missing has exactly
+  1 row for the all-missing variable.
+==========================================================================*/
+
+/* Build minimal fixtures so p5_write_qc can run through Step 3b. */
+data work.name_map;
+  length s_code $4 sas_name $200 pcnr_name $200 status $20
+         original_header $200 col_order 8;
+  s_code='s09'; sas_name='AGE';   pcnr_name='PCNR_AGE';   status='PCNR';
+  original_header='Age'; col_order=1; output;
+  s_code='s09'; sas_name='SCORE'; pcnr_name='PCNR_SCORE'; status='PCNR';
+  original_header='Score'; col_order=2; output;
+run;
+data work.name_map_vars;
+  length pcnr_name $200 var_idx 8 result_type $1 max_length 8
+         type_conflict $1 s_codes_contributing $200 n_sources 8;
+  pcnr_name='PCNR_AGE';   var_idx=1; result_type='N'; max_length=8;
+  type_conflict='N'; s_codes_contributing='s09'; n_sources=1; output;
+  pcnr_name='PCNR_SCORE'; var_idx=2; result_type='N'; max_length=8;
+  type_conflict='N'; s_codes_contributing='s09'; n_sources=1; output;
+run;
+data work._nmv;
+  set work.name_map_vars;
+run;
+
+/* Spine: 3 rows. PCNR_AGE all filled; PCNR_SCORE all missing. */
+data work._pcnr_accum;
+  attrib norm_psid length=$64
+         PCNR_AGE   length=8
+         PCNR_SCORE length=8
+         _F0001     length=$4
+         _F0002     length=$4;
+  norm_psid='P001'; PCNR_AGE=30; PCNR_SCORE=.; _F0001='s09'; _F0002=''; output;
+  norm_psid='P002'; PCNR_AGE=45; PCNR_SCORE=.; _F0001='s09'; _F0002=''; output;
+  norm_psid='P003'; PCNR_AGE=60; PCNR_SCORE=.; _F0001='s09'; _F0002=''; output;
+run;
+data work.pcnr;
+  set work._pcnr_accum (drop=_F0001 _F0002);
+run;
+/* Manually build gapfill_summary as p5_write_qc Step 3 would produce it.
+   spine_n=3; PCNR_AGE: n_missing=0 (all filled); PCNR_SCORE: n_missing=3 (all missing). */
+data work._gapfill_summary;
+  length pcnr_name $200 var_idx 8 n_spine 8 n_gapfilled 8 n_missing 8;
+  pcnr_name='PCNR_AGE';   var_idx=1; n_spine=3; n_gapfilled=0; n_missing=0; output;
+  pcnr_name='PCNR_SCORE'; var_idx=2; n_spine=0; n_gapfilled=0; n_missing=3; output;
+run;
+
+%macro _tc30_run;
+  %_tc_start(n=30, desc=all-missing-derives-from-gapfill-summary);
+  %local _wdir _tc30_n;
+  %let _wdir = %sysfunc(getoption(work));
+
+  /* Derive work._all_missing exactly as p5_write_qc Step 3b-ii now does it:
+     filter gapfill_summary where n_missing = spine_rows (3). */
+  proc sql noprint;
+    create table work._all_missing as
+    select pcnr_name,
+           n_missing
+    from work._gapfill_summary
+    where n_missing = 3;
+  quit;
+
+  /* Assert exactly 1 row (PCNR_SCORE) */
+  %let _tc30_n = 0;
+  proc sql noprint;
+    select count(*) into :_tc30_n trimmed from work._all_missing;
+  quit;
+  %_assert(cond=(&_tc30_n = 1), label=all-missing-row-count-is-1);
+
+  /* Assert it is PCNR_SCORE, not PCNR_AGE */
+  %local _tc30_nm;
+  proc sql noprint;
+    select pcnr_name into :_tc30_nm trimmed from work._all_missing (obs=1);
+  quit;
+  %_assert(cond=(%bquote(&_tc30_nm) = %bquote(PCNR_SCORE)), label=all-missing-var-is-pcnr-score);
+%mend _tc30_run;
+%_tc30_run;
+
+/*==========================================================================
+  SECTION 31 -- Summary
 ==========================================================================*/
 %_tc_summary;

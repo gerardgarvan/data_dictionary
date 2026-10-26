@@ -1022,6 +1022,53 @@ def check_unresolved_macros(program_path, include_paths=()):
     return hits
 
 
+# ── C24: CALL EXECUTE with bare SQL (no proc sql wrapper) ────────────────────
+_CALL_EXEC = re.compile(r'\bcall\s+execute\s*\(', re.IGNORECASE)
+_BARE_SQL   = re.compile(r'\b(insert\s+into|create\s+table|drop\s+table)\b', re.IGNORECASE)
+_PROC_SQL_PAT = re.compile(r'\bproc\s+sql\b', re.IGNORECASE)
+
+def check_call_execute_bare_sql(path, lines):
+    hits = []
+    for i, raw in enumerate(lines, 1):
+        if re.search(_CALL_EXEC, raw):
+            window = ' '.join(lines[i-1:i+5])
+            if re.search(_BARE_SQL, window) and not re.search(_PROC_SQL_PAT, window):
+                hits.append((path, i, 'C24',
+                    'CALL EXECUTE emitting bare SQL (INSERT/CREATE/DROP) without proc sql/quit wrapper '
+                    '-- generated SQL runs in open code and fails with ERROR 180-322; '
+                    'wrap in cats(\'proc sql;\', ..., \'quit;\') or use a PROC SQL loop instead'))
+    return hits
+
+
+# ── W7: per-column full scan of pdd.pcnr via CALL EXECUTE ────────────────────
+_DICT_COL   = re.compile(r'\b(dictionary\.columns|sashelp\.vcolumn)\b', re.IGNORECASE)
+_PCNR_SCAN  = re.compile(r'from\s+(pdd\.pcnr|&outlib\.\.pcnr)\b', re.IGNORECASE)
+
+def check_per_col_pcnr_scan(path, lines):
+    hits = []
+    in_data_null = False
+    has_dict = False
+    data_start = 0
+    for i, raw in enumerate(lines, 1):
+        if re.search(r'^\s*data\s+_null_\s*;', raw, re.IGNORECASE):
+            in_data_null = True
+            has_dict = False
+            data_start = i
+        if in_data_null:
+            if re.search(_DICT_COL, raw):
+                has_dict = True
+            if re.search(r'^\s*run\s*;', raw, re.IGNORECASE):
+                in_data_null = False
+            if has_dict and re.search(_CALL_EXEC, raw):
+                window = ' '.join(lines[i-1:i+5])
+                if re.search(_PCNR_SCAN, window):
+                    hits.append((path, data_start, 'W7',
+                        'DATA _NULL_ over dictionary.columns with CALL EXECUTE scanning pdd.pcnr '
+                        '-- generates N full-table scans (one per variable); '
+                        'derive missing counts from existing GAPFILL summary instead'))
+    return hits
+
+
 # ── runner ────────────────────────────────────────────────────────────────────
 
 CHECKS = [
@@ -1055,6 +1102,8 @@ CHECKS = [
     check_prxchange_anchor_no_strip,
     check_cats_space_args,
     check_self_ref_param_default,
+    check_call_execute_bare_sql,
+    check_per_col_pcnr_scan,
 ]
 
 

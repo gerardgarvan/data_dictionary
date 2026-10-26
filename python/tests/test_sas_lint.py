@@ -389,3 +389,34 @@ def test_build_status_only_references_headers_aug_cols():
         "BUILD_STATUS DATA step references variable(s) not in _headers_aug schema:\n"
         + "\n".join(suspicious)
     )
+
+
+# ---------------------------------------------------------------------------
+# C24: CALL EXECUTE with bare SQL (no proc sql wrapper)
+# ---------------------------------------------------------------------------
+
+def test_c24_fires_on_bare_sql_in_call_execute():
+    lines = [
+        "data _null_;",
+        "  call execute(cats('insert into work.x select ''', name, ''' from pdd.pcnr where missing(', name, ');'));",
+        "run;",
+    ]
+    hits = sas_lint.check_call_execute_bare_sql("<test>", lines)
+    assert any("C24" in h[2] for h in hits), f"C24 did not fire: {hits}"
+
+
+def test_c24_no_fire_when_proc_sql_wrapped():
+    lines = [
+        "data _null_;",
+        "  call execute(cats('proc sql; insert into work.x select 1; quit;'));",
+        "run;",
+    ]
+    hits = sas_lint.check_call_execute_bare_sql("<test>", lines)
+    assert hits == [], f"C24 false-positive: {hits}"
+
+
+def test_c24_clean_on_phase5_macros():
+    sas_path = ROOT / "sas" / "05_build_pcnr_macros.sas"
+    lines = sas_path.read_text(encoding="utf-8", errors="replace").split("\n")
+    hits = sas_lint.check_call_execute_bare_sql(str(sas_path), lines)
+    assert hits == [], "C24 in macros file:\n" + "\n".join(str(h) for h in hits)
