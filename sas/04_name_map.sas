@@ -300,10 +300,46 @@
     else if s_code in ('s04','s05') then status = 'LINKAGE_ONLY';
     else if col_class = 'CLOCK' then status = 'EXCLUDED_CLK';
     else status = 'PCNR';
-    /* D-24: ENCRYPTED_MRN and ENCRYPTED_ENCOUNTER are linkage keys -- override to LINKAGE_ONLY */
-    if upcase(strip(orig_col_name)) in ('ENCRYPTED_MRN','ENCRYPTED_ENCOUNTER')
+    /* D-24: ENCRYPTED_MRN and ENCRYPTED_ENCOUNTER are linkage keys -- override to LINKAGE_ONLY.
+       Check col_name (SAS name after cleaning) and original_header (raw source name).
+       orig_col_name is NOT in _headers_aug; use col_name and original_header instead. */
+    if upcase(strip(col_name))        in ('ENCRYPTED_MRN','ENCRYPTED_ENCOUNTER') or
+       upcase(strip(original_header)) in ('ENCRYPTED_MRN','ENCRYPTED_ENCOUNTER')
     then status = 'LINKAGE_ONLY';
   run;
+
+  /* D-24 post-status assertions */
+  %local _n_enc_linkage _n_enc_pcnr;
+  proc sql noprint;
+    select count(*) into :_n_enc_linkage trimmed
+    from work.name_map_status
+    where status = 'LINKAGE_ONLY'
+      and (upcase(strip(col_name))        in ('ENCRYPTED_MRN','ENCRYPTED_ENCOUNTER') or
+           upcase(strip(original_header)) in ('ENCRYPTED_MRN','ENCRYPTED_ENCOUNTER'));
+    select count(*) into :_n_enc_pcnr trimmed
+    from work.name_map_status
+    where status = 'PCNR'
+      and (upcase(strip(col_name))        in ('ENCRYPTED_MRN','ENCRYPTED_ENCOUNTER') or
+           upcase(strip(original_header)) in ('ENCRYPTED_MRN','ENCRYPTED_ENCOUNTER'));
+  quit;
+  %if &_n_enc_linkage = 0 %then %do;
+    %fail_out(msg=%str(D-24: 0 LINKAGE_ONLY rows matched ENCRYPTED_MRN/ENCRYPTED_ENCOUNTER -- D-24 rule did not fire));
+    %if &p5_fail = 1 %then %return;
+  %end;
+  %if &_n_enc_pcnr > 0 %then %do;
+    %fail_out(msg=%str(D-24: &_n_enc_pcnr PCNR rows still have ENCRYPTED_MRN or ENCRYPTED_ENCOUNTER));
+    %if &p5_fail = 1 %then %return;
+  %end;
+  %put NOTE: [04_name_map] D-24: LINKAGE_ONLY rows for ENCRYPTED cols = &_n_enc_linkage (per-s_code below);
+  proc sql noprint; /* per-s_code count to log */
+    select s_code, count(*) as n
+    from work.name_map_status
+    where status = 'LINKAGE_ONLY'
+      and (upcase(strip(col_name))        in ('ENCRYPTED_MRN','ENCRYPTED_ENCOUNTER') or
+           upcase(strip(original_header)) in ('ENCRYPTED_MRN','ENCRYPTED_ENCOUNTER'))
+    group by s_code
+    order by s_code;
+  quit;
 
   /* Assert: every s_code that has a PRECEDE_STUDY_ID row in key_analysis
      must have exactly 1 KEY row. Zero is also a failure. */
@@ -2047,6 +2083,18 @@ quit;
     select count(*) into :_nrow trimmed from work._abbrev_hits;
   quit;
   %put NOTE: [04_name_map] exported name_abbrev_applied.csv rows=&_nrow;
+
+  /* D-24 final guard: PCNR group count must equal 1297 */
+  %local _n_pcnr_groups_final;
+  proc sql noprint;
+    select count(distinct group_id) into :_n_pcnr_groups_final trimmed
+    from pdd.name_map_vars;
+  quit;
+  %if &_n_pcnr_groups_final ne 1297 %then %do;
+    %fail_out(msg=%str(D-24: PCNR variable count = &_n_pcnr_groups_final expected 1297 -- check D-24 LINKAGE_ONLY rule));
+    %if &p5_fail = 1 %then %return;
+  %end;
+  %put NOTE: [04_name_map] D-24 final check: PCNR variable count = &_n_pcnr_groups_final (expected 1297) PASS;
 
   %put NOTE: [04_name_map] Section 14 exchange CSV exports complete;
 %mend section14_exports;

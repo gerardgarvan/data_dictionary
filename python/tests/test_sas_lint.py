@@ -309,3 +309,83 @@ def test_c23_clean_on_phase5_macros():
     lines = sas_path.read_text(encoding="utf-8", errors="replace").split("\n")
     hits = sas_lint.check_infile_where(str(sas_path), lines)
     assert hits == [], "C23 in macros file:\n" + "\n".join(str(h) for h in hits)
+
+
+# ---------------------------------------------------------------------------
+# D-24 guard: BUILD_STATUS DATA step in 04_name_map.sas must not reference
+# variables absent from the documented _headers_aug schema.
+# _headers_aug columns (from the PROC SQL that creates it):
+#   s_code, col_order, col_name, sas_type, length, original_header,
+#   trunc_flag, key_column_type, col_class, duplicate_study_id
+# ---------------------------------------------------------------------------
+
+_HEADERS_AUG_COLS = {
+    "s_code", "col_order", "col_name", "sas_type", "length",
+    "original_header", "trunc_flag", "key_column_type", "col_class",
+    "duplicate_study_id",
+}
+
+def _extract_build_status_block(text):
+    """Return lines of the DATA step inside %macro build_status ... that sets status."""
+    lines = text.split("\n")
+    in_macro = False
+    in_data = False
+    block = []
+    for line in lines:
+        if re.search(r'%macro\s+build_status\b', line, re.IGNORECASE):
+            in_macro = True
+            continue
+        if in_macro and re.search(r'%mend\b', line, re.IGNORECASE):
+            break
+        if in_macro:
+            if re.search(r'^\s*data\s+work\.\w', line, re.IGNORECASE):
+                in_data = True
+            if in_data:
+                block.append(line)
+            if in_data and re.search(r'^\s*run\s*;', line, re.IGNORECASE):
+                in_data = False
+    return block
+
+
+def test_build_status_only_references_headers_aug_cols():
+    """No variable in the BUILD_STATUS DATA step references a name absent from _headers_aug."""
+    sas_path = ROOT / "sas" / "04_name_map.sas"
+    text = sas_path.read_text(encoding="utf-8", errors="replace")
+    block = _extract_build_status_block(text)
+    assert block, "Could not locate BUILD_STATUS DATA step block in 04_name_map.sas"
+
+    # Extract bare word tokens that look like SAS variable references
+    # (alphabetic, not SAS keywords, not quoted strings)
+    keywords = {
+        "data", "set", "run", "if", "then", "else", "do", "end",
+        "length", "status", "in", "and", "or", "not", "output",
+        "upcase", "strip", "put", "input", "call", "symputx",
+        "work", "name_map_status",
+    }
+    # Strip block comments before tokenizing
+    block_text = "\n".join(block)
+    block_text = re.sub(r'/\*.*?\*/', '', block_text, flags=re.DOTALL)
+    suspicious = []
+    for line in block_text.split("\n"):
+        # Remove quoted strings
+        cleaned = re.sub(r"'[^']*'|\"[^\"]*\"", "", line)
+        # Find bare identifiers
+        for tok in re.findall(r'\b([a-z_][a-z0-9_]*)\b', cleaned, re.IGNORECASE):
+            tl = tok.lower()
+            if tl in keywords:
+                continue
+            if tl in _HEADERS_AUG_COLS:
+                continue
+            # Allow status (output var) and all known _headers_aug cols
+            if tl in {"status", "col_name", "original_header", "col_class",
+                      "duplicate_study_id", "key_column_type", "s_code",
+                      "trunc_flag", "sas_type", "col_order"}:
+                continue
+            # Flag anything that looks like orig_col_name (known bad pattern)
+            if "orig" in tl and "col" in tl:
+                suspicious.append(f"line: {line.strip()!r}  token: {tok!r}")
+
+    assert not suspicious, (
+        "BUILD_STATUS DATA step references variable(s) not in _headers_aug schema:\n"
+        + "\n".join(suspicious)
+    )

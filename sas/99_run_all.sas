@@ -223,7 +223,9 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
 %macro _init_phases;
   %global pdd_phases_run pdd_full_run;
   %local _raw;
-  %put NOTE: [99_run_all] PDD_PHASES raw=%sysget(PDD_PHASES);
+  %local _raw_display;
+  %let _raw_display = %sysget(PDD_PHASES);
+  %put NOTE: [99_run_all] PDD_PHASES raw=&_raw_display;
   %let _raw = %sysfunc(translate(%sysget(PDD_PHASES), %str( ), %str(,)));
   %let _raw = %sysfunc(compbl(%superq(_raw)));
   %if %length(%superq(_raw)) = 0 %then %do;
@@ -265,7 +267,11 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
   /* =========================================================================
      PHASE 2 -- Source Guard and Header Inventory
      ========================================================================= */
-  %put NOTE: [timing] phase 2 start %sysfunc(datetime(), datetime20.);
+  %local _ts;
+
+  %let _ts = %sysfunc(datetime(), datetime20.);
+
+  %put NOTE: [timing] phase 2 start &_ts;
   %if %_phase_in(2) %then %do;
     %put NOTE: ---- Phase 2: Source guard and header inventory -------------;
     %include "&sas_path.\02_source_guard.sas";
@@ -278,7 +284,11 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
     %if &pdd_hash_ok ne 1 %then
       %fail_out(msg=%str(run_hash_guard did not set pdd_hash_ok=1 -- pipeline cannot continue));
   %end;
-  %put NOTE: [timing] phase 2 end %sysfunc(datetime(), datetime20.);
+  %local _ts;
+
+  %let _ts = %sysfunc(datetime(), datetime20.);
+
+  %put NOTE: [timing] phase 2 end &_ts;
 
 
   /* =========================================================================
@@ -286,12 +296,20 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
      ========================================================================= */
   %_check_pipeline_ok(phase=3);
   %if %_phase_in(3) %then %do;
-    %put NOTE: [timing] phase 3 start %sysfunc(datetime(), datetime20.);
+    %local _ts;
+
+    %let _ts = %sysfunc(datetime(), datetime20.);
+
+    %put NOTE: [timing] phase 3 start &_ts;
     %put NOTE: ---- Phase 3: Direct import of 20 raw sources ------------;
     %include "&sas_path.\03_import.sas";
     %put NOTE: ---- Phase 3 complete --------------------------------------;
     %let pdd_phases_done = &pdd_phases_done 3;
-    %put NOTE: [timing] phase 3 end %sysfunc(datetime(), datetime20.);
+    %local _ts;
+
+    %let _ts = %sysfunc(datetime(), datetime20.);
+
+    %put NOTE: [timing] phase 3 end &_ts;
   %end;
   %else
     %put NOTE: [99_run_all] Phase 3 skipped (not in PDD_PHASES=&pdd_phases_run);
@@ -302,12 +320,20 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
      ========================================================================= */
   %_check_pipeline_ok(phase=4);
   %if %_phase_in(4) %then %do;
-    %put NOTE: [timing] phase 4 start %sysfunc(datetime(), datetime20.);
+    %local _ts;
+
+    %let _ts = %sysfunc(datetime(), datetime20.);
+
+    %put NOTE: [timing] phase 4 start &_ts;
     %put NOTE: ---- Phase 4: Name map (original to PCNR_) -----------------;
     %include "&sas_path.\04_name_map.sas";
     %put NOTE: ---- Phase 4 complete --------------------------------------;
     %let pdd_phases_done = &pdd_phases_done 4;
-    %put NOTE: [timing] phase 4 end %sysfunc(datetime(), datetime20.);
+    %local _ts;
+
+    %let _ts = %sysfunc(datetime(), datetime20.);
+
+    %put NOTE: [timing] phase 4 end &_ts;
   %end;
   %else
     %put NOTE: [99_run_all] Phase 4 skipped (not in PDD_PHASES=&pdd_phases_run);
@@ -318,12 +344,20 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
      ========================================================================= */
   %_check_pipeline_ok(phase=5);
   %if %_phase_in(5) %then %do;
-    %put NOTE: [timing] phase 5 start %sysfunc(datetime(), datetime20.);
+    %local _ts;
+
+    %let _ts = %sysfunc(datetime(), datetime20.);
+
+    %put NOTE: [timing] phase 5 start &_ts;
     %put NOTE: ---- Phase 5: Build PCNR_ on the spine --------------------;
     %include "&sas_path.\05_build_pcnr.sas";
     %put NOTE: ---- Phase 5 complete --------------------------------------;
     %let pdd_phases_done = &pdd_phases_done 5;
-    %put NOTE: [timing] phase 5 end %sysfunc(datetime(), datetime20.);
+    %local _ts;
+
+    %let _ts = %sysfunc(datetime(), datetime20.);
+
+    %put NOTE: [timing] phase 5 end &_ts;
   %end;
   %else
     %put NOTE: [99_run_all] Phase 5 skipped (not in PDD_PHASES=&pdd_phases_run);
@@ -351,6 +385,58 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
 %put NOTE: ---- Phase 7 complete --------------------------------------;
 */
 
+
+/* =========================================================================
+   PHASES 3-5 LOG SCAN
+   Flags NOTE patterns that indicate programming errors in Phases 3-5:
+     - Variable <x> is uninitialized  (wrong column name referenced)
+     - Numeric values have been converted to character  (type mismatch)
+     - Invalid numeric data  (type-unsafe generated code)
+     - Invalid argument  (type-unsafe macro call)
+   These are errors, not benign NOTEs, in the context of this pipeline.
+   ========================================================================= */
+%macro _pipeline_log_scan;
+  %local _plogs _i _plog _log_bad _total_bad;
+  %let _total_bad = 0;
+  %let _plogs = 03_import.log 04_name_map.log 05_build_pcnr.log;
+  %local _cur_log;
+  %let _i = 1;
+  %let _cur_log = %scan(&_plogs, &_i, %str( ));
+  %do %while(&_cur_log ne %str());
+    %let _plog = &logs_path.\&_cur_log;
+    %let _log_bad = 0;
+    %if %sysfunc(fileexist(&_plog)) %then %do;
+      data _null_;
+        infile "&_plog" encoding='utf-8' lrecl=500 end=_eof;
+        input _line $500.;
+        if (index(_line, 'Variable') > 0 and index(_line, 'is uninitialized') > 0)
+        or index(_line, 'Numeric values have been converted to character') > 0
+        or index(upcase(_line), 'INVALID NUMERIC DATA') > 0
+        or index(upcase(_line), 'INVALID ARGUMENT') > 0
+        then do;
+          call symputx('_log_bad',
+                       strip(put(input(symget('_log_bad'), best32.) + 1, best32.)), 'L');
+          put 'ERROR: [99_run_all] log-scan (&_cur_log): ' _line;
+        end;
+      run;
+      %let _total_bad = %eval(&_total_bad + &_log_bad);
+      %if &_log_bad > 0 %then
+        %put ERROR: [99_run_all] log-scan: &_log_bad problem NOTE(s) in &_cur_log;
+      %else
+        %put NOTE: [99_run_all] log-scan: &_cur_log clean;
+    %end;
+    %else
+      %put NOTE: [99_run_all] log-scan: &_cur_log not found (phase may not have run);
+    %let _i = %eval(&_i + 1);
+    %let _cur_log = %scan(&_plogs, &_i, %str( ));
+  %end;
+  %if &_total_bad > 0 %then %do;
+    %put ERROR: [99_run_all] log-scan FAILED: &_total_bad total problem NOTE(s) across phases 3-5;
+    %let syscc = 8;
+  %end;
+  %else %put NOTE: [99_run_all] log-scan phases 3-5: clean;
+%mend _pipeline_log_scan;
+%_pipeline_log_scan;
 
 /* =========================================================================
    PIPELINE COMPLETE / FAILED
