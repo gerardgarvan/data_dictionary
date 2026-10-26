@@ -2472,11 +2472,13 @@
             _heq.find(key:pcnr_name, key:_u_win,  key:_u_cand) = 0 then do;
       conflict_class = 'CODING_EQUIV';
     end;
-    /* ROUNDING: both parse as numeric; values differ only by floating-point rounding */
+    /* ROUNDING: both parse as numeric; values differ only by floating-point rounding.
+       Require abs(a-b) > 0 to exclude exactly-equal values (those are not rounding
+       errors; they would display identically at BEST32. and mislead the reviewer). */
     else do;
       _na = input(candidate_value, ?? best32.);
       _nb = input(winning_value,   ?? best32.);
-      if not missing(_na) and not missing(_nb) and
+      if not missing(_na) and not missing(_nb) and _na ne _nb and
          abs(_na - _nb) <= 1e-6 * max(abs(_na), abs(_nb), 1) then do;
         conflict_class = 'ROUNDING';
       end;

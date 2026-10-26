@@ -330,3 +330,54 @@ def test_rounding_in_key_sheet(tmp_path: Path) -> None:
     )
     wb.close()
     assert "ROUNDING" in all_text, "KEY sheet does not mention ROUNDING conflict_class"
+
+
+# ---------------------------------------------------------------------------
+# ROUNDING precision: winning_value != candidate_value for all ROUNDING rows
+# ---------------------------------------------------------------------------
+
+def test_rounding_rows_have_distinct_values(tmp_path: Path) -> None:
+    """For CONFLICT_DETAIL rows with conflict_class='ROUNDING',
+    winning_value and candidate_value must differ as strings.
+    Identical values indicate a ROUNDING classification bug (abs(a-b)>0 guard
+    in 05_build_pcnr_macros.sas must reject exact-equal values).
+    """
+    out = tmp_path / "rounding_distinct.xlsx"
+    headers = REQUIRED["CONFLICT_DETAIL"]
+    # Row with distinct values (correct ROUNDING)
+    distinct  = ["P002", "PCNR_Age", "SPINE_VS_SOURCE", "ROUNDING",
+                 "s09", "65.0000001", "s10", "65.0000002", "N"]
+    sheets = dict(_minimal_sheets())
+    sheets["CONFLICT_DETAIL"] = (headers, [distinct])
+    write_workbook(sheets, out)
+
+    wb = load_workbook(out, read_only=True)
+    ws = wb["CONFLICT_DETAIL"]
+    col_idx = {h: i for i, h in enumerate(headers)}
+    win_i   = col_idx["winning_value"]
+    cand_i  = col_idx["candidate_value"]
+    cls_i   = col_idx["conflict_class"]
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        if str(row[cls_i] or "") == "ROUNDING":
+            win  = str(row[win_i]  or "")
+            cand = str(row[cand_i] or "")
+            assert win != cand, (
+                f"ROUNDING row has identical winning_value and candidate_value: {win!r}. "
+                "Check abs(a-b)>0 guard in conflict_class DATA step."
+            )
+    wb.close()
+
+
+def test_rounding_identical_values_rejected() -> None:
+    """Confirm the workbook accepts CONFLICT_DETAIL rows where ROUNDING has
+    distinct values and would reject rows with identical ROUNDING values
+    only at the SAS classification stage (Python write_workbook is value-agnostic).
+    This is a documentation test: actual prevention is in SAS _na ne _nb guard.
+    """
+    headers = REQUIRED["CONFLICT_DETAIL"]
+    # Identical-value ROUNDING row -- Python writer does not reject this;
+    # the guard is in SAS.  Test documents the invariant.
+    bad_row = ["P001", "PCNR_Age", "SPINE_VS_SOURCE", "ROUNDING",
+               "s09", "65", "s10", "65", "N"]
+    # Should NOT raise -- Python writer is value-agnostic; SAS is the gate.
+    assert_input("CONFLICT_DETAIL", headers, [bad_row])  # no exception

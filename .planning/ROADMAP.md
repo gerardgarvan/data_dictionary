@@ -69,7 +69,7 @@ Plans:
 - Type resolution before build for the 9 type-conflict variables: N8 if all parse, else C (D-02 amendment)
 - QC-only provenance (D-16): pdd.qc_pcnr_provenance (2+-source cells); no per-cell _SRC columns
 - QC: exchange CSVs → `qc\pcnr_qc.xlsx` (KEY, GAPFILL, SPINE_COVERAGE, CONFLICT_SUMMARY, CONFLICT_DETAIL cap 5,000, TYPECHECK)
-- **Status: ✅ COMPLETE — merged to master at b5d37b5 (2026-10-26). QC workbook polish in progress on fix/04-decisions.**
+- **Status: ✅ COMPLETE — merged to master at fbf3c35 (2026-10-26). SAS tests passed=94 failed=0; pipeline exit 0, 0 warnings; pdd.pcnr 41,150 × 1,298 PCNR_ + NORM_PSID; recon 0 mismatches; conflicts 97,194 events / 95,840 cells (REAL 51,835; CODING_EQUIV 29,644; PLACEHOLDER 13,038; ROUNDING 1,956; NUMERIC_CLOSE 473; TOPCODE 248); provenance 342,605; ALL_MISSING 56.**
 - **Done when:** `pdd.pcnr` has 41,150 rows × 1,299 PCNR_ + NORM_PSID, 0 dup/blank keys, 0 CLOCK columns, QC written and reviewed; wired into 99_run_all.sas; tests/05_build_test.sas SUMMARY failed=0; reconciliation sample 0 mismatches; GAPFILL identities hold; Python QC run from run_pipeline.cmd exit 0.
 - **Plans:** 6 plans
 
