@@ -1743,8 +1743,8 @@
    NUM_TEXT rows: N, N_MISSING, N_UNPARSED, MEAN SD MEDIAN Q1 Q3 MIN MAX
      (via PROC MEANS stackodsoutput on a WORK dataset of parsed numeric copies),
      plus up to 5 LEVEL rows (sort_order 20-24) for most frequent unparsed values.
-   Appends to work._p6_rows. HIGH_CARD processing has already appended those
-   rows; rows for reclassified vars are removed before appending NUM_TEXT rows.
+   Called BEFORE %p6_freq_highcard so NUM_TEXT vars never get HIGH_CARD rows.
+   Appends NUM_TEXT rows directly to work._p6_rows.
    Parameters:
      lib=  source library
      ds=   source dataset
@@ -1867,16 +1867,8 @@
   %end;
 
   %put NOTE: [06_profile] p6_numtext: &_p6_nt_reclassified_n variable(s) reclassified as NUM_TEXT;
-
-  /* Remove any HIGH_CARD rows already appended for reclassified vars */
-  proc sql noprint;
-    delete from work._p6_rows
-    where upcase(variable) in
-      (select upcase(name) from work._p6_vars where var_class='NUM_TEXT');
-  quit;
-  %if &p6_fail = 1 %then %return;
-  %_p6_ok(section=p6_numtext delete old hc rows);
-  %if &p6_fail = 1 %then %return;
+  /* No rows to delete: %p6_numtext runs before %p6_freq_highcard, so no HIGH_CARD */
+  /* rows exist yet for these variables.                                              */
 
   /* Load NUM_TEXT variable names into macro arrays */
   %local _p6_ntr_total;
@@ -1913,12 +1905,13 @@
     %let _p6_ntr_nunparsed = %eval(&_p6_ntr_nnonmiss - &_p6_ntr_nparse);
 
     /* Build numeric dataset from parsed values */
+    /* Use IF not WHERE for _val: it is a computed variable, not on &lib..&ds */
     data work._p6_nt_parsed;
       length _val 8;
       set &lib..&ds (keep=&_p6_ntr_vname);
-      where strip(&_p6_ntr_vname) ne '';
+      if strip(&_p6_ntr_vname) = '' then delete;
       _val = input(strip(&_p6_ntr_vname), ?? best32.);
-      where also _val ne .;
+      if _val = . then delete;
       keep _val;
     run;
     %if &p6_fail = 1 %then %return;
@@ -2388,6 +2381,22 @@
     %return;
   %end;
   %if &p6_fail = 1 %then %return;
+
+  /* --- Integrity: each variable carries exactly one var_class --- */
+  %local _p6_mixvc_n;
+  proc sql noprint;
+    select count(*) into :_p6_mixvc_n trimmed
+    from (select variable, count(distinct var_class) as nvc
+          from work._p6_final
+          group by variable
+          having nvc > 1);
+  quit;
+  %if &_p6_mixvc_n > 0 %then %do;
+    %p6_fail_out(msg=%str(Integrity: &_p6_mixvc_n variable(s) have mixed var_class values));
+    %return;
+  %end;
+  %if &p6_fail = 1 %then %return;
+
   %put NOTE: [06_profile] All integrity checks passed;
 
   /* ---- Step 3: Publish (only reached if all validations passed) ---- */
@@ -2577,12 +2586,14 @@
   %p6_stats_contnum(lib=&lib, ds=&ds);
   %if &p6_fail = 1 %then %return;
 
-  /* ---- 7. HIGH_CARD frequency ---- */
-  %p6_freq_highcard(lib=&lib, ds=&ds);
+  /* ---- 6b. D-10: Numeric text reclassification BEFORE HIGH_CARD rows are built ---- */
+  /* %p6_numtext counts parse rates and updates var_class in work._p6_vars;           */
+  /* %p6_freq_highcard then sees NUM_TEXT vars as non-HIGH_CARD and skips them.        */
+  %p6_numtext(lib=&lib, ds=&ds, num_text_threshold=&num_text_threshold);
   %if &p6_fail = 1 %then %return;
 
-  /* ---- 7b. D-10: Numeric text reclassification (HIGH_CARD char only) ---- */
-  %p6_numtext(lib=&lib, ds=&ds, num_text_threshold=&num_text_threshold);
+  /* ---- 7. HIGH_CARD frequency ---- */
+  %p6_freq_highcard(lib=&lib, ds=&ds);
   %if &p6_fail = 1 %then %return;
 
   /* ---- 7c. D-09: Suppressed variable stat rows ---- */
