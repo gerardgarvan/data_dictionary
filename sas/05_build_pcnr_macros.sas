@@ -457,6 +457,7 @@
   /* Create empty accumulator */
   data work._spine_coverage;
     length s_code $4 n_keys 8 n_keys_not_in_spine 8 n_blank_keys 8 n_dup_keys 8;
+    call missing(of _all_); /* Bug 3 fix: suppress uninitialized variable warnings */
     stop;
   run;
 
@@ -572,18 +573,21 @@
   /* Create empty output datasets */
   data work._type_resolution;
     length pcnr_name $200 resolved_type $8 out_length 8;
+    call missing(of _all_); /* Bug 3 fix: suppress uninitialized variable warnings */
     stop;
   run;
 
   data work._typecheck_sources;
     length pcnr_name $200 s_code $4 n_char_sources 8 n_parse_failures 8
            n_null_as_missing 8 example_failing_value $200;
+    call missing(of _all_); /* Bug 3 fix: suppress uninitialized variable warnings */
     stop;
   run;
 
   /* Build in WORK to avoid outlib lock conflicts during incremental appends */
   data work._typefail_stage;
     length pcnr_name $200 s_code $4 raw_value $200 n 8;
+    call missing(of _all_); /* Bug 3 fix: suppress uninitialized variable warnings */
     stop;
   run;
 
@@ -609,6 +613,7 @@
     /* Step 2. Find contributing (s_code, sas_name) pairs from &nmlib..name_map */
     data work._tc_sources_&_tc_i;
       length pcnr_name $200 s_code $4 sas_name $200;
+      call missing(of _all_); /* Bug 3 fix: suppress uninitialized variable warnings */
       stop;
     run;
 
@@ -1668,6 +1673,7 @@
   /* Step 4. Create empty output datasets before DATA step */
   data work._prov_&s_code;
     length norm_psid $64 pcnr_name $200 src_s_code $4;
+    call missing(of _all_); /* Bug 3 fix: suppress uninitialized variable warnings */
     stop;
   run;
 
@@ -1676,6 +1682,7 @@
            winning_s_code $4 winning_value $200
            candidate_s_code $4 candidate_value $200
            value_type $1;
+    call missing(of _all_); /* Bug 3 fix: suppress uninitialized variable warnings */
     stop;
   run;
 
@@ -1772,6 +1779,7 @@
      Used in Pass 3 to skip pinned (source, var) pairs (Blocker 6). */
   data work._pinned_pairs;
     length pcnr_name $200 s_code $4;
+    call missing(of _all_); /* Bug 3 fix: suppress uninitialized variable warnings */
     stop;
   run;
 
@@ -2115,6 +2123,7 @@
   data work._recon_mismatches;
     length norm_psid $64 pcnr_name $200 fill_s_code $4
            pcnr_value $200 source_value $200 n_mismatches 8;
+    call missing(of _all_); /* Bug 3 fix: suppress uninitialized variable warnings */
     stop;
   run;
 
@@ -2384,6 +2393,11 @@
              value_type $1;
       set &_conflicts_setlist;
     run;
+    /* Bug 2 fix: guard after conflicts consolidation DATA step */
+    %if &syserr > 4 %then %do;
+      %fail_out(msg=%str(p5_write_qc: conflicts consolidation DATA step failed (syserr=&syserr)));
+      %return;
+    %end;
   %end;
   %else %do;
     data &outlib..qc_pcnr_conflicts;
@@ -2391,8 +2405,14 @@
              winning_s_code $4 winning_value $200
              candidate_s_code $4 candidate_value $200
              value_type $1;
+      call missing(of _all_);
       stop;
     run;
+    /* Bug 2 fix: guard after empty conflicts DATA step */
+    %if &syserr > 4 %then %do;
+      %fail_out(msg=%str(p5_write_qc: empty conflicts DATA step failed (syserr=&syserr)));
+      %return;
+    %end;
   %end;
 
   /* Step 1b. Add conflict_class to qc_pcnr_conflicts.
@@ -2413,10 +2433,19 @@
     input pcnr_name $ value_a $ value_b $;
     if pcnr_name ne '';
   run;
+  /* Bug 2 fix: guard after _equiv load -- if CSV missing or unreadable, fail cleanly */
+  %if &syserr > 4 %then %do;
+    %fail_out(msg=%str(p5_write_qc: failed to load pcnr_value_equiv.csv (syserr=&syserr)));
+    %return;
+  %end;
 
   /* Classify conflicts using hash lookup for CODING_EQUIV */
   data &outlib..qc_pcnr_conflicts;
     length conflict_class $20;
+    /* Bug 1 fix: declare PDV lengths for all hash key/data variables before
+       the declare hash statement so SAS resolves column types at compile time.
+       pcnr_name ($200) inherited from SET; value_a/value_b need explicit decl. */
+    length value_a $200 value_b $200;
     if _n_ = 1 then do;
       declare hash _heq(dataset:'work._equiv');
       _heq.defineKey('pcnr_name','value_a','value_b');
@@ -2454,6 +2483,11 @@
     end;
     drop _u_cand _u_win _na _nb;
   run;
+  /* Bug 2 fix: guard after conflict classification DATA step */
+  %if &syserr > 4 %then %do;
+    %fail_out(msg=%str(p5_write_qc: conflict_class classification DATA step failed (syserr=&syserr)));
+    %return;
+  %end;
 
   /* Step 2. Consolidate provenance from work._prov_s01..s20.
      NOTE: each work._prov_&s_code contains ONLY 2+-source variable rows
@@ -2473,12 +2507,23 @@
       length norm_psid $64 pcnr_name $200 src_s_code $4;
       set &_prov_setlist;
     run;
+    /* Bug 2 fix: guard after provenance consolidation DATA step */
+    %if &syserr > 4 %then %do;
+      %fail_out(msg=%str(p5_write_qc: provenance consolidation DATA step failed (syserr=&syserr)));
+      %return;
+    %end;
   %end;
   %else %do;
     data &outlib..qc_pcnr_provenance;
       length norm_psid $64 pcnr_name $200 src_s_code $4;
+      call missing(of _all_);
       stop;
     run;
+    /* Bug 2 fix: guard after empty provenance DATA step */
+    %if &syserr > 4 %then %do;
+      %fail_out(msg=%str(p5_write_qc: empty provenance DATA step failed (syserr=&syserr)));
+      %return;
+    %end;
   %end;
 
   %local _n_prov;
