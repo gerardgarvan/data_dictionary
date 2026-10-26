@@ -2,8 +2,8 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: PCNR_ raw layer and dictionary framework
-status: Phase 5 in progress — code review fixes applied, live run pending
-last_updated: "2026-10-21T00:00:00Z"
+status: Phase 5 complete — merged to master at b5d37b5 (2026-10-26); QC workbook polish on fix/04-decisions
+last_updated: "2026-10-26T00:00:00Z"
 progress:
   total_phases: 7
   completed_phases: 5
@@ -34,7 +34,7 @@ Next: Live run of Phase 5 (run_pipeline.cmd); tests/05_build_test.sas SUMMARY fa
 | 2 | Source guard and header inventory | ✅ Complete — live run passed 2026-10-19 14:15 |
 | 3 | Direct import of the 20 sources | ✅ Complete — live run 2026-10-20 20:58 passed all criteria (0 MISMATCH, n_pairs=9001 ndis=0, exit=1 warnings only) |
 | 4 | Name map | ✅ Complete — verified 2026-10-21; Price sign-off pending before Phase 7 |
-| 5 | Build PCNR_ on the spine | 🔧 In progress — code review fixes applied 2026-10-21; live run (pdd.pcnr) and QC workbook review outstanding. |
+| 5 | Build PCNR_ on the spine | ✅ Complete — merged to master at b5d37b5 (2026-10-26); QC workbook polish in progress on fix/04-decisions. |
 | 6 | Distribution engine | ⬜ Not started |
 | 7 | Dictionary workbook writer | ⬜ Not started |
 

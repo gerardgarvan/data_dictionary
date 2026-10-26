@@ -4,11 +4,15 @@ Core logic for the PCNR QC workbook (D-16b, D-22).
 Reads:   exchange/pcnr_gapfill.csv
          exchange/pcnr_spine_coverage.csv
          exchange/pcnr_conflicts_summary.csv
+         exchange/pcnr_conflicts_summary_class.csv
          exchange/pcnr_conflicts_detail.csv
          exchange/pcnr_typecheck.csv
          exchange/pcnr_typefail.csv
+         exchange/pcnr_all_missing.csv      (optional)
+         exchange/pcnr_all_missing_src.csv  (optional)
 Writes:  qc/pcnr_qc.xlsx
-Sheets:  KEY | GAPFILL | SPINE_COVERAGE | CONFLICT_SUMMARY | CONFLICT_DETAIL | TYPECHECK | TYPEFAIL
+Sheets:  KEY | GAPFILL | SPINE_COVERAGE | CONFLICT_SUMMARY | CONFLICT_CLASS_SUMMARY
+         | CONFLICT_DETAIL | TYPECHECK | TYPEFAIL | ALL_MISSING | ALL_MISSING_SRC
 """
 
 from __future__ import annotations
@@ -16,6 +20,7 @@ from __future__ import annotations
 import csv
 import logging
 import re
+from collections import defaultdict
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
@@ -29,16 +34,23 @@ SHEET_ORDER = [
     "GAPFILL",
     "SPINE_COVERAGE",
     "CONFLICT_SUMMARY",
+    "CONFLICT_CLASS_SUMMARY",
     "CONFLICT_DETAIL",
     "TYPECHECK",
     "TYPEFAIL",
+    "ALL_MISSING",
+    "ALL_MISSING_SRC",
 ]
 
 # Required columns per non-KEY sheet (item 18).
+# For CONFLICT_CLASS_SUMMARY these validate the *source* CSV columns, not the aggregated sheet.
 REQUIRED_COLUMNS: dict[str, list[str]] = {
     "GAPFILL": ["pcnr_name", "n_spine", "n_gapfilled", "n_missing"],
     "SPINE_COVERAGE": ["s_code", "n_keys", "n_keys_not_in_spine", "n_blank_keys", "n_dup_keys"],
     "CONFLICT_SUMMARY": ["pcnr_name", "conflict_type", "n_conflict_events", "n_conflict_cells"],
+    "CONFLICT_CLASS_SUMMARY": [
+        "pcnr_name", "conflict_type", "conflict_class", "n_conflict_events", "n_conflict_cells",
+    ],
     "CONFLICT_DETAIL": [
         "norm_psid", "pcnr_name", "conflict_type", "conflict_class",
         "winning_s_code", "winning_value",
@@ -46,6 +58,8 @@ REQUIRED_COLUMNS: dict[str, list[str]] = {
     ],
     "TYPECHECK": ["pcnr_name", "resolved_type", "out_length", "n_char_sources", "n_failures", "n_null_as_missing"],
     "TYPEFAIL": ["pcnr_name", "s_code", "raw_value", "n"],
+    "ALL_MISSING": ["pcnr_name", "s_codes_contributing", "n_missing_spine", "n_spine"],
+    "ALL_MISSING_SRC": ["pcnr_name", "s_code", "n_nonmissing"],
 }
 
 # Fixed integer column names (item 18).
@@ -63,6 +77,10 @@ _NUMERIC_INT_COLS: frozenset[str] = frozenset([
     "n_spine",
     "n_gapfilled",
     "n_missing",
+    "n_missing_spine",
+    "n_nonmissing",
+    "n_variables",
+    "n_cells",
     "n",
 ])
 
@@ -87,6 +105,56 @@ def _int_col_indices(headers: list[str]) -> frozenset[int]:
     )
 
 
+def _build_conflict_class_summary(
+    rows: list[dict[str, str]],
+) -> tuple[list[str], list[list]]:
+    """Aggregate source CSV rows into CONFLICT_CLASS_SUMMARY sheet content.
+
+    Source CSV columns: pcnr_name, conflict_type, conflict_class,
+                        n_conflict_events, n_conflict_cells.
+    Output sheet columns: conflict_class, n_variables, n_cells, top_5_vars_by_cells.
+    Includes a TOTALS row where n_cells sums to total conflicts (97,194).
+    """
+    # Aggregate by conflict_class
+    class_n_vars: dict[str, set[str]] = defaultdict(set)
+    class_n_cells: dict[str, int] = defaultdict(int)
+    class_var_cells: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+
+    for r in rows:
+        cls = r.get("conflict_class", "")
+        name = r.get("pcnr_name", "")
+        try:
+            cells = int(r.get("n_conflict_cells", 0) or 0)
+        except (ValueError, TypeError):
+            cells = 0
+        class_n_vars[cls].add(name)
+        class_n_cells[cls] += cells
+        class_var_cells[cls][name] += cells
+
+    headers = ["conflict_class", "n_variables", "n_cells", "top_5_vars_by_cells"]
+    data: list[list] = []
+
+    total_cells = 0
+    total_vars: set[str] = set()
+
+    for cls in sorted(class_n_vars.keys()):
+        n_vars = len(class_n_vars[cls])
+        n_cells = class_n_cells[cls]
+        top5 = ", ".join(
+            v for v, _ in sorted(
+                class_var_cells[cls].items(), key=lambda kv: kv[1], reverse=True
+            )[:5]
+        )
+        data.append([cls, n_vars, n_cells, top5])
+        total_cells += n_cells
+        total_vars.update(class_n_vars[cls])
+
+    # Totals row
+    data.append(["TOTAL", len(total_vars), total_cells, ""])
+
+    return headers, data
+
+
 def _key_rows() -> list[list[str]]:
     """Documentation rows for the KEY sheet."""
     return [
@@ -103,6 +171,11 @@ def _key_rows() -> list[list[str]]:
          "One row per (pcnr_name, conflict_type) combination. "
          "n_conflict_events = number of disagreements (one per patient x variable pair that differs). "
          "n_conflict_cells = distinct patient x variable pairs with a conflict."],
+        ["Sheet", "CONFLICT_CLASS_SUMMARY",
+         "One row per conflict_class. Aggregated from pcnr_conflicts_summary_class.csv. "
+         "Columns: conflict_class, n_variables (distinct pcnr_names), n_cells (sum of "
+         "n_conflict_cells), top_5_vars_by_cells (comma-joined top 5 pcnr_names by n_cells). "
+         "Includes a TOTAL row. n_cells across all data rows sums to total conflicts (97,194)."],
         ["Sheet", "CONFLICT_DETAIL",
          f"One row per conflicting cell. Capped at {CONFLICT_DETAIL_CAP} rows in this workbook. "
          f"Full table is pdd.qc_pcnr_conflicts on P:. "
@@ -114,6 +187,14 @@ def _key_rows() -> list[list[str]]:
         ["Sheet", "TYPEFAIL",
          "One row per (pcnr_name, s_code, raw_value) combination for values that failed "
          "numeric parse during type resolution. Shows n (count of occurrences)."],
+        ["Sheet", "ALL_MISSING",
+         "One row per PCNR_ variable that is entirely missing across all 41,150 spine rows. "
+         "Columns: pcnr_name, s_codes_contributing (space-delimited), n_missing_spine, n_spine. "
+         "Present only when at least one all-missing variable exists; sheet shows (no data) otherwise."],
+        ["Sheet", "ALL_MISSING_SRC",
+         "One row per (pcnr_name, s_code) for all-missing PCNR_ variables. "
+         "n_nonmissing = count of non-missing values in the source dataset (always 0 for truly "
+         "all-missing variables). Companion to ALL_MISSING."],
         # Conflict types (D-15)
         ["conflict_type", "SPINE_VS_SOURCE",
          "Spine is non-missing AND a non-spine source is non-missing AND they disagree. "
@@ -134,9 +215,8 @@ def _key_rows() -> list[list[str]]:
          "and are excluded from PCNR_ output. PCNR variable count: 1299 -> 1297."],
         # Type resolution
         ["Type", "N8 vs C",
-         "When a variable appears as numeric (N8) in some sources and character (C) in others, "
-         "the type conflict is noted in TYPECHECK. "
-         "Resolution (D-02b): keep as character in PCNR_ output."],
+         "N8 if every non-missing source value parses as numeric (literal NULL treated as "
+         "missing per D-02b); otherwise C."],
         # conflict_class values (Item 1)
         ["conflict_class", "PLACEHOLDER",
          "Either the candidate_value or the winning_value is one of: ?, NULL, N/A, UNKNOWN "
@@ -145,8 +225,9 @@ def _key_rows() -> list[list[str]]:
          "The (pcnr_name, value_a, value_b) pair appears in docs/pcnr_value_equiv.csv "
          "(order-insensitive). Known coding synonyms (e.g. FEMALE/F, MALE/M)."],
         ["conflict_class", "TOPCODE",
-         "Numeric variable where candidate_value='89' and winning_value > 89. "
-         "Top-coded value (89=highest reportable) vs the actual higher value."],
+         "AGE variable where candidate_value='89' and winning_value > 89. "
+         "Top-coded value (89=highest reportable) vs the actual higher value. "
+         "Restricted to variables whose pcnr_name contains 'AGE' (case-insensitive)."],
         ["conflict_class", "NUMERIC_CLOSE",
          "Both values parse as numeric and abs(a-b)/max(abs(a),abs(b)) <= 0.01 (within 1%)."],
         ["conflict_class", "REAL",
@@ -191,6 +272,8 @@ def write_workbook(
     sheets:
         Mapping of sheet name to (headers, data_rows). KEY is always written
         from the hard-coded _key_rows(); any KEY entry in sheets is ignored.
+        CONFLICT_CLASS_SUMMARY is built by aggregating source rows in sheets
+        under that key (list[dict]) if present, or empty otherwise.
     out_path:
         Destination path for the xlsx file. Parent directories are created.
     """
@@ -204,6 +287,28 @@ def write_workbook(
             headers = key_data[0]
             data = key_data[1:]
             write_table(ws, headers, data)
+        elif sheet_name == "CONFLICT_CLASS_SUMMARY":
+            # Build aggregated view from source CSV rows stored as dict list
+            raw_entry = sheets.get(sheet_name)
+            if raw_entry and raw_entry[0]:
+                # raw_entry is (headers, rows_as_lists) -- but for aggregation we need
+                # the raw dict rows from the CSV; the caller may pass list[dict] as the
+                # rows element when sheet_name == CONFLICT_CLASS_SUMMARY.
+                raw_rows = raw_entry[1]
+                # Support both list[dict] and list[list] (list[list] from standard path)
+                if raw_rows and isinstance(raw_rows[0], dict):
+                    src_rows = raw_rows
+                else:
+                    # Reconstruct dicts from headers + list rows
+                    src_hdrs = raw_entry[0]
+                    src_rows = [dict(zip(src_hdrs, r)) for r in raw_rows]
+                agg_headers, agg_data = _build_conflict_class_summary(src_rows)
+            else:
+                agg_headers, agg_data = ["conflict_class", "n_variables", "n_cells", "top_5_vars_by_cells"], []
+            if not agg_data:
+                ws.append(["(no data)"])
+            else:
+                write_table(ws, agg_headers, agg_data, int_cols=_int_col_indices(agg_headers))
         else:
             headers, data_rows = sheets.get(sheet_name, ([], []))
             assert_input(sheet_name, headers, data_rows)

@@ -4,11 +4,15 @@ Write PCNR QC workbook (D-16b, D-22).
 Reads:   <exchange>/pcnr_gapfill.csv
          <exchange>/pcnr_spine_coverage.csv
          <exchange>/pcnr_conflicts_summary.csv
+         <exchange>/pcnr_conflicts_summary_class.csv
          <exchange>/pcnr_conflicts_detail.csv
          <exchange>/pcnr_typecheck.csv
          <exchange>/pcnr_typefail.csv
+         <exchange>/pcnr_all_missing.csv      (optional)
+         <exchange>/pcnr_all_missing_src.csv  (optional)
 Writes:  <qc>/pcnr_qc.xlsx
-Sheets:  KEY | GAPFILL | SPINE_COVERAGE | CONFLICT_SUMMARY | CONFLICT_DETAIL | TYPECHECK | TYPEFAIL
+Sheets:  KEY | GAPFILL | SPINE_COVERAGE | CONFLICT_SUMMARY | CONFLICT_CLASS_SUMMARY
+         | CONFLICT_DETAIL | TYPECHECK | TYPEFAIL | ALL_MISSING | ALL_MISSING_SRC
 
 Exit 0 on success, non-zero on any failure.
 """
@@ -82,31 +86,36 @@ def main() -> int:
 
     setup_logging(logs / "write_pcnr_qc.log")
 
+    # Required CSVs: (filename, sheet_name)
     csv_specs = [
         ("pcnr_gapfill.csv", "GAPFILL"),
         ("pcnr_spine_coverage.csv", "SPINE_COVERAGE"),
         ("pcnr_conflicts_summary.csv", "CONFLICT_SUMMARY"),
+        ("pcnr_conflicts_summary_class.csv", "CONFLICT_CLASS_SUMMARY"),
         ("pcnr_conflicts_detail.csv", "CONFLICT_DETAIL"),
         ("pcnr_typecheck.csv", "TYPECHECK"),
         ("pcnr_typefail.csv", "TYPEFAIL"),
     ]
 
-    # Verify all CSVs exist and are non-empty (header-only accepted; truly empty rejected)
+    # Optional CSVs: skipped if absent (ALL_MISSING sheets may not exist when 0 all-missing vars)
+    csv_specs_optional = [
+        ("pcnr_all_missing.csv", "ALL_MISSING"),
+        ("pcnr_all_missing_src.csv", "ALL_MISSING_SRC"),
+    ]
+
+    # Verify all required CSVs exist and are non-empty (header-only accepted; truly empty rejected)
     for fname, _ in csv_specs:
         p = exchange / fname
         if not p.exists() or p.stat().st_size == 0:
             logging.error("Input not found or empty: %s", p)
             return 1
 
-    # Read all CSVs
-    csv_data: dict[str, tuple[list[str], list[dict[str, str]]]] = {}
-    for fname, sheet_name in csv_specs:
+    def _read_with_error(fname: str, sheet_name: str) -> tuple[list[str], list[dict[str, str]]] | None:
         p = exchange / fname
         logging.info("Reading %s", p)
         try:
-            csv_data[sheet_name] = read_csv(p)
+            return read_csv(p)
         except UnicodeDecodeError as exc:
-            # Count newlines in raw bytes for accurate line/col (D-23 -- no values).
             pcnr_name_found = _extract_pcnr_name(p, exc.start)
             try:
                 raw = p.read_bytes()
@@ -125,7 +134,25 @@ def main() -> int:
             )
             sys.exit(1)
 
-    # Validate columns and cap before writing (item 18)
+    # Read all required CSVs
+    csv_data: dict[str, tuple[list[str], list[dict[str, str]]]] = {}
+    for fname, sheet_name in csv_specs:
+        result = _read_with_error(fname, sheet_name)
+        if result is not None:
+            csv_data[sheet_name] = result
+
+    # Read optional CSVs (skip if absent)
+    for fname, sheet_name in csv_specs_optional:
+        p = exchange / fname
+        if p.exists() and p.stat().st_size > 0:
+            result = _read_with_error(fname, sheet_name)
+            if result is not None:
+                csv_data[sheet_name] = result
+        else:
+            logging.info("Optional CSV absent, skipping: %s", p)
+
+    # Validate required columns and cap before writing (item 18)
+    # CONFLICT_CLASS_SUMMARY validation is on the source CSV (not the aggregated sheet)
     for _, sheet_name in csv_specs:
         headers, rows = csv_data[sheet_name]
         try:
@@ -134,8 +161,20 @@ def main() -> int:
             logging.error("Validation failed for %s: %s", sheet_name, exc)
             return 1
 
+    # Validate optional sheets if present
+    for _, sheet_name in csv_specs_optional:
+        if sheet_name in csv_data:
+            headers, rows = csv_data[sheet_name]
+            try:
+                assert_input(sheet_name, headers, rows)
+            except ValueError as exc:
+                logging.error("Validation failed for %s: %s", sheet_name, exc)
+                return 1
+
     # D-24: assert no CSV column starts with PCNR_ENCRYPTED_
-    for fname, sheet_name in csv_specs:
+    for fname, sheet_name in csv_specs + csv_specs_optional:
+        if sheet_name not in csv_data:
+            continue
         headers, _ = csv_data[sheet_name]
         enc_cols = [h for h in headers if h.upper().startswith("PCNR_ENCRYPTED_")]
         if enc_cols:
@@ -145,12 +184,20 @@ def main() -> int:
             )
             return 1
 
-    # Build sheets dict: (headers, rows_as_lists)
-    sheets: dict[str, tuple[list[str], list[list]]] = {}
-    for _, sheet_name in csv_specs:
+    # Build sheets dict.
+    # CONFLICT_CLASS_SUMMARY: pass raw dict rows so write_workbook can aggregate.
+    # All other sheets: (headers, rows_as_lists).
+    sheets: dict[str, tuple[list[str], list]] = {}
+    for _, sheet_name in csv_specs + csv_specs_optional:
+        if sheet_name not in csv_data:
+            continue
         headers, rows = csv_data[sheet_name]
-        data = [list(r.values()) for r in rows]
-        sheets[sheet_name] = (headers, data)
+        if sheet_name == "CONFLICT_CLASS_SUMMARY":
+            # Pass dict rows for aggregation in write_workbook
+            sheets[sheet_name] = (headers, rows)  # type: ignore[assignment]
+        else:
+            data = [list(r.values()) for r in rows]
+            sheets[sheet_name] = (headers, data)
 
     xlsx_path = qc / "pcnr_qc.xlsx"
     try:
@@ -161,10 +208,19 @@ def main() -> int:
         )
         return 1
 
+    # Build expected row counts for verification.
+    # CONFLICT_CLASS_SUMMARY: expected = aggregated rows (unknown here; skip in verify).
+    # Optional absent sheets: excluded from verify.
     expected_data_rows: dict[str, int] = {}
     for _, sheet_name in csv_specs:
+        if sheet_name == "CONFLICT_CLASS_SUMMARY":
+            continue  # aggregated sheet — row count not predictable from source CSV
         _, rows = csv_data[sheet_name]
         expected_data_rows[sheet_name] = len(rows)
+    for _, sheet_name in csv_specs_optional:
+        if sheet_name in csv_data:
+            _, rows = csv_data[sheet_name]
+            expected_data_rows[sheet_name] = len(rows)
 
     try:
         verify_workbook(xlsx_path, expected_data_rows)

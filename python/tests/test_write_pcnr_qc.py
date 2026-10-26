@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from pdd.pcnr_qc_workbook import (
     CONFLICT_DETAIL_CAP,
+    REQUIRED_COLUMNS,
     SHEET_ORDER,
     assert_input,
     write_workbook,
@@ -28,6 +29,9 @@ REQUIRED = {
     "GAPFILL": ["pcnr_name", "n_spine", "n_gapfilled", "n_missing"],
     "SPINE_COVERAGE": ["s_code", "n_keys", "n_keys_not_in_spine", "n_blank_keys", "n_dup_keys"],
     "CONFLICT_SUMMARY": ["pcnr_name", "conflict_type", "n_conflict_events", "n_conflict_cells"],
+    "CONFLICT_CLASS_SUMMARY": [
+        "pcnr_name", "conflict_type", "conflict_class", "n_conflict_events", "n_conflict_cells",
+    ],
     "CONFLICT_DETAIL": [
         "norm_psid", "pcnr_name", "conflict_type", "conflict_class",
         "winning_s_code", "winning_value",
@@ -35,16 +39,18 @@ REQUIRED = {
     ],
     "TYPECHECK": ["pcnr_name", "resolved_type", "out_length", "n_char_sources", "n_failures", "n_null_as_missing"],
     "TYPEFAIL": ["pcnr_name", "s_code", "raw_value", "n"],
+    "ALL_MISSING": ["pcnr_name", "s_codes_contributing", "n_missing_spine", "n_spine"],
+    "ALL_MISSING_SRC": ["pcnr_name", "s_code", "n_nonmissing"],
 }
 
 
 def _minimal_sheets() -> dict[str, tuple[list[str], list[list]]]:
-    """All 5 non-KEY sheets with required columns and 0 data rows."""
+    """All non-KEY sheets with required columns and 0 data rows."""
     return {name: (cols, []) for name, cols in REQUIRED.items()}
 
 
 # ---------------------------------------------------------------------------
-# Test 1: KEY is first sheet; SHEET_ORDER enforced
+# Test 1: KEY is first sheet; SHEET_ORDER enforced; SHEET_ORDER[0] == "KEY"
 # ---------------------------------------------------------------------------
 
 def test_key_is_first_sheet(tmp_path: Path) -> None:
@@ -55,6 +61,11 @@ def test_key_is_first_sheet(tmp_path: Path) -> None:
     assert wb.sheetnames[0] == "KEY"
     assert wb.sheetnames == SHEET_ORDER
     wb.close()
+
+
+def test_sheet_order_key_first() -> None:
+    """SHEET_ORDER[0] must be 'KEY' (item 7)."""
+    assert SHEET_ORDER[0] == "KEY"
 
 
 # ---------------------------------------------------------------------------
@@ -106,10 +117,8 @@ def test_n_filled_treated_as_int(tmp_path: Path) -> None:
     # GAPFILL with an extra n_filled_s01 column
     headers = REQUIRED["GAPFILL"] + ["n_filled_s01"]
     data = [["PCNR_Age", "100", "5", "2", "5"]]
-    sheets = {
-        "GAPFILL": (headers, data),
-        **{name: (cols, []) for name, cols in REQUIRED.items() if name != "GAPFILL"},
-    }
+    sheets = dict(_minimal_sheets())
+    sheets["GAPFILL"] = (headers, data)
     write_workbook(sheets, out)
 
     wb = load_workbook(out, read_only=True)
@@ -225,8 +234,6 @@ def test_exchange_schema_matches_required(tmp_path: Path) -> None:
     """exchange_schema.csv columns match REQUIRED_COLUMNS in pcnr_qc_workbook."""
     import csv as csv_mod
 
-    from pdd.pcnr_qc_workbook import REQUIRED_COLUMNS
-
     schema_path = Path(__file__).resolve().parent.parent.parent / "docs" / "exchange_schema.csv"
     if not schema_path.exists():
         pytest.skip("docs/exchange_schema.csv not present")
@@ -259,3 +266,46 @@ def test_exchange_schema_matches_required(tmp_path: Path) -> None:
         assert schema == required, (
             f"{fname} schema columns {schema} != REQUIRED_COLUMNS[{sheet!r}] {required}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Item 1: CONFLICT_CLASS_SUMMARY in SHEET_ORDER with correct REQUIRED columns
+# ---------------------------------------------------------------------------
+
+def test_conflict_class_summary_in_sheet_order() -> None:
+    """CONFLICT_CLASS_SUMMARY is in SHEET_ORDER after CONFLICT_SUMMARY."""
+    assert "CONFLICT_CLASS_SUMMARY" in SHEET_ORDER
+    cs_idx = SHEET_ORDER.index("CONFLICT_SUMMARY")
+    ccs_idx = SHEET_ORDER.index("CONFLICT_CLASS_SUMMARY")
+    assert ccs_idx == cs_idx + 1, (
+        f"CONFLICT_CLASS_SUMMARY (idx {ccs_idx}) should be directly after "
+        f"CONFLICT_SUMMARY (idx {cs_idx})"
+    )
+
+
+def test_conflict_class_summary_required_columns() -> None:
+    """CONFLICT_CLASS_SUMMARY REQUIRED columns validate source CSV."""
+    expected = ["pcnr_name", "conflict_type", "conflict_class", "n_conflict_events", "n_conflict_cells"]
+    assert REQUIRED_COLUMNS["CONFLICT_CLASS_SUMMARY"] == expected
+
+
+# ---------------------------------------------------------------------------
+# Item 5: ALL_MISSING and ALL_MISSING_SRC in SHEET_ORDER with correct REQUIRED
+# ---------------------------------------------------------------------------
+
+def test_all_missing_in_sheet_order() -> None:
+    """ALL_MISSING and ALL_MISSING_SRC are in SHEET_ORDER."""
+    assert "ALL_MISSING" in SHEET_ORDER
+    assert "ALL_MISSING_SRC" in SHEET_ORDER
+
+
+def test_all_missing_required_columns() -> None:
+    """ALL_MISSING REQUIRED columns are correct."""
+    expected = ["pcnr_name", "s_codes_contributing", "n_missing_spine", "n_spine"]
+    assert REQUIRED_COLUMNS["ALL_MISSING"] == expected
+
+
+def test_all_missing_src_required_columns() -> None:
+    """ALL_MISSING_SRC REQUIRED columns are correct."""
+    expected = ["pcnr_name", "s_code", "n_nonmissing"]
+    assert REQUIRED_COLUMNS["ALL_MISSING_SRC"] == expected

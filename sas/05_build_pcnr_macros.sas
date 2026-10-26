@@ -1867,7 +1867,7 @@
                            spine_n=&spine_n, gen_dir=&gen_dir);
       %end;
       %else %do;
-        %put NOTE: [05_build_pcnr] Pass 3: source &_sc contributes 0 PCNR vars (all vars pinned) -- skipped;
+        %put NOTE: [05_build_pcnr] Pass 3: source &_sc contributes 0 PCNR vars -- skipped;
       %end;
     %end;
   %end;
@@ -2369,6 +2369,7 @@
    ============================================================ */
 %macro p5_write_qc(
   outlib=pdd,
+  nmlib=pdd,
   spine_n=41150,
   export_dir=
 );
@@ -2465,9 +2466,10 @@
             _heq.find(key:pcnr_name, key:_u_win,  key:_u_cand) = 0 then do;
       conflict_class = 'CODING_EQUIV';
     end;
-    /* TOPCODE: numeric var, candidate='89', winner>89 */
+    /* TOPCODE: AGE variable, candidate='89', winner>89 (restricted to AGE vars) */
     else if value_type = 'N' and _u_cand = '89' and
-            input(winning_value, ?? best32.) > 89 then do;
+            input(winning_value, ?? best32.) > 89
+         and index(upcase(pcnr_name), 'AGE') > 0 then do;
       conflict_class = 'TOPCODE';
     end;
     /* NUMERIC_CLOSE: both parse numeric, within 1% */
@@ -2661,14 +2663,148 @@
 
   %put NOTE: [05_build_pcnr] GAPFILL identity assertions passed for all &_n_nmv2 variables;
 
+  /* Drop var_idx helper column before export (Item 3) */
+  data work._gapfill_export;
+    set work._gapfill_summary;
+    drop var_idx;
+  run;
+
   /* Explicit UTF-8 FILENAME before PROC EXPORT (D-23) */
   filename _exp03 "&export_dir.\pcnr_gapfill.csv" encoding='utf-8';
-  proc export data=work._gapfill_summary
+  proc export data=work._gapfill_export
     outfile=_exp03
     dbms=csv replace;
   run;
   filename _exp03 clear;
   %put NOTE: [05_build_pcnr] pcnr_gapfill.csv written to export_dir;
+
+  /* Step 3b. ALL_MISSING: identify PCNR_ variables that are entirely missing
+     across all spine rows and export to pcnr_all_missing.csv / pcnr_all_missing_src.csv.
+     Skip export (with NOTE) when 0 all-missing variables exist. */
+
+  /* 3b-i. Get total spine row count */
+  %local _spine_rows;
+  proc sql noprint;
+    select count(*) into :_spine_rows trimmed
+    from &outlib..pcnr;
+  quit;
+  %if &syserr > 4 %then %do;
+    %fail_out(msg=%str(p5_write_qc: failed to count rows in &outlib..pcnr (syserr=&syserr)));
+    %return;
+  %end;
+  %put NOTE: [05_build_pcnr] ALL_MISSING: spine row count = &_spine_rows;
+
+  /* 3b-ii. Enumerate PCNR_ columns via dictionary.columns; generate per-column
+     PROC SQL INSERT to accumulate missing counts into work._all_missing_raw. */
+  proc sql noprint;
+    create table work._all_missing_raw (pcnr_name char(200), n_missing num);
+  quit;
+
+  data _null_;
+    /* Read PCNR_ columns from dictionary for outlib.PCNR */
+    set sashelp.vcolumn (where=(
+        upcase(libname) = upcase("&outlib")
+      and upcase(memname) = 'PCNR'
+      and substr(upcase(name), 1, 5) = 'PCNR_'
+    ));
+    length _stmt $500;
+    _stmt = cat(
+      "insert into work._all_missing_raw select '",
+      strip(name), "', count(*) from &outlib..pcnr where missing(",
+      strip(name), ");"
+    );
+    call execute(_stmt);
+    call missing(of _all_);
+  run;
+  %if &syserr > 4 %then %do;
+    %fail_out(msg=%str(p5_write_qc: ALL_MISSING per-column insert generation failed (syserr=&syserr)));
+    %return;
+  %end;
+
+  /* 3b-iii. Filter to variables where all rows are missing */
+  proc sql noprint;
+    create table work._all_missing as
+    select pcnr_name, n_missing
+    from work._all_missing_raw
+    where n_missing = &_spine_rows;
+  quit;
+  %if &syserr > 4 %then %do;
+    %fail_out(msg=%str(p5_write_qc: ALL_MISSING filter step failed (syserr=&syserr)));
+    %return;
+  %end;
+
+  %local _n_all_missing;
+  proc sql noprint;
+    select count(*) into :_n_all_missing trimmed from work._all_missing;
+  quit;
+  %put NOTE: [05_build_pcnr] ALL_MISSING variables: &_n_all_missing;
+
+  %if &_n_all_missing > 0 %then %do;
+
+    /* 3b-iv. Join to work._nmv to get s_codes_contributing; add n_spine */
+    proc sql noprint;
+      create table work._all_missing_detail as
+      select a.pcnr_name,
+             b.s_codes_contributing,
+             a.n_missing as n_missing_spine,
+             &_spine_rows as n_spine
+      from work._all_missing as a
+      left join work._nmv as b
+        on a.pcnr_name = b.pcnr_name;
+    quit;
+    %if &syserr > 4 %then %do;
+      %fail_out(msg=%str(p5_write_qc: ALL_MISSING join to _nmv failed (syserr=&syserr)));
+      %return;
+    %end;
+
+    /* 3b-v. Export pcnr_all_missing.csv */
+    filename _exp0a "&export_dir.\pcnr_all_missing.csv" encoding='utf-8';
+    proc export data=work._all_missing_detail
+      outfile=_exp0a
+      dbms=csv replace;
+    run;
+    filename _exp0a clear;
+    %if &syserr > 4 %then %do;
+      %fail_out(msg=%str(p5_write_qc: pcnr_all_missing.csv export failed (syserr=&syserr)));
+      %return;
+    %end;
+    %put NOTE: [05_build_pcnr] pcnr_all_missing.csv written (&_n_all_missing variables);
+
+    /* 3b-vi. Build per-source non-missing counts for all-missing PCNR_ vars.
+       For each pcnr_name in _all_missing, get contributing s_codes from _nmv.
+       All counts will be 0 for truly all-missing vars; record for completeness. */
+    proc sql noprint;
+      create table work._all_missing_src as
+      select nm.pcnr_name,
+             nm.s_code,
+             0 as n_nonmissing
+      from &nmlib..name_map as nm
+      inner join work._all_missing as am
+        on nm.pcnr_name = am.pcnr_name
+      where nm.status = 'PCNR';
+    quit;
+    %if &syserr > 4 %then %do;
+      %fail_out(msg=%str(p5_write_qc: ALL_MISSING_SRC build failed (syserr=&syserr)));
+      %return;
+    %end;
+
+    /* 3b-vii. Export pcnr_all_missing_src.csv */
+    filename _exp0b "&export_dir.\pcnr_all_missing_src.csv" encoding='utf-8';
+    proc export data=work._all_missing_src
+      outfile=_exp0b
+      dbms=csv replace;
+    run;
+    filename _exp0b clear;
+    %if &syserr > 4 %then %do;
+      %fail_out(msg=%str(p5_write_qc: pcnr_all_missing_src.csv export failed (syserr=&syserr)));
+      %return;
+    %end;
+    %put NOTE: [05_build_pcnr] pcnr_all_missing_src.csv written;
+
+  %end;
+  %else %do;
+    %put NOTE: [05_build_pcnr] ALL_MISSING: 0 all-missing variables -- export skipped;
+  %end;
 
   /* Step 4. Conflict summary (item 15) + conflict_class summary (Item 1). */
   proc sql noprint;
@@ -2690,13 +2826,15 @@
   filename _exp04 clear;
   %put NOTE: [05_build_pcnr] pcnr_conflicts_summary.csv written to export_dir;
 
-  /* Conflict class summary: by (pcnr_name, conflict_type, conflict_class) */
+  /* Conflict class summary: by (pcnr_name, conflict_type, conflict_class)
+     Columns match REQUIRED_COLUMNS["CONFLICT_CLASS_SUMMARY"] in pcnr_qc_workbook.py */
   proc sql noprint;
     create table work._conflict_summary_class as
     select pcnr_name,
            conflict_type,
            conflict_class,
-           count(*) as n
+           count(*) as n_conflict_events,
+           count(distinct cats(norm_psid, '|', pcnr_name)) as n_conflict_cells
     from &outlib..qc_pcnr_conflicts
     group by pcnr_name, conflict_type, conflict_class;
   quit;
@@ -2749,9 +2887,15 @@
     end;
   run;
 
+  /* Drop value_a, value_b helper columns before export (Item 3) */
+  data work._conflicts_detail_export;
+    set work._conflicts_sample;
+    drop value_a value_b;
+  run;
+
   /* Explicit UTF-8 FILENAME before PROC EXPORT (D-23) */
   filename _exp05 "&export_dir.\pcnr_conflicts_detail.csv" encoding='utf-8';
-  proc export data=work._conflicts_sample
+  proc export data=work._conflicts_detail_export
     outfile=_exp05
     dbms=csv replace;
   run;
