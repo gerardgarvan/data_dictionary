@@ -16,6 +16,8 @@
 # Exception: PCNR_ source priority and override files, no PHI -- committed per plan 05-01
 !docs/pcnr_source_priority.csv
 !docs/pcnr_source_override.csv
+# Exception: Phase 5 exchange CSV contract, no PHI -- committed per plan 05-fix
+!docs/exchange_schema.csv
 
 # SAS logs and output
 *.log

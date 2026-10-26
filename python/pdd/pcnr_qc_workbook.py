@@ -6,8 +6,9 @@ Reads:   exchange/pcnr_gapfill.csv
          exchange/pcnr_conflicts_summary.csv
          exchange/pcnr_conflicts_detail.csv
          exchange/pcnr_typecheck.csv
+         exchange/pcnr_typefail.csv
 Writes:  qc/pcnr_qc.xlsx
-Sheets:  KEY | GAPFILL | SPINE_COVERAGE | CONFLICT_SUMMARY | CONFLICT_DETAIL | TYPECHECK
+Sheets:  KEY | GAPFILL | SPINE_COVERAGE | CONFLICT_SUMMARY | CONFLICT_DETAIL | TYPECHECK | TYPEFAIL
 """
 
 from __future__ import annotations
@@ -42,7 +43,7 @@ REQUIRED_COLUMNS: dict[str, list[str]] = {
         "norm_psid", "pcnr_name", "conflict_type", "winning_s_code", "winning_value",
         "candidate_s_code", "candidate_value", "value_type",
     ],
-    "TYPECHECK": ["pcnr_name", "resolved_type", "out_length", "n_char_sources", "n_failures"],
+    "TYPECHECK": ["pcnr_name", "resolved_type", "out_length", "n_char_sources", "n_failures", "n_null_as_missing"],
     "TYPEFAIL": ["pcnr_name", "s_code", "raw_value", "n"],
 }
 
@@ -56,6 +57,8 @@ _NUMERIC_INT_COLS: frozenset[str] = frozenset([
     "n_dup_keys",
     "n_char_sources",
     "n_parse_failures",
+    "n_failures",
+    "n_null_as_missing",
     "n_spine",
     "n_gapfilled",
     "n_missing",
@@ -106,7 +109,7 @@ def _key_rows() -> list[list[str]]:
         ["Sheet", "TYPECHECK",
          "One row per pcnr_name with a type conflict. "
          "type resolution = N8 when all values parse via input(strip(val), best32.) else C. "
-         "Columns: pcnr_name, resolved_type, out_length, n_char_sources, n_failures."],
+         "Columns: pcnr_name, resolved_type, out_length, n_char_sources, n_failures, n_null_as_missing."],
         ["Sheet", "TYPEFAIL",
          "One row per (pcnr_name, s_code, raw_value) combination for values that failed "
          "numeric parse during type resolution. Shows n (count of occurrences)."],
