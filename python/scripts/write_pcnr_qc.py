@@ -43,6 +43,31 @@ def setup_logging(log_path: Path) -> None:
     )
 
 
+def _extract_pcnr_name(path: Path, byte_offset: int) -> str:
+    """Return pcnr_name from the CSV row containing byte_offset.
+
+    Reads file as latin-1 (always succeeds) to locate the physical line at
+    byte_offset, then splits on comma and returns field index 1 (pcnr_name
+    column in all Phase 5 exchange CSVs).  Returns 'unknown' on any failure.
+    No data values are logged -- only the column name.
+    """
+    try:
+        raw = path.read_bytes()
+        # Find the start of the line containing byte_offset
+        line_start = raw.rfind(b"\n", 0, byte_offset) + 1
+        line_end = raw.find(b"\n", byte_offset)
+        if line_end == -1:
+            line_end = len(raw)
+        # Decode with latin-1: always succeeds for any byte sequence
+        line = raw[line_start:line_end].decode("latin-1")
+        fields = line.split(",")
+        if len(fields) >= 2:
+            return fields[1].strip().strip('"')
+    except Exception:
+        pass
+    return "unknown"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--exchange", default=str(EXCHANGE_PATH))
@@ -79,20 +104,22 @@ def main() -> int:
         try:
             csv_data[sheet_name] = read_csv(p)
         except UnicodeDecodeError as exc:
-            # Count newlines in raw bytes up to error start to get accurate line number.
-            # exc.start is a byte offset in the raw stream (D-23 hardening -- no values).
+            # Count newlines in raw bytes for accurate line/col (D-23 -- no values).
+            pcnr_name_found = _extract_pcnr_name(p, exc.start)
             try:
                 raw = p.read_bytes()
                 line_no = raw[: exc.start].count(b"\n") + 1
                 col_no = exc.start - raw[: exc.start].rfind(b"\n") - 1
+                bad_hex = raw[exc.start : exc.start + 4].hex()
             except Exception:
                 line_no = "?"
                 col_no = exc.start
+                bad_hex = "?"
             print(
                 f"ERROR: UnicodeDecodeError in {p}"
                 f" line {line_no} col {col_no}"
-                f" hex {exc.object[exc.start:exc.end].hex()}"
-                f" pcnr_name=unknown"
+                f" hex {bad_hex}"
+                f" pcnr_name={pcnr_name_found}"
             )
             sys.exit(1)
 

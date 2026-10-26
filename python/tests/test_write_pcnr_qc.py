@@ -17,6 +17,9 @@ from pdd.pcnr_qc_workbook import (
     write_workbook,
 )
 
+# _scripts: path to write_pcnr_qc.py (used by D-23 tests below)
+_scripts = Path(__file__).resolve().parent.parent / "scripts"
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -116,3 +119,60 @@ def test_n_filled_treated_as_int(tmp_path: Path) -> None:
     val = rows[0][n_filled_idx]
     assert isinstance(val, int), f"Expected int, got {type(val).__name__}: {val!r}"
     wb.close()
+
+
+# ---------------------------------------------------------------------------
+# D-23: _extract_pcnr_name and UnicodeDecodeError reporting
+# ---------------------------------------------------------------------------
+
+
+def _import_extract() -> object:
+    """Import _extract_pcnr_name from write_pcnr_qc without executing main."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "write_pcnr_qc",
+        _scripts / "write_pcnr_qc.py",
+    )
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    # Patch argv so argparse in module-level code does not fire
+    old_argv = sys.argv
+    sys.argv = ["write_pcnr_qc.py", "--help"]
+    try:
+        spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    except SystemExit:
+        pass
+    finally:
+        sys.argv = old_argv
+    return mod._extract_pcnr_name  # type: ignore[attr-defined]
+
+
+def test_extract_pcnr_name_returns_field1(tmp_path: Path) -> None:
+    """_extract_pcnr_name reads field 1 (0-indexed) from the line at byte_offset."""
+    extract = _import_extract()
+    # Row with Windows-1252 byte 0xDF at a known position after two comma fields
+    # norm_psid,pcnr_name,value -- bad byte in value (field 2), pcnr_name is field 1
+    good_rows = b"norm_psid,pcnr_name,value\n" + b"P001,PCNR_Base_Procedure_1," + b"\xdf\n"
+    p = tmp_path / "test.csv"
+    p.write_bytes(good_rows)
+    # byte_offset of 0xDF
+    offset = good_rows.index(b"\xdf")
+    result = extract(p, offset)
+    assert result == "PCNR_Base_Procedure_1", f"Got: {result!r}"
+
+
+def test_extract_pcnr_name_unknown_on_bad_path(tmp_path: Path) -> None:
+    """_extract_pcnr_name returns 'unknown' when file cannot be read."""
+    extract = _import_extract()
+    result = extract(tmp_path / "nonexistent.csv", 0)
+    assert result == "unknown"
+
+
+def test_extract_pcnr_name_single_field(tmp_path: Path) -> None:
+    """_extract_pcnr_name returns 'unknown' when line has fewer than 2 fields."""
+    extract = _import_extract()
+    p = tmp_path / "single.csv"
+    p.write_bytes(b"onlyone\xdf\n")
+    result = extract(p, 7)
+    assert result == "unknown"
