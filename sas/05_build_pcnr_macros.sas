@@ -540,7 +540,11 @@
    Outputs: work._type_resolution (key-unique on pcnr_name),
             work._typecheck_sources (key-unique on pcnr_name+s_code),
             work._typefail_stage -> &outlib..qc_pcnr_typefail (single write at Step 8),
-            &export_dir.\pcnr_typecheck.csv.
+            &export_dir.\pcnr_typecheck.csv   (one row per conflict var; cols:
+              pcnr_name, resolved_type, out_length, n_char_sources, n_failures,
+              n_null_as_missing),
+            &export_dir.\pcnr_typefail.csv    (raw failing values; cols:
+              pcnr_name, s_code, raw_value, n).
    DEFINE ONLY -- called from Section 1 of 05_build_pcnr.sas.
    ============================================================ */
 
@@ -829,9 +833,62 @@
     %if &p5_fail = 1 %then %return;
   %end;
 
+  /* Step 8b. Build per-variable typecheck summary by joining work._type_resolution
+     with aggregated totals from work._typecheck_sources (one row per conflict var).
+     Columns: pcnr_name, resolved_type, out_length, n_char_sources, n_failures,
+              n_null_as_missing. */
+  proc sql noprint;
+    create table work._typecheck_summary as
+    select tr.pcnr_name,
+           tr.resolved_type,
+           tr.out_length,
+           sum(tcs.n_char_sources)    as n_char_sources,
+           sum(tcs.n_parse_failures)  as n_failures,
+           sum(tcs.n_null_as_missing) as n_null_as_missing
+    from work._type_resolution as tr
+    left join work._typecheck_sources as tcs
+      on tr.pcnr_name = tcs.pcnr_name
+    group by tr.pcnr_name, tr.resolved_type, tr.out_length
+    order by tr.pcnr_name;
+  quit;
+
+  /* Assert export schema matches docs/exchange_schema.csv contract */
+  data work._schema_chk;
+    length file $50 column $100 type $10 required $1;
+    infile "C:\data_dictionary\docs\exchange_schema.csv"
+           encoding='utf-8' dsd dlm=',' missover firstobs=2;
+    input file $ column $ type $ required $;
+    where strip(file) = 'pcnr_typecheck.csv';
+  run;
+
+  %local _n_schema_chk _n_missing_cols _n_extra_cols;
+  %let _n_missing_cols = 0;
+  %let _n_extra_cols   = 0;
+
+  /* Check schema columns exist in work._typecheck_summary */
+  proc sql noprint;
+    select count(*) into :_n_schema_chk trimmed from work._schema_chk;
+  quit;
+
+  proc sql noprint;
+    select count(*) into :_n_missing_cols trimmed
+    from work._schema_chk as s
+    where not exists (
+      select 1 from dictionary.columns as d
+      where d.libname = 'WORK'
+        and d.memname = '_TYPECHECK_SUMMARY'
+        and upcase(d.name) = upcase(s.column)
+    );
+  quit;
+  %if &_n_missing_cols > 0 %then %do;
+    %fail_out(msg=%str(pcnr_typecheck.csv export: &_n_missing_cols schema columns missing from work._typecheck_summary));
+    %if &p5_fail = 1 %then %return;
+  %end;
+  %put NOTE: [05_build_pcnr] pcnr_typecheck.csv schema contract: &_n_schema_chk cols checked, 0 missing;
+
   /* Export typecheck summary -- explicit UTF-8 FILENAME before PROC EXPORT (D-23) */
   filename _exp02 "&export_dir.\pcnr_typecheck.csv" encoding='utf-8';
-  proc export data=work._typecheck_sources
+  proc export data=work._typecheck_summary
     outfile=_exp02
     dbms=csv replace;
   run;
@@ -841,6 +898,46 @@
     set work._typecheck_sources;
   run;
 
+  /* Assert pcnr_typefail.csv export schema matches exchange_schema.csv contract */
+  data work._schema_chk2;
+    length file $50 column $100 type $10 required $1;
+    infile "C:\data_dictionary\docs\exchange_schema.csv"
+           encoding='utf-8' dsd dlm=',' missover firstobs=2;
+    input file $ column $ type $ required $;
+    where strip(file) = 'pcnr_typefail.csv';
+  run;
+
+  %local _n_schema_chk2 _n_missing_cols2;
+  %let _n_missing_cols2 = 0;
+
+  proc sql noprint;
+    select count(*) into :_n_schema_chk2 trimmed from work._schema_chk2;
+  quit;
+
+  proc sql noprint;
+    select count(*) into :_n_missing_cols2 trimmed
+    from work._schema_chk2 as s
+    where not exists (
+      select 1 from dictionary.columns as d
+      where d.libname = upcase("&outlib")
+        and d.memname = 'QC_PCNR_TYPEFAIL'
+        and upcase(d.name) = upcase(s.column)
+    );
+  quit;
+  %if &_n_missing_cols2 > 0 %then %do;
+    %fail_out(msg=%str(pcnr_typefail.csv export: &_n_missing_cols2 schema columns missing from &outlib..qc_pcnr_typefail));
+    %if &p5_fail = 1 %then %return;
+  %end;
+  %put NOTE: [05_build_pcnr] pcnr_typefail.csv schema contract: &_n_schema_chk2 cols checked, 0 missing;
+
+  /* Export raw failing values -- explicit UTF-8 FILENAME before PROC EXPORT (D-23) */
+  filename _exp03 "&export_dir.\pcnr_typefail.csv" encoding='utf-8';
+  proc export data=&outlib..qc_pcnr_typefail
+    outfile=_exp03
+    dbms=csv replace;
+  run;
+  filename _exp03 clear;
+
   /* Step 9. Summary note */
   %local _n_n8 _n_c;
   proc sql noprint;
@@ -848,7 +945,7 @@
     select count(*) into :_n_c  trimmed from work._type_resolution where resolved_type = 'C';
   quit;
   %put NOTE: [05_build_pcnr] type resolution complete: N8=&_n_n8 C=&_n_c (of &_n_tr conflict vars);
-  %put NOTE: [05_build_pcnr] pcnr_typecheck.csv written to export_dir;
+  %put NOTE: [05_build_pcnr] pcnr_typecheck.csv and pcnr_typefail.csv written to export_dir;
 
 %mend p5_resolve_types;
 

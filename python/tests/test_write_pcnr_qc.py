@@ -32,7 +32,7 @@ REQUIRED = {
         "norm_psid", "pcnr_name", "conflict_type", "winning_s_code", "winning_value",
         "candidate_s_code", "candidate_value", "value_type",
     ],
-    "TYPECHECK": ["pcnr_name", "resolved_type", "out_length", "n_char_sources", "n_failures"],
+    "TYPECHECK": ["pcnr_name", "resolved_type", "out_length", "n_char_sources", "n_failures", "n_null_as_missing"],
     "TYPEFAIL": ["pcnr_name", "s_code", "raw_value", "n"],
 }
 
@@ -176,3 +176,85 @@ def test_extract_pcnr_name_single_field(tmp_path: Path) -> None:
     p.write_bytes(b"onlyone\xdf\n")
     result = extract(p, 7)
     assert result == "unknown"
+
+
+# ---------------------------------------------------------------------------
+# New tests: TYPEFAIL sheet, TYPECHECK new cols, schema-vs-required
+# ---------------------------------------------------------------------------
+
+
+def test_typefail_sheet_present_when_data_provided(tmp_path: Path) -> None:
+    """TYPEFAIL sheet is written when data rows are provided."""
+    out = tmp_path / "typefail.xlsx"
+    sheets = dict(_minimal_sheets())
+    # Provide a data row for TYPEFAIL
+    sheets["TYPEFAIL"] = (
+        REQUIRED["TYPEFAIL"],
+        [["PCNR_AGE", "s01", "abc", "3"]],
+    )
+    write_workbook(sheets, out)
+
+    wb = load_workbook(out, read_only=True)
+    assert "TYPEFAIL" in wb.sheetnames
+    ws = wb["TYPEFAIL"]
+    # Header row + 1 data row
+    assert ws.max_row == 2, f"Expected 2 rows (header+data), got {ws.max_row}"
+    wb.close()
+
+
+def test_typecheck_new_required_columns(tmp_path: Path) -> None:
+    """TYPECHECK required columns include resolved_type, out_length, n_char_sources,
+    n_failures, n_null_as_missing."""
+    out = tmp_path / "typecheck_cols.xlsx"
+    sheets = dict(_minimal_sheets())
+    typecheck_row = ["PCNR_AGE", "N8", "8", "2", "0", "1"]
+    sheets["TYPECHECK"] = (REQUIRED["TYPECHECK"], [typecheck_row])
+    # Should not raise
+    write_workbook(sheets, out)
+
+    wb = load_workbook(out, read_only=True)
+    ws = wb["TYPECHECK"]
+    header = [cell.value for cell in next(ws.iter_rows(min_row=1, max_row=1))]
+    for col in ["resolved_type", "out_length", "n_char_sources", "n_failures", "n_null_as_missing"]:
+        assert col in header, f"Column '{col}' missing from TYPECHECK header"
+    wb.close()
+
+
+def test_exchange_schema_matches_required(tmp_path: Path) -> None:
+    """exchange_schema.csv columns match REQUIRED_COLUMNS in pcnr_qc_workbook."""
+    import csv as csv_mod
+
+    from pdd.pcnr_qc_workbook import REQUIRED_COLUMNS
+
+    schema_path = Path(__file__).resolve().parent.parent.parent / "docs" / "exchange_schema.csv"
+    if not schema_path.exists():
+        pytest.skip("docs/exchange_schema.csv not present")
+
+    file_to_sheet = {
+        "pcnr_typecheck.csv": "TYPECHECK",
+        "pcnr_typefail.csv": "TYPEFAIL",
+        "pcnr_gapfill.csv": "GAPFILL",
+        "pcnr_conflicts_summary.csv": "CONFLICT_SUMMARY",
+        "pcnr_conflicts_detail.csv": "CONFLICT_DETAIL",
+        "pcnr_spine_coverage.csv": "SPINE_COVERAGE",
+    }
+
+    # Build {file: [columns]} from schema
+    schema_cols: dict[str, list[str]] = {}
+    with schema_path.open(encoding="utf-8", newline="") as fh:
+        reader = csv_mod.DictReader(fh)
+        for row in reader:
+            f = row["file"].strip()
+            c = row["column"].strip()
+            schema_cols.setdefault(f, []).append(c)
+
+    for fname, sheet in file_to_sheet.items():
+        if sheet not in REQUIRED_COLUMNS:
+            continue
+        if fname not in schema_cols:
+            pytest.fail(f"File '{fname}' not found in exchange_schema.csv")
+        schema = schema_cols[fname]
+        required = REQUIRED_COLUMNS[sheet]
+        assert schema == required, (
+            f"{fname} schema columns {schema} != REQUIRED_COLUMNS[{sheet!r}] {required}"
+        )

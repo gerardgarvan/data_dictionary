@@ -6,8 +6,9 @@ Reads:   <exchange>/pcnr_gapfill.csv
          <exchange>/pcnr_conflicts_summary.csv
          <exchange>/pcnr_conflicts_detail.csv
          <exchange>/pcnr_typecheck.csv
+         <exchange>/pcnr_typefail.csv
 Writes:  <qc>/pcnr_qc.xlsx
-Sheets:  KEY | GAPFILL | SPINE_COVERAGE | CONFLICT_SUMMARY | CONFLICT_DETAIL | TYPECHECK
+Sheets:  KEY | GAPFILL | SPINE_COVERAGE | CONFLICT_SUMMARY | CONFLICT_DETAIL | TYPECHECK | TYPEFAIL
 
 Exit 0 on success, non-zero on any failure.
 """
@@ -87,6 +88,7 @@ def main() -> int:
         ("pcnr_conflicts_summary.csv", "CONFLICT_SUMMARY"),
         ("pcnr_conflicts_detail.csv", "CONFLICT_DETAIL"),
         ("pcnr_typecheck.csv", "TYPECHECK"),
+        ("pcnr_typefail.csv", "TYPEFAIL"),
     ]
 
     # Verify all CSVs exist and are non-empty (header-only accepted; truly empty rejected)
