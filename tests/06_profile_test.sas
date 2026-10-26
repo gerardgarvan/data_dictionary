@@ -1130,9 +1130,11 @@ run;
   %_assert(flag=&_f, label=TC03-56-all-missing-vars);
 
   /* 3. Compare PCNR_SEX level counts to PROC FREQ.
+     Engine stores variable in its natural case (from dictionary.columns).
+     Join uses upcase() on both sides to match regardless of stored case.
      Rule: engine level = strip(level); freq level = strip(put(var,$200.)).
-     Join key: strip(a.level) = strip(b.level) (case-sensitive, blank-stripped).
-     MISSING stat from engine matched to missing() row from PROC FREQ / MISSING. */
+     Join key: upcase(strip(a.level)) = upcase(strip(b.freq_level)).
+     MISSING stat row matched to PROC FREQ / MISSING row (missing value in freq). */
   proc freq data=pdd.pcnr noprint;
     table &_sexvar / missing out=work._tc03_sex_freq;
   run;
@@ -1144,18 +1146,12 @@ run;
              b.count                          as n_freq
       from (select strip(level) as level, n
             from work.prf_pcnr
-            where variable=upcase("&_sexvar") and stat in ('LEVEL','MISSING')) a
+            where upcase(strip(variable)) = upcase("&_sexvar")
+              and stat in ('LEVEL','MISSING')) a
       full join (select strip(put(&_sexvar, $200.)) as freq_level, count
                  from work._tc03_sex_freq) b
-        on strip(a.level) = strip(b.freq_level);
+        on upcase(strip(a.level)) = upcase(strip(b.freq_level));
   quit;
-
-  %put NOTE: [TC-03-DIAG] SEX full outer join (engine vs PROC FREQ, all rows):;
-  %put NOTE: [TC-03-DIAG] Rule: engine=strip(level) PROC_FREQ=strip(put(var comma200.)) join=case-sensitive-stripped;
-  data _null_;
-    set work._tc03_sex_all;
-    put "TC03-DIAG " variable='SEX' level= n_engine= n_freq=;
-  run;
 
   %local _sex_delta;
   proc sql noprint;
@@ -1165,6 +1161,17 @@ run;
   quit;
   %let _f = 0; %if %eval(&_sex_delta = 0) %then %let _f = 1;
   %_assert(flag=&_f, label=TC03-sex-levels-match-freq);
+
+  %if &_sex_delta > 0 %then %do;
+    %put NOTE: [TC-03-DIAG] SEX level mismatches (&_sex_delta rows). Full outer join:;
+    %put NOTE: [TC-03-DIAG] Rule: upcase(strip(engine.level)) = upcase(strip(freq.put(var dollar200.)));
+    data _null_;
+      length _varname $32;
+      _varname = "&_sexvar";
+      set work._tc03_sex_all;
+      put "TC03-DIAG varname=" _varname level= n_engine= n_freq=;
+    run;
+  %end;
 
   /* 4. Compare PCNR_PATIENT_TYPE level counts to PROC FREQ */
   proc freq data=pdd.pcnr noprint;
@@ -1178,18 +1185,12 @@ run;
              b.count                          as n_freq
       from (select strip(level) as level, n
             from work.prf_pcnr
-            where variable=upcase("&_ptvar") and stat in ('LEVEL','MISSING')) a
+            where upcase(strip(variable)) = upcase("&_ptvar")
+              and stat in ('LEVEL','MISSING')) a
       full join (select strip(put(&_ptvar, $200.)) as freq_level, count
                  from work._tc03_pt_freq) b
-        on strip(a.level) = strip(b.freq_level);
+        on upcase(strip(a.level)) = upcase(strip(b.freq_level));
   quit;
-
-  %put NOTE: [TC-03-DIAG] PATIENT_TYPE full outer join (engine vs PROC FREQ, all rows):;
-  %put NOTE: [TC-03-DIAG] Rule: engine=strip(level) PROC_FREQ=strip(put(var comma200.)) join=case-sensitive-stripped;
-  data _null_;
-    set work._tc03_pt_all;
-    put "TC03-DIAG " variable='PATIENT_TYPE' level= n_engine= n_freq=;
-  run;
 
   %local _pt_delta;
   proc sql noprint;
@@ -1199,6 +1200,17 @@ run;
   quit;
   %let _f = 0; %if %eval(&_pt_delta = 0) %then %let _f = 1;
   %_assert(flag=&_f, label=TC03-pt-levels-match-freq);
+
+  %if &_pt_delta > 0 %then %do;
+    %put NOTE: [TC-03-DIAG] PATIENT_TYPE level mismatches (&_pt_delta rows). Full outer join:;
+    %put NOTE: [TC-03-DIAG] Rule: upcase(strip(engine.level)) = upcase(strip(freq.put(var dollar200.)));
+    data _null_;
+      length _varname $32;
+      _varname = "&_ptvar";
+      set work._tc03_pt_all;
+      put "TC03-DIAG varname=" _varname level= n_engine= n_freq=;
+    run;
+  %end;
 
   /* 5. Independent missing count for every PCNR_ variable.
      Numeric vars: PROC MEANS NMISS via ODS OUTPUT (avoids "Multiple lengths" from
