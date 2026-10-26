@@ -362,18 +362,26 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
   %else
     %put NOTE: [99_run_all] Phase 5 skipped (not in PDD_PHASES=&pdd_phases_run);
 
+
+  /* =========================================================================
+     PHASE 6 -- Distribution Engine (pdd_profile)
+     ========================================================================= */
+  %_check_pipeline_ok(phase=6);
+  %if %_phase_in(6) %then %do;
+    %let _ts = %sysfunc(datetime(), datetime20.);
+    %put NOTE: [timing] phase 6 start &_ts;
+    %put NOTE: ---- Phase 6: pdd_profile distribution engine -------------;
+    %include "&sas_path.\06_profile.sas";
+    %put NOTE: ---- Phase 6 complete --------------------------------------;
+    %let pdd_phases_done = &pdd_phases_done 6;
+    %let _ts = %sysfunc(datetime(), datetime20.);
+    %put NOTE: [timing] phase 6 end &_ts;
+  %end;
+  %else
+    %put NOTE: [99_run_all] Phase 6 skipped (not in PDD_PHASES=&pdd_phases_run);
+
 %mend _run_phases;
 %_run_phases;
-
-
-/* =========================================================================
-   PHASE 6 -- Distribution Engine (%pdd_profile)
-   ========================================================================= */
-/*
-%put NOTE: ---- Phase 6: %pdd_profile distribution engine -------------;
-%include "&sas_path.\06_profile.sas";
-%put NOTE: ---- Phase 6 complete --------------------------------------;
-*/
 
 
 /* =========================================================================

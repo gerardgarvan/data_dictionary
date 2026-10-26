@@ -39,6 +39,9 @@ Hits "\[04_name_map\]" 250
 Sec "PHASE 5 NOTES"
 Hits "\[05_build_pcnr\]" 500
 
+Sec "PHASE 6 NOTES"
+Hits "\[06_profile\]" 250
+
 Sec "ERRORS AND WARNINGS AFTER PHASE 4"
 $p4end = 0
 $p4m = $lines | Select-String -Pattern "\[04_name_map\].*complete" | Select-Object -Last 1
