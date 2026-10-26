@@ -300,6 +300,9 @@
     else if s_code in ('s04','s05') then status = 'LINKAGE_ONLY';
     else if col_class = 'CLOCK' then status = 'EXCLUDED_CLK';
     else status = 'PCNR';
+    /* D-24: ENCRYPTED_MRN and ENCRYPTED_ENCOUNTER are linkage keys -- override to LINKAGE_ONLY */
+    if upcase(strip(orig_col_name)) in ('ENCRYPTED_MRN','ENCRYPTED_ENCOUNTER')
+    then status = 'LINKAGE_ONLY';
   run;
 
   /* Assert: every s_code that has a PRECEDE_STUDY_ID row in key_analysis

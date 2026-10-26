@@ -10,7 +10,7 @@ Deliver `05_build_pcnr.sas`: start from `pdd.src_s09` (spine, 41,150 rows), left
 other 1:1 PRECEDE_STUDY_ID sources using the Phase 4 name map, apply gap-fill and type
 resolution, and write `pdd.pcnr` with one row per spine patient and every PCNR_ variable.
 
-Done when: `pdd.pcnr` has exactly 41,150 rows; column count = 1,299 PCNR_ variables +
+Done when: `pdd.pcnr` has exactly 41,150 rows; column count = 1,297 PCNR_ variables + /* D-24: was 1,299 */
 NORM_PSID key; 0 duplicate keys; no CLOCK columns in `pdd.pcnr`; no blank norm_psid in
 spine; every PCNR_ variable present with resolved type and length; variable labels equal
 the representative original_header from name_map; gap-fill QC and conflict QC written
@@ -50,7 +50,7 @@ If a row is present for a variable, that s_code is used instead of priority-orde
 
 ### D-16 — Per-cell source flag (LOCKED 2026-10-21, Gerard)
 
-**pdd.pcnr stays at 1,299 PCNR_ columns + NORM_PSID key.** No PCNR_<var>_SRC columns.
+**pdd.pcnr stays at 1,297 PCNR_ columns + NORM_PSID key.** (D-24: was 1,299; ENCRYPTED_MRN and ENCRYPTED_ENCOUNTER are LINKAGE_ONLY.) No PCNR_<var>_SRC columns.
 
 Gap-fill traceability is QC-only, in two places:
 
@@ -266,7 +266,7 @@ No external ADRs. Requirements fully captured in decisions above.
 - Log routing via `%route_log` / `%restore_log` macros (Phase 4 pattern)
 
 ### Integration Points
-- Reads `pdd.name_map_vars` (Phase 4 output) — must exist; assert row count = 1,299 at start
+- Reads `pdd.name_map_vars` (Phase 4 output) — must exist; assert row count = 1,297 at start (D-24: was 1,299)
 - Reads `pdd.src_s01`…`pdd.src_s20` (Phase 3 output) — must all exist
 - Reads `docs/pcnr_source_priority.csv` and `docs/pcnr_source_override.csv` at runtime
 - Writes `pdd.pcnr` — consumed by Phase 6 (distribution engine) and Phase 7 (workbook writer)

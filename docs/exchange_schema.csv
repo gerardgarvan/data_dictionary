@@ -20,11 +20,16 @@ pcnr_conflicts_summary.csv,n_conflict_cells,int,Y
 pcnr_conflicts_detail.csv,norm_psid,str,Y
 pcnr_conflicts_detail.csv,pcnr_name,str,Y
 pcnr_conflicts_detail.csv,conflict_type,str,Y
+pcnr_conflicts_detail.csv,conflict_class,str,Y
 pcnr_conflicts_detail.csv,winning_s_code,str,Y
 pcnr_conflicts_detail.csv,winning_value,str,Y
 pcnr_conflicts_detail.csv,candidate_s_code,str,Y
 pcnr_conflicts_detail.csv,candidate_value,str,Y
 pcnr_conflicts_detail.csv,value_type,str,Y
+pcnr_conflicts_summary_class.csv,pcnr_name,str,Y
+pcnr_conflicts_summary_class.csv,conflict_type,str,Y
+pcnr_conflicts_summary_class.csv,conflict_class,str,Y
+pcnr_conflicts_summary_class.csv,n,int,Y
 pcnr_spine_coverage.csv,s_code,str,Y
 pcnr_spine_coverage.csv,n_keys,int,Y
 pcnr_spine_coverage.csv,n_keys_not_in_spine,int,Y

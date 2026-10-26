@@ -13,7 +13,7 @@ updated: 2026-10-21T00:00:00
 ## Tests
 
 ### 1. Live run — pdd.pcnr row and column counts
-expected: `pdd.pcnr` has 41,150 rows, 1,299 PCNR_ columns, 0 duplicate keys, 0 blank keys, 0 CLOCK columns
+expected: `pdd.pcnr` has 41,150 rows, 1,297 PCNR_ columns, 0 duplicate keys, 0 blank keys, 0 CLOCK columns (D-24: was 1,299)
 result: [pending]
 
 ### 2. Gap-fill completeness

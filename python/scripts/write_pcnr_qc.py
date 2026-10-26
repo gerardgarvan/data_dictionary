@@ -134,6 +134,17 @@ def main() -> int:
             logging.error("Validation failed for %s: %s", sheet_name, exc)
             return 1
 
+    # D-24: assert no CSV column starts with PCNR_ENCRYPTED_
+    for fname, sheet_name in csv_specs:
+        headers, _ = csv_data[sheet_name]
+        enc_cols = [h for h in headers if h.upper().startswith("PCNR_ENCRYPTED_")]
+        if enc_cols:
+            logging.error(
+                "D-24 violation in %s (%s): column(s) starting with PCNR_ENCRYPTED_: %s",
+                fname, sheet_name, enc_cols,
+            )
+            return 1
+
     # Build sheets dict: (headers, rows_as_lists)
     sheets: dict[str, tuple[list[str], list[list]]] = {}
     for _, sheet_name in csv_specs:

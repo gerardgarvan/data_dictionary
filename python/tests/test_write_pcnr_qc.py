@@ -29,7 +29,8 @@ REQUIRED = {
     "SPINE_COVERAGE": ["s_code", "n_keys", "n_keys_not_in_spine", "n_blank_keys", "n_dup_keys"],
     "CONFLICT_SUMMARY": ["pcnr_name", "conflict_type", "n_conflict_events", "n_conflict_cells"],
     "CONFLICT_DETAIL": [
-        "norm_psid", "pcnr_name", "conflict_type", "winning_s_code", "winning_value",
+        "norm_psid", "pcnr_name", "conflict_type", "conflict_class",
+        "winning_s_code", "winning_value",
         "candidate_s_code", "candidate_value", "value_type",
     ],
     "TYPECHECK": ["pcnr_name", "resolved_type", "out_length", "n_char_sources", "n_failures", "n_null_as_missing"],

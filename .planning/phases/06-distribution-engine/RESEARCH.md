@@ -310,7 +310,7 @@ exchange/  (P: drive)
 ```
 Section 0 (macros file):
   %macro fail_out / %_p6_ok / %route_log / %restore_log / %assert_rowcount
-  %macro p6_preflight       -- assert pdd.pcnr 41,150 rows, 1,299+1 cols
+  %macro p6_preflight       -- assert pdd.pcnr 41,150 rows, 1,297+1 cols (D-24: was 1,299)
   %macro p6_classify_vars   -- build work._p6_vars with n_distinct, var_class
   %macro p6_freq_lowcard    -- PROC FREQ for LOW_CARD vars (≤20 distinct)
   %macro p6_stats_contnum   -- PROC MEANS for CONT_NUM vars (>20 distinct, numeric)

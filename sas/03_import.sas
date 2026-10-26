@@ -794,6 +794,10 @@ run;
   %end;
 %mend _blank_ambig;
 
+/* D-24 note: ENCRYPTED_ENCOUNTER is used here as a linkage key (join key), NOT as a
+   PCNR_ variable. D-24 sets status=LINKAGE_ONLY for ENCRYPTED_MRN and ENCRYPTED_ENCOUNTER
+   in pdd.name_map (Phase 4), reducing PCNR variable count from 1299 to 1297.
+   This Phase 3 linkage logic (D-19) is unaffected by D-24. */
 data work._s17_enc;
   set pdd.src_s17;
   length enc_for_linkage $64;
