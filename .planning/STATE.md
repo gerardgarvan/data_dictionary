@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: PCNR_ raw layer and dictionary framework
 status: Phase 5 fully complete — merged to master at fbf3c35 (2026-10-26); Phase 6 next
-last_updated: "2026-10-26T00:00:00Z"
+last_updated: "2026-10-26T17:57:36.530Z"
 progress:
   total_phases: 7
   completed_phases: 5
-  total_plans: 17
-  completed_plans: 17
+  total_plans: 22
+  completed_plans: 19
 ---
 
 # GSD State: PeCAN Data Dictionary (PDD)
