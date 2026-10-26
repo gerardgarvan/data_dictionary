@@ -251,3 +251,61 @@ def test_fixture_schema_smoke_test():
                 + ", ".join(sorted(missing))
             )
     assert not messages, "Fixture schema gaps:\n" + "\n".join(messages)
+
+
+# ---------------------------------------------------------------------------
+# C23: WHERE statement in a DATA step that reads via INFILE
+# ---------------------------------------------------------------------------
+
+def test_c23_fires_on_infile_where():
+    lines = [
+        "data work.x;",
+        "  infile 'foo.csv' dsd dlm=',' firstobs=2;",
+        "  input file $ column $;",
+        "  where strip(file) = 'bar';",
+        "run;",
+    ]
+    hits = sas_lint.check_infile_where("<test>", lines)
+    assert any("C23" in h[2] for h in hits), f"C23 did not fire: {hits}"
+
+
+def test_c23_no_fire_when_set_present():
+    lines = [
+        "data work.x;",
+        "  set work.y;",
+        "  infile 'foo.csv' dsd dlm=',' firstobs=2;",
+        "  input val $;",
+        "  where val = 'bar';",
+        "run;",
+    ]
+    hits = sas_lint.check_infile_where("<test>", lines)
+    assert hits == [], f"C23 false-positive (has SET): {hits}"
+
+
+def test_c23_no_fire_on_proc_sql_where():
+    lines = [
+        "proc sql;",
+        "  select * from work.x where a = 1;",
+        "quit;",
+    ]
+    hits = sas_lint.check_infile_where("<test>", lines)
+    assert hits == [], f"C23 false-positive (PROC SQL): {hits}"
+
+
+def test_c23_no_fire_on_subsetting_if():
+    lines = [
+        "data work.x;",
+        "  infile 'foo.csv' dsd dlm=',' firstobs=2;",
+        "  input file $ column $;",
+        "  if strip(file) = 'bar';",
+        "run;",
+    ]
+    hits = sas_lint.check_infile_where("<test>", lines)
+    assert hits == [], f"C23 false-positive (subsetting IF): {hits}"
+
+
+def test_c23_clean_on_phase5_macros():
+    sas_path = ROOT / "sas" / "05_build_pcnr_macros.sas"
+    lines = sas_path.read_text(encoding="utf-8", errors="replace").split("\n")
+    hits = sas_lint.check_infile_where(str(sas_path), lines)
+    assert hits == [], "C23 in macros file:\n" + "\n".join(str(h) for h in hits)
