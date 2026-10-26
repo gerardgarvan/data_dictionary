@@ -47,3 +47,6 @@ __pycache__/
 
 # Python exchange files (written to P: but guard against accidental placement in repo)
 exchange/
+
+# Claude Code worktrees (internal to Claude Code CLI)
+.claude/worktrees/
