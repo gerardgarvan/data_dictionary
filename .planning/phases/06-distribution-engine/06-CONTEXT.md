@@ -84,9 +84,53 @@ cohort restriction.
   - **HIGH_CARD:** `sum(n where stat in ('LEVEL','OTHER','MISSING')) = &_p6_total`;
     count(LEVEL rows) = 10; N_DISTINCT n = classifier n_distinct
   - **CONT_NUM/DATE:** `n(N) + n(N_MISSING) = &_p6_total`
+  - **SUPPRESSED:** `n(N) + n(MISSING) = &_p6_total`
+  - **NUM_TEXT:** `n(N) + n(N_MISSING) + n(N_UNPARSED) = &_p6_total`
   - **D-07 variables (any class):** single MISSING row with n = &_p6_total
   Adding MEAN/SD/MIN/MAX etc. into the sum would incorrectly fail every numeric variable;
   reconciliation is therefore class-specific, not a blanket row sum.
+
+### Value Suppression (D-09)
+- **D-09 (decided 2026-10-26):** Certain variables must be suppressed (no LEVEL rows) to protect PII
+  or avoid misleading distributions for free-text fields.
+- `suppress_file=` parameter added to `%pdd_profile` (default blank = no suppression).
+  When provided, `docs/profile_suppress.csv` (columns: `variable`, `reason`) is loaded via PROC IMPORT.
+- Engine hard-fails (via `%p6_fail_out`) if any listed variable is absent from the dataset.
+- Suppressed variables receive `var_class = 'SUPPRESSED'` (overrides classifier output).
+- Suppressed variables emit exactly 5 stat rows (`level` always blank):
+  - `N_DISTINCT` (sort_order=0): distinct count from classifier
+  - `RANGE_MIN` (sort_order=1): if numeric type OR ≥95% of non-missing values parse as numeric via
+    `input(strip(v), ?? best32.) ne .` → value = numeric minimum; else value = minimum char length
+    and `display_format = 'LENGTH'`
+  - `RANGE_MAX` (sort_order=2): corresponding maximum (numeric or char length)
+  - `N` (sort_order=3): non-missing count
+  - `MISSING` (sort_order=99): missing count
+- No LEVEL rows. `level` column blank on all suppressed rows.
+- Seed file `docs/profile_suppress.csv` lists 10 PCNR variables:
+  PCNR_SORT_ID, PCNR_aim3_enroll_id (IDs); PCNR_prc_aim1_2_notes,
+  PCNR_prc_aim1_2_nurse_notes, PCNR_prc_aim1_2_ph__l_limitation,
+  PCNR_Edu_Clock_notes (free text); PCNR_examiner, PCNR_pecan_trainee (staff names);
+  PCNR_test_date, PCNR_preop_date (date small cells).
+
+### Numeric Text Detection (D-10)
+- **D-10 (decided 2026-10-26):** HIGH_CARD char variables that are predominantly numeric strings
+  (e.g., entered measurements, coded responses stored as text) are reclassified to `NUM_TEXT`
+  so Phase 7 can display numeric statistics instead of a truncated frequency table.
+- `num_text_threshold=0.95` parameter added to `%pdd_profile`.
+- For each HIGH_CARD char variable (after classification), one DATA step pass counts:
+  - `n_nonmiss`: `strip(v) ne ''`
+  - `n_placeholder`: `upcase(strip(v)) in ('NULL','N/A','NA','?','UNKNOWN','.','-')`
+  - `n_parse`: `input(strip(v), ?? best32.) ne .` (SAS DATA step; `??` suppresses NOTE)
+  - `n_unparsed = n_nonmiss - n_parse`
+- If `n_parse / (n_nonmiss - n_placeholder) >= &num_text_threshold` → `var_class = 'NUM_TEXT'`
+- NUM_TEXT stat rows:
+  - `N` (sort_order=3): parsed count
+  - `N_MISSING` (sort_order=4): blank count
+  - `N_UNPARSED` (sort_order=5): n_unparsed (includes placeholders)
+  - `MEAN SD MEDIAN Q1 Q3 MIN MAX` (sort_order 6-12): via PROC MEANS stackodsoutput on parsed values
+  - Up to 5 `LEVEL` rows (sort_order 20-24): most frequent unparsed values; small_cell_flag applies
+- Below threshold: stays HIGH_CARD; `%put NOTE` with variable and parse rate.
+- Log summary: count of NUM_TEXT vars and near-misses (80–95%).
 
 ### Claude's Discretion
 - Internal macro structure: section guards (`%_p6_ok`), log routing, generated include file
@@ -161,8 +205,8 @@ cohort restriction.
 |---|--------|------|--------|-------------|
 | 1 | family | $32 | 32 | e.g. 'PCNR' (uppercased) |
 | 2 | variable | $32 | 32 | e.g. 'PCNR_SEX' |
-| 3 | var_class | $12 | 12 | 'LOW_CARD' / 'CONT_NUM' / 'HIGH_CARD' / 'DATE' |
-| 4 | stat | $12 | 12 | Row type identifier only (never category text): LEVEL / MISSING / OTHER / N_DISTINCT / N / N_MISSING / MEAN / SD / MEDIAN / Q1 / Q3 / MIN / MAX |
+| 3 | var_class | $12 | 12 | 'LOW_CARD' / 'CONT_NUM' / 'HIGH_CARD' / 'DATE' / 'SUPPRESSED' (D-09) / 'NUM_TEXT' (D-10) |
+| 4 | stat | $12 | 12 | Row type identifier only (never category text): LEVEL / MISSING / OTHER / N_DISTINCT / N / N_MISSING / MEAN / SD / MEDIAN / Q1 / Q3 / MIN / MAX / RANGE_MIN (D-09) / RANGE_MAX (D-09) / N_UNPARSED (D-10) |
 | 5 | level | $&_p6_lvl_len | max(64, max char var length), capped 32767 | Category text on LEVEL rows only; blank elsewhere. Char = strip(value); numeric = strip(put(v,best32.)) |
 | 6 | n | 8 | 8 | Count on LEVEL/MISSING/OTHER/N_DISTINCT/N/N_MISSING rows; blank (.) on MEAN/SD/MEDIAN/Q1/Q3/MIN/MAX rows |
 | 7 | value | 8 | 8 | Statistic on MEAN/SD/MEDIAN/Q1/Q3/MIN/MAX rows; blank (.) on count rows |
@@ -177,11 +221,14 @@ Exchange CSV `exchange\profile_pcnr.csv` carries identical columns in the same o
 
 ### Macro Signature (full)
 ```
-%pdd_profile(lib=, ds=, prefix=, family=, outlib=, export=1, require_name_map=1)
+%pdd_profile(lib=, ds=, prefix=, family=, outlib=, export=1, require_name_map=1,
+             suppress_file=, num_text_threshold=0.95)
 ```
 - `outlib=` — libref to publish `prf_&family` to (default blank = &lib at runtime; not self-referential in macro definition)
 - `export=1` — write `&exchange_path.\profile_&family..csv` (UTF-8); `export=0` skips CSV (test isolation)
 - `require_name_map=1` — enforce &lib..name_map for D-05 exclusion
+- `suppress_file=` — path to CSV listing variable,reason pairs for D-09 suppression (blank = disabled)
+- `num_text_threshold=0.95` — parse rate threshold for D-10 NUM_TEXT reclassification
 
 ### Validation / Acceptance Test
 - Run `%pdd_profile(lib=pdd, ds=pcnr, prefix=PCNR_, family=PCNR)`

@@ -45,6 +45,9 @@ __pycache__/
 # D-21 column classification: column names and classes only, no data values
 !docs/s06_column_class.csv
 
+# D-09 value suppression: variable names and reasons only, no data values
+!docs/profile_suppress.csv
+
 # Python exchange files (written to P: but guard against accidental placement in repo)
 exchange/
 

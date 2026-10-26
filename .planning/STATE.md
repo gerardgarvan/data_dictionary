@@ -2,8 +2,8 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: PCNR_ raw layer and dictionary framework
-status: Phase 5 fully complete — merged to master at fbf3c35 (2026-10-26); Phase 6 next
-last_updated: "2026-10-26T18:11:57.701Z"
+status: Phase 6 in progress — D-09 and D-10 implemented; FIX 1 and FIX 2 applied; tests TC-13..TC-19 added
+last_updated: "2026-10-26T20:00:00.000Z"
 progress:
   total_phases: 7
   completed_phases: 5
@@ -32,7 +32,7 @@ progress:
 | 3 | Direct import of the 20 sources | ✅ Complete — live run 2026-10-20 20:58 passed all criteria (0 MISMATCH, n_pairs=9001 ndis=0, exit=1 warnings only) |
 | 4 | Name map | ✅ Complete — verified 2026-10-21; Price sign-off pending before Phase 7 |
 | 5 | Build PCNR_ on the spine | ✅ Complete — merged to master at fbf3c35 (2026-10-26). SAS tests passed=94 failed=0; pipeline exit 0, 0 warnings; pdd.pcnr 41,150 × 1,298 PCNR_ + NORM_PSID; recon 0 mismatches; conflicts 97,194 events / 95,840 cells; conflict_class breakdown: REAL 51,835 / CODING_EQUIV 29,644 / PLACEHOLDER 13,038 / ROUNDING 1,956 / NUMERIC_CLOSE 473 / TOPCODE 248; provenance 342,605; ALL_MISSING 56. |
-| 6 | Distribution engine | ⬜ Not started |
+| 6 | Distribution engine | 🔧 In progress — engine passing 99 tests pre-session; D-09 (suppress_file, SUPPRESSED class), D-10 (NUM_TEXT class, num_text_threshold), FIX 1 (zero-missing n=0), FIX 2 (run_pipeline.cmd phase-5 guard) implemented; TC-13..TC-19 added; gates and commit pending |
 | 7 | Dictionary workbook writer | ⬜ Not started |
 
 ## Milestone v1.x phase checklist (gated)
@@ -93,6 +93,8 @@ These are QC findings from the Phase 5 live run that require Price's input befor
 
 | ID | Decided | Resolution |
 |----|---------|------------|
+| PDD-D-09 | 2026-10-26 | Value suppression: suppress_file= param to %pdd_profile; lists variable,reason pairs; engine hard-fails if var absent from dataset; var_class=SUPPRESSED; emits N_DISTINCT, RANGE_MIN, RANGE_MAX, N, MISSING (no LEVEL rows); RANGE uses numeric min/max if ≥95% parse else char lengths with display_format='LENGTH'; seed file docs/profile_suppress.csv with 10 PCNR vars |
+| PDD-D-10 | 2026-10-26 | Numeric text detection: num_text_threshold=0.95 param; HIGH_CARD char vars where n_parse/(n_nonmiss-n_placeholder) >= threshold → var_class=NUM_TEXT; emits N, N_MISSING, N_UNPARSED, MEAN/SD/MEDIAN/Q1/Q3/MIN/MAX, up to 5 LEVEL rows for unparsed values; reconciliation N+N_MISSING+N_UNPARSED=total |
 | PDD-D-15 | 2026-10-21 | Gap-fill tie-break: rank order from docs/pcnr_source_priority.csv; spine wins unconditionally |
 | PDD-D-16 | 2026-10-21 | QC-only provenance (pdd.qc_pcnr_provenance); no per-cell _SRC columns in pdd.pcnr |
 | PDD-D-17 | 2026-10-19 | FULLY CLOSED. All 20 files 1:1 per PRECEDE_STUDY_ID. s01 (41,423 distinct) and s08 (3,456 distinct) NOT multi-row. 274 s01 IDs not in spine are QC item. s18 has 2 dup/blank key rows (qc_s18_dup). |

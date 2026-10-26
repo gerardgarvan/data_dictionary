@@ -1,0 +1,11 @@
+variable,reason
+PCNR_SORT_ID,record id
+PCNR_aim3_enroll_id,study id
+PCNR_prc_aim1_2_notes,free text
+PCNR_prc_aim1_2_nurse_notes,free text
+PCNR_prc_aim1_2_ph__l_limitation,free text
+PCNR_Edu_Clock_notes,free text
+PCNR_examiner,staff name
+PCNR_pecan_trainee,staff name
+PCNR_test_date,date small cells
+PCNR_preop_date,date small cells

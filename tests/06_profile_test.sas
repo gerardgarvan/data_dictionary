@@ -131,27 +131,37 @@ ods listing close;
 data work._t_ds;
   /* Char / numeric variables with exact boundary counts */
   length
-    T_BIN    $4
-    T_L20    8
-    T_L21    8
-    T_H21    $6
-    T_HTIE   $6
-    T_LONG   $300
-    T_RSV    $10
-    T_DT     8
-    T_DTM    8
-    T_TM     8
-    T_ISO    8
-    T_ISO2   8
-    T_ISO3   8
-    T_ISO4   8
-    T_X_DATE 8
-    T_UNF    8
-    T_ALLMN  8
-    T_ALLMC  $4
-    T_ALLMD  8
-    T_NA     $10
-    ZZ_OUT   8
+    T_BIN      $4
+    T_L20      8
+    T_L21      8
+    T_H21      $6
+    T_HTIE     $6
+    T_LONG     $300
+    T_RSV      $10
+    T_DT       8
+    T_DTM      8
+    T_TM       8
+    T_ISO      8
+    T_ISO2     8
+    T_ISO3     8
+    T_ISO4     8
+    T_X_DATE   8
+    T_UNF      8
+    T_ALLMN    8
+    T_ALLMC    $4
+    T_ALLMD    8
+    T_NA       $10
+    ZZ_OUT     8
+    /* TC-13 FIX 1: zero-missing variables */
+    T_ZNOMISS  8    /* LOW_CARD numeric; 5 distinct vals, 0 missing */
+    T_HZNOMISS $6   /* HIGH_CARD char; 21+ distinct, 0 missing */
+    /* TC-15/16 D-09 suppression */
+    T_FREETEXT $200 /* char free-text; variable char lengths */
+    T_NUMID    $10  /* char numeric-looking IDs '1001'..'1050' */
+    /* TC-17/18/19 D-10 numtext */
+    T_NUMTXT   $10  /* 30 numeric + NULL + <5: NUM_TEXT */
+    T_NUMNEAR  $10  /* 45/50 parse rate: stays HIGH_CARD */
+    T_NUM95    $10  /* exactly 0.95 parse rate: NUM_TEXT */
     ;
 
   format T_DT   DATE9.
@@ -280,6 +290,35 @@ data work._t_ds;
 
     /* ZZ_OUT: no T_ prefix */
     ZZ_OUT = _i;
+
+    /* TC-13 FIX 1: zero-missing LOW_CARD -- 5 distinct values cycling, always non-missing */
+    T_ZNOMISS = mod(_i - 1, 5) + 1;
+
+    /* TC-13 FIX 1: zero-missing HIGH_CARD char -- 25 distinct values, all non-missing */
+    T_HZNOMISS = cats('Z', put(mod(_i - 1, 25) + 1, z2.));
+
+    /* TC-15 D-09 suppression: free-text char variable -- varied lengths, no parse */
+    T_FREETEXT = cats('Free text entry number ', strip(put(_i, best32.)),
+                      repeat(' extra', mod(_i, 5)));
+
+    /* TC-16 D-09 suppression: numeric-looking IDs '1001'..'1050' */
+    T_NUMID = strip(put(1000 + _i, best32.));
+
+    /* TC-17 D-10 numtext: 30 numeric rows (1..30), 1 NULL, 1 <5, 18 blank */
+    if      _i <= 30 then T_NUMTXT = strip(put(_i, best32.));
+    else if _i  = 31 then T_NUMTXT = 'NULL';
+    else if _i  = 32 then T_NUMTXT = '<5';
+    else                  T_NUMTXT = '';
+
+    /* TC-18 D-10 near-miss: 45 numeric, 5 non-numeric (all non-missing) */
+    if _i <= 45 then T_NUMNEAR = strip(put(_i, best32.));
+    else             T_NUMNEAR = cats('ALPHA', put(_i - 45, 1.));
+
+    /* TC-19 D-10 boundary 95%: 10 placeholder, 38 numeric, 2 non-numeric */
+    /* n_placeholder=10, n_parse=38, denom=50-10=40, rate=38/40=0.95 */
+    if      _i <= 10 then T_NUM95 = 'UNKNOWN';
+    else if _i <= 48 then T_NUM95 = strip(put(_i - 10, best32.));
+    else                  T_NUM95 = cats('ZZ', put(_i, best32.));
 
     output;
   end;
@@ -1038,6 +1077,352 @@ run;
 
 %mend _tc12;
 %_tc12;
+
+/*==========================================================================
+  TC-13 -- FIX 1: Zero-missing variables: MISSING row n=0, pct_total=0
+==========================================================================*/
+
+%macro _tc13;
+  %_tc_start(n=13, desc=fix1-zero-missing-rows);
+
+  /* T_ZNOMISS is LOW_CARD with 5 distinct values and 0 missing */
+  %local _miss_n_lc _miss_pct_lc _miss_flag_lc;
+  proc sql noprint;
+    select n, pct_total, small_cell_flag
+    into :_miss_n_lc trimmed, :_miss_pct_lc trimmed, :_miss_flag_lc trimmed
+    from work.prf_test
+    where variable='T_ZNOMISS' and stat='MISSING';
+  quit;
+
+  %local _f;
+  %let _f = 0; %if %eval(&_miss_n_lc = 0) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC13-lc-missing-n-is-0);
+
+  %let _f = 0; %if %eval(&_miss_pct_lc = 0) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC13-lc-missing-pct-is-0);
+
+  %let _f = 0; %if %bquote(&_miss_flag_lc) = %bquote(N) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC13-lc-missing-flag-is-N);
+
+  /* T_HZNOMISS is HIGH_CARD (25 distinct) with 0 missing */
+  %local _miss_n_hc _miss_pct_hc _miss_flag_hc;
+  proc sql noprint;
+    select n, pct_total, small_cell_flag
+    into :_miss_n_hc trimmed, :_miss_pct_hc trimmed, :_miss_flag_hc trimmed
+    from work.prf_test
+    where variable='T_HZNOMISS' and stat='MISSING';
+  quit;
+
+  %let _f = 0; %if %eval(&_miss_n_hc = 0) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC13-hc-missing-n-is-0);
+
+  %let _f = 0; %if %eval(&_miss_pct_hc = 0) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC13-hc-missing-pct-is-0);
+
+  %let _f = 0; %if %bquote(&_miss_flag_hc) = %bquote(N) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC13-hc-missing-flag-is-N);
+
+%mend _tc13;
+%_tc13;
+
+/*==========================================================================
+  TC-14 -- FIX 1: Validation -- no stat row may have n=. (SAS missing)
+==========================================================================*/
+
+%macro _tc14;
+  %_tc_start(n=14, desc=fix1-no-missing-n-values);
+
+  %local _missing_n_rows;
+  proc sql noprint;
+    select count(*) into :_missing_n_rows trimmed
+    from work.prf_test
+    where stat in ('LEVEL','OTHER','MISSING','N','N_MISSING','N_UNPARSED')
+      and n = .;
+  quit;
+
+  %local _f;
+  %let _f = 0; %if %eval(&_missing_n_rows = 0) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC14-no-null-n-in-count-rows);
+
+%mend _tc14;
+%_tc14;
+
+/*==========================================================================
+  TC-15 -- D-09: Suppressed char free-text variable
+==========================================================================*/
+
+%macro _tc15;
+  %_tc_start(n=15, desc=d09-suppressed-char-freetext);
+
+  /* Create temp suppress CSV with T_FREETEXT */
+  %local _sup_file;
+  %let _sup_file = %sysfunc(pathname(work))\tc15_suppress.csv;
+  data _null_;
+    file "&_sup_file";
+    put 'variable,reason';
+    put 'T_FREETEXT,free text';
+  run;
+
+  /* Run profiler with suppress_file on a fresh outlib dataset */
+  %let p6_fail = 0; %let p6_fail_msg = ;
+  %pdd_profile(lib=work, ds=_t_ds, prefix=T_, family=SUP15, outlib=work,
+               export=0, suppress_file=&_sup_file);
+
+  %_assert_pass(label=TC15-suppress-no-fail);
+
+  %local _f;
+
+  /* No LEVEL rows for T_FREETEXT */
+  %local _lev_cnt;
+  proc sql noprint;
+    select count(*) into :_lev_cnt trimmed
+    from work.prf_sup15
+    where variable='T_FREETEXT' and stat='LEVEL';
+  quit;
+  %let _f = 0; %if %eval(&_lev_cnt = 0) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC15-no-level-rows);
+
+  /* All rows for T_FREETEXT have blank level */
+  %local _nonblank_level;
+  proc sql noprint;
+    select count(*) into :_nonblank_level trimmed
+    from work.prf_sup15
+    where variable='T_FREETEXT' and strip(level) ne '';
+  quit;
+  %let _f = 0; %if %eval(&_nonblank_level = 0) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC15-level-always-blank);
+
+  /* RANGE values are char lengths (display_format='LENGTH') */
+  %local _fmt_min _fmt_max;
+  proc sql noprint;
+    select max(case when stat='RANGE_MIN' then display_format else '' end),
+           max(case when stat='RANGE_MAX' then display_format else '' end)
+    into :_fmt_min trimmed, :_fmt_max trimmed
+    from work.prf_sup15
+    where variable='T_FREETEXT';
+  quit;
+  %let _f = 0; %if %bquote(&_fmt_min) = %bquote(LENGTH) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC15-range-min-display-format-length);
+  %let _f = 0; %if %bquote(&_fmt_max) = %bquote(LENGTH) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC15-range-max-display-format-length);
+
+  /* No fixture text value ('Free text entry number' etc.) in prf_sup15 for T_FREETEXT */
+  %local _fixture_text_present;
+  proc sql noprint;
+    select count(*) into :_fixture_text_present trimmed
+    from work.prf_sup15
+    where variable='T_FREETEXT'
+      and index(strip(level), 'Free text') > 0;
+  quit;
+  %let _f = 0; %if %eval(&_fixture_text_present = 0) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC15-no-fixture-text-in-level);
+
+  /* Reconciliation: N + MISSING = 50 */
+  %local _n_val _miss_val;
+  proc sql noprint;
+    select max(case when stat='N'       then n else . end),
+           max(case when stat='MISSING' then n else . end)
+    into :_n_val trimmed, :_miss_val trimmed
+    from work.prf_sup15
+    where variable='T_FREETEXT';
+  quit;
+  %if %bquote(&_n_val)   = %bquote() %then %let _n_val   = 0;
+  %if %bquote(&_miss_val) = %bquote() %then %let _miss_val = 0;
+  %let _f = 0; %if %eval(&_n_val + &_miss_val = 50) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC15-recon-n-plus-miss-eq-50);
+
+%mend _tc15;
+%_tc15;
+
+/*==========================================================================
+  TC-16 -- D-09: Suppressed numeric-looking ID variable
+==========================================================================*/
+
+%macro _tc16;
+  %_tc_start(n=16, desc=d09-suppressed-numeric-id);
+
+  /* Create temp suppress CSV with T_NUMID */
+  %local _sup_file;
+  %let _sup_file = %sysfunc(pathname(work))\tc16_suppress.csv;
+  data _null_;
+    file "&_sup_file";
+    put 'variable,reason';
+    put 'T_NUMID,record id';
+  run;
+
+  %let p6_fail = 0; %let p6_fail_msg = ;
+  %pdd_profile(lib=work, ds=_t_ds, prefix=T_, family=SUP16, outlib=work,
+               export=0, suppress_file=&_sup_file);
+
+  %_assert_pass(label=TC16-suppress-no-fail);
+
+  %local _f;
+
+  /* No LEVEL rows for T_NUMID */
+  %local _lev_cnt;
+  proc sql noprint;
+    select count(*) into :_lev_cnt trimmed
+    from work.prf_sup16
+    where variable='T_NUMID' and stat='LEVEL';
+  quit;
+  %let _f = 0; %if %eval(&_lev_cnt = 0) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC16-no-level-rows);
+
+  /* RANGE_MIN=1001, RANGE_MAX=1050 (numeric mode: 100% parse) */
+  %local _rmin _rmax;
+  proc sql noprint;
+    select max(case when stat='RANGE_MIN' then value else . end),
+           max(case when stat='RANGE_MAX' then value else . end)
+    into :_rmin trimmed, :_rmax trimmed
+    from work.prf_sup16
+    where variable='T_NUMID';
+  quit;
+  %let _f = 0; %if %eval(&_rmin = 1001) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC16-range-min-1001);
+  %let _f = 0; %if %eval(&_rmax = 1050) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC16-range-max-1050);
+
+  /* display_format not LENGTH (numeric mode) */
+  %local _fmt;
+  proc sql noprint;
+    select max(case when stat='RANGE_MIN' then coalesce(display_format,'') else '' end)
+    into :_fmt trimmed
+    from work.prf_sup16
+    where variable='T_NUMID';
+  quit;
+  %let _f = 0; %if %bquote(&_fmt) ne %bquote(LENGTH) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC16-range-not-length-format);
+
+%mend _tc16;
+%_tc16;
+
+/*==========================================================================
+  TC-17 -- D-10: NUM_TEXT var with correct stats and N_UNPARSED/LEVEL rows
+==========================================================================*/
+
+%macro _tc17;
+  %_tc_start(n=17, desc=d10-numtext-correct-stats);
+
+  /* T_NUMTXT: rows 1-30 numeric, row 31 'NULL' (placeholder), row 32 '<5',
+     rows 33-50 blank. n_nonmiss=32, n_placeholder=1, n_parse=30,
+     denom=32-1=31, rate=30/31=0.968 >= 0.95 -> NUM_TEXT.
+     N=30, N_MISSING=18, N_UNPARSED=2 (NULL + <5), total=50. */
+
+  /* Run profiler (uses main prf_test from the last run) */
+  /* T_NUMTXT was part of the standard fixture; after TC-12 rerun it's in prf_test */
+
+  %local _f;
+
+  /* var_class = NUM_TEXT */
+  %local _vc;
+  proc sql noprint;
+    select distinct var_class into :_vc trimmed
+    from work.prf_test
+    where variable='T_NUMTXT';
+  quit;
+  %let _f = 0; %if %bquote(&_vc) = %bquote(NUM_TEXT) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC17-var-class-num-text);
+
+  /* N=30 (parsed count) */
+  %local _n_val;
+  proc sql noprint;
+    select n into :_n_val trimmed
+    from work.prf_test
+    where variable='T_NUMTXT' and stat='N';
+  quit;
+  %let _f = 0; %if %eval(&_n_val = 30) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC17-n-equals-30);
+
+  /* N_MISSING=18 */
+  %local _nmiss_val;
+  proc sql noprint;
+    select n into :_nmiss_val trimmed
+    from work.prf_test
+    where variable='T_NUMTXT' and stat='N_MISSING';
+  quit;
+  %let _f = 0; %if %eval(&_nmiss_val = 18) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC17-nmissing-equals-18);
+
+  /* N_UNPARSED=2 */
+  %local _nup_val;
+  proc sql noprint;
+    select n into :_nup_val trimmed
+    from work.prf_test
+    where variable='T_NUMTXT' and stat='N_UNPARSED';
+  quit;
+  %let _f = 0; %if %eval(&_nup_val = 2) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC17-nunparsed-equals-2);
+
+  /* Reconciliation N + N_MISSING + N_UNPARSED = 50 */
+  %let _f = 0; %if %eval(&_n_val + &_nmiss_val + &_nup_val = 50) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC17-recon-50);
+
+  /* LEVEL rows exist for unparsed values (NULL and <5) */
+  %local _lev_cnt;
+  proc sql noprint;
+    select count(*) into :_lev_cnt trimmed
+    from work.prf_test
+    where variable='T_NUMTXT' and stat='LEVEL';
+  quit;
+  %let _f = 0; %if %eval(&_lev_cnt >= 1) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC17-level-rows-exist);
+
+  /* MEAN stat present */
+  %local _mean_cnt;
+  proc sql noprint;
+    select count(*) into :_mean_cnt trimmed
+    from work.prf_test
+    where variable='T_NUMTXT' and stat='MEAN';
+  quit;
+  %let _f = 0; %if %eval(&_mean_cnt = 1) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC17-mean-row-exists);
+
+%mend _tc17;
+%_tc17;
+
+/*==========================================================================
+  TC-18 -- D-10: Near-miss (90%) stays HIGH_CARD
+==========================================================================*/
+
+%macro _tc18;
+  %_tc_start(n=18, desc=d10-near-miss-stays-highcard);
+
+  /* T_NUMNEAR: 45/50 = 0.90 < 0.95 -- stays HIGH_CARD */
+  %local _vc;
+  proc sql noprint;
+    select distinct var_class into :_vc trimmed
+    from work.prf_test
+    where variable='T_NUMNEAR';
+  quit;
+
+  %local _f;
+  %let _f = 0; %if %bquote(&_vc) = %bquote(HIGH_CARD) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC18-near-miss-stays-high-card);
+
+%mend _tc18;
+%_tc18;
+
+/*==========================================================================
+  TC-19 -- D-10: Boundary exactly 0.95 qualifies as NUM_TEXT
+==========================================================================*/
+
+%macro _tc19;
+  %_tc_start(n=19, desc=d10-boundary-095-is-numtext);
+
+  /* T_NUM95: n_placeholder=10, n_parse=38, denom=50-10=40, rate=38/40=0.95 -- NUM_TEXT */
+  %local _vc;
+  proc sql noprint;
+    select distinct var_class into :_vc trimmed
+    from work.prf_test
+    where variable='T_NUM95';
+  quit;
+
+  %local _f;
+  %let _f = 0; %if %bquote(&_vc) = %bquote(NUM_TEXT) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC19-boundary-095-is-num-text);
+
+%mend _tc19;
+%_tc19;
 
 /*==========================================================================
   TC-03 -- Integration on pdd.pcnr (read-only); wrapped in macro (C3)

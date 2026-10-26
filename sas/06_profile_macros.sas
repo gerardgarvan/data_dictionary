@@ -874,9 +874,10 @@
 
       /* Compute n_nonmiss for this variable from the PROC FREQ output */
       /* (rows where the variable value is not missing) */
+      /* coalesce(sum,0) ensures 0 (not blank) when no non-missing rows exist */
       %local _p6_lc_nn;
       proc sql noprint;
-        select sum(COUNT) into :_p6_lc_nn trimmed
+        select coalesce(sum(COUNT), 0) into :_p6_lc_nn trimmed
         from work._p6_lc_f&_p6_lci
         where &&_p6_lcv_&_p6_lci is not missing;
       quit;
@@ -928,14 +929,14 @@
       %if &p6_fail = 1 %then %return;
 
       /* Add MISSING row (n from PROC FREQ OUT= missing row or 0 if none) */
+      /* coalesce(sum,0) ensures 0 (not blank) when no missing values exist */
       %local _p6_lc_nmiss;
       proc sql noprint;
-        select sum(COUNT) into :_p6_lc_nmiss trimmed
+        select coalesce(sum(COUNT), 0) into :_p6_lc_nmiss trimmed
         from work._p6_lc_f&_p6_lci
         where &&_p6_lcv_&_p6_lci is missing;
       quit;
       %if &p6_fail = 1 %then %return;
-      %if %bquote(&_p6_lc_nmiss) = %bquote() %then %let _p6_lc_nmiss = 0;
 
       data work._p6_lc_miss;
         %_p6_attrib;
@@ -1330,13 +1331,13 @@
     %let _p6_hc_vname = &&_p6_hcv_&_p6_hci;
 
     /* Compute n_missing from PROC FREQ output */
+    /* coalesce(sum,0) ensures 0 (not blank) when no missing values exist */
     proc sql noprint;
-      select sum(COUNT) into :_p6_hc_nmiss trimmed
+      select coalesce(sum(COUNT), 0) into :_p6_hc_nmiss trimmed
       from work._p6_hc_f&_p6_hci
       where &_p6_hc_vname is missing;
     quit;
     %if &p6_fail = 1 %then %return;
-    %if %bquote(&_p6_hc_nmiss) = %bquote() %then %let _p6_hc_nmiss = 0;
 
     /* n_distinct from classifier (used on N_DISTINCT row) */
     %let _p6_hc_nndist = &&_p6_hcd_&_p6_hci;
@@ -1351,15 +1352,15 @@
     %if &p6_fail = 1 %then %return;
 
     /* Compute n_other = sum of non-missing levels ranked > 10 */
+    /* coalesce(sum,0) ensures 0 (not blank) when fewer than 11 levels exist */
     %local _p6_hc_nother;
     proc sql noprint;
-      select sum(COUNT) into :_p6_hc_nother trimmed
+      select coalesce(sum(COUNT), 0) into :_p6_hc_nother trimmed
       from (select COUNT, monotonic() as rn
             from work._p6_hc_sorted)
       where rn > 10;
     quit;
     %if &p6_fail = 1 %then %return;
-    %if %bquote(&_p6_hc_nother) = %bquote() %then %let _p6_hc_nother = 0;
 
     /* Build all rows for this variable */
     data work._p6_hc_piece;
@@ -1502,6 +1503,595 @@
 %mend p6_freq_highcard;
 
 /* ============================================================
+   %p6_suppressed
+   D-09: Value suppression. Processes all SUPPRESSED variables
+   (var_class already set to 'SUPPRESSED' in work._p6_vars before
+   this macro is called).
+   Rows emitted per variable (level always blank):
+     N_DISTINCT  sort_order=0
+     RANGE_MIN   sort_order=1   value = numeric min  OR char-length min
+     RANGE_MAX   sort_order=2   value = numeric max  OR char-length max
+     N           sort_order=3   n = non-missing count
+     MISSING     sort_order=99  n = missing count
+   If >=95% of non-missing values parse as numeric: numeric min/max.
+   Otherwise: min/max length in characters; display_format='LENGTH'.
+   Appends to work._p6_rows.
+   Parameters:
+     lib=  source library
+     ds=   source dataset
+   ============================================================ */
+%macro p6_suppressed(lib=, ds=);
+  %_p6_ok(section=p6_suppressed entry);
+  %if &p6_fail = 1 %then %return;
+
+  /* Count SUPPRESSED variables */
+  %local _p6_sup_n;
+  proc sql noprint;
+    select count(*) into :_p6_sup_n trimmed
+    from work._p6_vars
+    where var_class = 'SUPPRESSED';
+  quit;
+  %if &p6_fail = 1 %then %return;
+
+  %if &_p6_sup_n = 0 %then %do;
+    %put NOTE: [06_profile] p6_suppressed: no SUPPRESSED variables -- skipping;
+    %return;
+  %end;
+
+  %put NOTE: [06_profile] p6_suppressed: processing &_p6_sup_n SUPPRESSED variable(s);
+
+  /* Load SUPPRESSED variable names and metadata into macro arrays */
+  %local _p6_sup_total;
+  %let _p6_sup_total = 0;
+  data _null_;
+    set work._p6_vars (where=(var_class='SUPPRESSED'));
+    call symputx(cats('_p6_supv_', strip(put(_n_, best32.))), strip(name), 'L');
+    call symputx(cats('_p6_supt_', strip(put(_n_, best32.))), strip(type), 'L');
+    call symputx(cats('_p6_supk_', strip(put(_n_, best32.))), strip(date_kind), 'L');
+    call symputx(cats('_p6_supf_', strip(put(_n_, best32.))), strip(display_format), 'L');
+    call symputx(cats('_p6_supd_', strip(put(_n_, best32.))), strip(put(n_distinct, best32.)), 'L');
+    call symputx('_p6_sup_total', strip(put(_n_, best32.)), 'L');
+  run;
+  %if &p6_fail = 1 %then %return;
+  %_p6_ok(section=p6_suppressed varname load);
+  %if &p6_fail = 1 %then %return;
+
+  /* Process each SUPPRESSED variable */
+  %local _p6_supi;
+  %let _p6_supi = 1;
+  %do %while (&_p6_supi <= &_p6_sup_total);
+    %local _p6_sup_vname _p6_sup_vtype _p6_sup_dk _p6_sup_df _p6_sup_nd;
+    %let _p6_sup_vname = &&_p6_supv_&_p6_supi;
+    %let _p6_sup_vtype = &&_p6_supt_&_p6_supi;
+    %let _p6_sup_dk    = &&_p6_supk_&_p6_supi;
+    %let _p6_sup_df    = &&_p6_supf_&_p6_supi;
+    %let _p6_sup_nd    = &&_p6_supd_&_p6_supi;
+
+    /* Compute: n_nonmiss, n_missing, n_parse (numeric parseable non-missing),
+       min_val, max_val for the variable in one DATA step pass */
+    data work._p6_sup_stats;
+      length _vname $32 n_nonmiss 8 n_miss 8 n_parse 8
+             num_min 8 num_max 8 len_min 8 len_max 8;
+      retain n_nonmiss 0 n_miss 0 n_parse 0
+             num_min . num_max . len_min . len_max .;
+      set &lib..&ds end=_eof;
+
+      %if &_p6_sup_vtype = char %then %do;
+        /* Character variable */
+        if strip(&_p6_sup_vname) = '' then n_miss = n_miss + 1;
+        else do;
+          n_nonmiss = n_nonmiss + 1;
+          /* Try numeric parse */
+          if input(strip(&_p6_sup_vname), ?? best32.) ne . then do;
+            n_parse = n_parse + 1;
+            /* Track numeric min/max */
+            if num_min = . or input(strip(&_p6_sup_vname), ?? best32.) < num_min
+              then num_min = input(strip(&_p6_sup_vname), ?? best32.);
+            if num_max = . or input(strip(&_p6_sup_vname), ?? best32.) > num_max
+              then num_max = input(strip(&_p6_sup_vname), ?? best32.);
+          end;
+          /* Track char length min/max */
+          if len_min = . or length(strip(&_p6_sup_vname)) < len_min
+            then len_min = length(strip(&_p6_sup_vname));
+          if len_max = . or length(strip(&_p6_sup_vname)) > len_max
+            then len_max = length(strip(&_p6_sup_vname));
+        end;
+      %end;
+      %else %do;
+        /* Numeric variable */
+        if &_p6_sup_vname = . then n_miss = n_miss + 1;
+        else do;
+          n_nonmiss = n_nonmiss + 1;
+          n_parse = n_nonmiss; /* numeric is always parseable */
+          if num_min = . or &_p6_sup_vname < num_min then num_min = &_p6_sup_vname;
+          if num_max = . or &_p6_sup_vname > num_max then num_max = &_p6_sup_vname;
+        end;
+      %end;
+
+      if _eof then do;
+        _vname = "&_p6_sup_vname";
+        output;
+      end;
+      keep _vname n_nonmiss n_miss n_parse num_min num_max len_min len_max;
+    run;
+    %if &p6_fail = 1 %then %return;
+    %_p6_ok(section=p6_suppressed stats pass &_p6_sup_vname);
+    %if &p6_fail = 1 %then %return;
+
+    /* Extract stats into macro vars */
+    %local _p6_sup_nnonmiss _p6_sup_nmiss _p6_sup_nparse
+           _p6_sup_nummin _p6_sup_nummax _p6_sup_lenmin _p6_sup_lenmax;
+    proc sql noprint;
+      select n_nonmiss, n_miss, n_parse,
+             num_min, num_max, len_min, len_max
+      into :_p6_sup_nnonmiss trimmed, :_p6_sup_nmiss trimmed, :_p6_sup_nparse trimmed,
+           :_p6_sup_nummin trimmed, :_p6_sup_nummax trimmed,
+           :_p6_sup_lenmin trimmed, :_p6_sup_lenmax trimmed
+      from work._p6_sup_stats;
+    quit;
+    %if &p6_fail = 1 %then %return;
+    %if %bquote(&_p6_sup_nnonmiss) = %bquote() %then %let _p6_sup_nnonmiss = 0;
+    %if %bquote(&_p6_sup_nmiss)    = %bquote() %then %let _p6_sup_nmiss    = 0;
+    %if %bquote(&_p6_sup_nparse)   = %bquote() %then %let _p6_sup_nparse   = 0;
+
+    /* Determine if numeric mode: >=95% parse rate among non-missing */
+    %local _p6_sup_use_num;
+    %let _p6_sup_use_num = 0;
+    %if &_p6_sup_vtype = num %then %let _p6_sup_use_num = 1;
+    %else %if &_p6_sup_nnonmiss > 0 %then %do;
+      %if %sysevalf(&_p6_sup_nparse / &_p6_sup_nnonmiss >= 0.95) %then
+        %let _p6_sup_use_num = 1;
+    %end;
+
+    /* Set range values and display_format flag */
+    %local _p6_sup_rmin _p6_sup_rmax _p6_sup_dflag;
+    %let _p6_sup_dflag = &_p6_sup_df;
+    %if &_p6_sup_use_num = 1 %then %do;
+      %let _p6_sup_rmin = &_p6_sup_nummin;
+      %let _p6_sup_rmax = &_p6_sup_nummax;
+      %if %bquote(&_p6_sup_rmin) = %bquote() %then %let _p6_sup_rmin = .;
+      %if %bquote(&_p6_sup_rmax) = %bquote() %then %let _p6_sup_rmax = .;
+    %end;
+    %else %do;
+      %let _p6_sup_rmin = &_p6_sup_lenmin;
+      %let _p6_sup_rmax = &_p6_sup_lenmax;
+      %if %bquote(&_p6_sup_rmin) = %bquote() %then %let _p6_sup_rmin = .;
+      %if %bquote(&_p6_sup_rmax) = %bquote() %then %let _p6_sup_rmax = .;
+      %let _p6_sup_dflag = LENGTH;
+    %end;
+
+    /* Emit 5 stat rows for this SUPPRESSED variable */
+    data work._p6_sup_rows;
+      %_p6_attrib;
+      family         = upcase("&family");
+      variable       = "&_p6_sup_vname";
+      var_class      = 'SUPPRESSED';
+      level          = '';
+      value          = .;
+      pct_total      = .;
+      pct_nonmiss    = .;
+      small_cell_flag = '';
+      date_kind      = "&_p6_sup_dk";
+      display_format = "&_p6_sup_dflag";
+
+      /* N_DISTINCT row */
+      stat       = 'N_DISTINCT';
+      n          = &_p6_sup_nd;
+      sort_order = 0;
+      output;
+
+      /* RANGE_MIN row */
+      stat       = 'RANGE_MIN';
+      n          = .;
+      value      = &_p6_sup_rmin;
+      sort_order = 1;
+      output;
+
+      /* RANGE_MAX row */
+      stat       = 'RANGE_MAX';
+      n          = .;
+      value      = &_p6_sup_rmax;
+      sort_order = 2;
+      output;
+
+      /* N row (non-missing count) */
+      stat       = 'N';
+      n          = &_p6_sup_nnonmiss;
+      value      = .;
+      sort_order = 3;
+      output;
+
+      /* MISSING row */
+      stat       = 'MISSING';
+      n          = &_p6_sup_nmiss;
+      value      = .;
+      sort_order = 99;
+      if n >= 1 and n <= 10
+        then small_cell_flag = 'Y';
+        else small_cell_flag = 'N';
+      output;
+
+      stop;
+    run;
+    %if &p6_fail = 1 %then %return;
+    %_p6_ok(section=p6_suppressed rows &_p6_sup_vname);
+    %if &p6_fail = 1 %then %return;
+
+    proc append base=work._p6_rows data=work._p6_sup_rows;
+    run;
+    %if &p6_fail = 1 %then %return;
+    %_p6_ok(section=p6_suppressed append &_p6_sup_vname);
+    %if &p6_fail = 1 %then %return;
+
+    %let _p6_supi = %eval(&_p6_supi + 1);
+  %end;
+
+  %put NOTE: [06_profile] p6_suppressed complete: &_p6_sup_total SUPPRESSED variable(s) processed;
+
+%mend p6_suppressed;
+
+/* ============================================================
+   %p6_numtext
+   D-10: Numeric text detection for HIGH_CARD char variables.
+   In one DATA step pass (arrays), per variable counts:
+     n_nonmiss   strip(v) ne ''
+     n_placeholder  upcase(strip(v)) in ('NULL','N/A','NA','?','UNKNOWN','.', '-')
+     n_parse        input(strip(v), ?? best32.) not missing
+     n_unparsed  = n_nonmiss - n_parse
+   If n_parse / (n_nonmiss - n_placeholder) >= &num_text_threshold:
+     var_class -> 'NUM_TEXT' in work._p6_vars.
+   NUM_TEXT rows: N, N_MISSING, N_UNPARSED, MEAN SD MEDIAN Q1 Q3 MIN MAX
+     (via PROC MEANS stackodsoutput on a WORK dataset of parsed numeric copies),
+     plus up to 5 LEVEL rows (sort_order 20-24) for most frequent unparsed values.
+   Appends to work._p6_rows. HIGH_CARD processing has already appended those
+   rows; rows for reclassified vars are removed before appending NUM_TEXT rows.
+   Parameters:
+     lib=  source library
+     ds=   source dataset
+     num_text_threshold=  parse rate threshold (default 0.95)
+   ============================================================ */
+%macro p6_numtext(lib=, ds=, num_text_threshold=0.95);
+  %_p6_ok(section=p6_numtext entry);
+  %if &p6_fail = 1 %then %return;
+
+  /* Count HIGH_CARD char variables eligible for numtext check */
+  %local _p6_nt_n;
+  proc sql noprint;
+    select count(*) into :_p6_nt_n trimmed
+    from work._p6_vars
+    where var_class = 'HIGH_CARD' and type = 'char';
+  quit;
+  %if &p6_fail = 1 %then %return;
+
+  %if &_p6_nt_n = 0 %then %do;
+    %put NOTE: [06_profile] p6_numtext: no HIGH_CARD char variables -- skipping;
+    %return;
+  %end;
+
+  %put NOTE: [06_profile] p6_numtext: checking &_p6_nt_n HIGH_CARD char variable(s) for numeric text;
+
+  /* Load HIGH_CARD char variable names into macro arrays */
+  %local _p6_nt_total;
+  %let _p6_nt_total = 0;
+  data _null_;
+    set work._p6_vars (where=(var_class='HIGH_CARD' and type='char'));
+    call symputx(cats('_p6_ntv_', strip(put(_n_, best32.))), strip(name), 'L');
+    call symputx('_p6_nt_total', strip(put(_n_, best32.)), 'L');
+  run;
+  %if &p6_fail = 1 %then %return;
+
+  /* Per-variable DATA step counts (avoids array-length mismatch; ?? in DATA step not PROC SQL) */
+  data work._p6_nt_counts;
+    length varname $32 n_nonmiss 8 n_placeholder 8 n_parse 8;
+    stop;
+  run;
+  %if &p6_fail = 1 %then %return;
+
+  %local _p6_ntj _p6_ntv_cur;
+  %let _p6_ntj = 1;
+  %do %while (&_p6_ntj <= &_p6_nt_total);
+    %let _p6_ntv_cur = &&_p6_ntv_&_p6_ntj;
+
+    /* Count for one HIGH_CARD char variable via DATA step */
+    data work._p6_nt_one;
+      length varname $32 n_nonmiss 8 n_placeholder 8 n_parse 8;
+      retain n_nonmiss 0 n_placeholder 0 n_parse 0;
+      set &lib..&ds (keep=&_p6_ntv_cur) end=_eof;
+      if strip(&_p6_ntv_cur) ne '' then do;
+        n_nonmiss = n_nonmiss + 1;
+        if upcase(strip(&_p6_ntv_cur)) in ('NULL','N/A','NA','?','UNKNOWN','.','-')
+          then n_placeholder = n_placeholder + 1;
+        if input(strip(&_p6_ntv_cur), ?? best32.) ne .
+          then n_parse = n_parse + 1;
+      end;
+      if _eof then do;
+        varname = "&_p6_ntv_cur";
+        output;
+      end;
+      keep varname n_nonmiss n_placeholder n_parse;
+    run;
+    %if &p6_fail = 1 %then %return;
+
+    proc append base=work._p6_nt_counts data=work._p6_nt_one;
+    run;
+    %if &p6_fail = 1 %then %return;
+
+    %let _p6_ntj = %eval(&_p6_ntj + 1);
+  %end;
+
+  %_p6_ok(section=p6_numtext per-var counts);
+  %if &p6_fail = 1 %then %return;
+
+  /* Log near-misses (parse rate 80-95%) and reclassify NUM_TEXT vars */
+  %local _p6_nt_reclassified _p6_nt_reclassified_n;
+  %let _p6_nt_reclassified   = ;
+  %let _p6_nt_reclassified_n = 0;
+
+  data _null_;
+    set work._p6_nt_counts;
+    length _rate 8;
+    _denom = n_nonmiss - n_placeholder;
+    if _denom > 0 then _rate = n_parse / _denom;
+    else _rate = 0;
+    if _rate >= &num_text_threshold then
+      put "NOTE: [06_profile] NUM_TEXT candidate: " varname= _rate=;
+    else if _rate >= 0.80 then
+      put "NOTE: [06_profile] NUM_TEXT near-miss (80-95pct): " varname= _rate=;
+  run;
+  %if &p6_fail = 1 %then %return;
+
+  /* Reclassify in work._p6_vars */
+  proc sql noprint;
+    update work._p6_vars
+    set var_class = 'NUM_TEXT'
+    where type = 'char'
+      and var_class = 'HIGH_CARD'
+      and upcase(name) in
+        (select upcase(varname)
+         from work._p6_nt_counts
+         where (n_nonmiss - n_placeholder) > 0
+           and (n_parse / (n_nonmiss - n_placeholder)) >= &num_text_threshold);
+  quit;
+  %if &p6_fail = 1 %then %return;
+
+  proc sql noprint;
+    select count(*) into :_p6_nt_reclassified_n trimmed
+    from work._p6_vars
+    where var_class = 'NUM_TEXT';
+  quit;
+  %if &p6_fail = 1 %then %return;
+
+  %if &_p6_nt_reclassified_n = 0 %then %do;
+    %put NOTE: [06_profile] p6_numtext: no variables met NUM_TEXT threshold;
+    %return;
+  %end;
+
+  %put NOTE: [06_profile] p6_numtext: &_p6_nt_reclassified_n variable(s) reclassified as NUM_TEXT;
+
+  /* Remove any HIGH_CARD rows already appended for reclassified vars */
+  proc sql noprint;
+    delete from work._p6_rows
+    where upcase(variable) in
+      (select upcase(name) from work._p6_vars where var_class='NUM_TEXT');
+  quit;
+  %if &p6_fail = 1 %then %return;
+  %_p6_ok(section=p6_numtext delete old hc rows);
+  %if &p6_fail = 1 %then %return;
+
+  /* Load NUM_TEXT variable names into macro arrays */
+  %local _p6_ntr_total;
+  %let _p6_ntr_total = 0;
+  data _null_;
+    set work._p6_vars (where=(var_class='NUM_TEXT'));
+    call symputx(cats('_p6_ntrv_', strip(put(_n_, best32.))), strip(name), 'L');
+    call symputx(cats('_p6_ntrd_', strip(put(_n_, best32.))), strip(put(n_distinct, best32.)), 'L');
+    call symputx('_p6_ntr_total', strip(put(_n_, best32.)), 'L');
+  run;
+  %if &p6_fail = 1 %then %return;
+
+  /* Build numeric copy dataset and compute PROC MEANS per NUM_TEXT var */
+  %local _p6_ntri;
+  %let _p6_ntri = 1;
+  %do %while (&_p6_ntri <= &_p6_ntr_total);
+    %local _p6_ntr_vname _p6_ntr_nd;
+    %let _p6_ntr_vname = &&_p6_ntrv_&_p6_ntri;
+    %let _p6_ntr_nd    = &&_p6_ntrd_&_p6_ntri;
+
+    /* Get counts from the one-pass summary */
+    %local _p6_ntr_nnonmiss _p6_ntr_nph _p6_ntr_nparse _p6_ntr_nmiss _p6_ntr_nunparsed;
+    proc sql noprint;
+      select n_nonmiss, n_placeholder, n_parse
+      into :_p6_ntr_nnonmiss trimmed, :_p6_ntr_nph trimmed, :_p6_ntr_nparse trimmed
+      from work._p6_nt_counts
+      where upcase(varname) = upcase("&_p6_ntr_vname");
+    quit;
+    %if &p6_fail = 1 %then %return;
+    %if %bquote(&_p6_ntr_nnonmiss) = %bquote() %then %let _p6_ntr_nnonmiss = 0;
+    %if %bquote(&_p6_ntr_nph)      = %bquote() %then %let _p6_ntr_nph      = 0;
+    %if %bquote(&_p6_ntr_nparse)   = %bquote() %then %let _p6_ntr_nparse   = 0;
+    %let _p6_ntr_nmiss    = %eval(&_p6_total - &_p6_ntr_nnonmiss);
+    %let _p6_ntr_nunparsed = %eval(&_p6_ntr_nnonmiss - &_p6_ntr_nparse);
+
+    /* Build numeric dataset from parsed values */
+    data work._p6_nt_parsed;
+      length _val 8;
+      set &lib..&ds (keep=&_p6_ntr_vname);
+      where strip(&_p6_ntr_vname) ne '';
+      _val = input(strip(&_p6_ntr_vname), ?? best32.);
+      where also _val ne .;
+      keep _val;
+    run;
+    %if &p6_fail = 1 %then %return;
+    %_p6_ok(section=p6_numtext parse &_p6_ntr_vname);
+    %if &p6_fail = 1 %then %return;
+
+    /* PROC MEANS on parsed values */
+    ods listing close;
+    ods output summary=work._p6_nt_means;
+    proc means data=work._p6_nt_parsed stackodsoutput mean std median q1 q3 min max;
+      var _val;
+    run;
+    ods output close;
+    ods listing;
+    %if &p6_fail = 1 %then %return;
+    %_p6_ok(section=p6_numtext proc means &_p6_ntr_vname);
+    %if &p6_fail = 1 %then %return;
+
+    /* Extract stats from wide stackodsoutput row */
+    /* Column names: Mean StdDev Median LowerQuartile UpperQuartile Minimum Maximum */
+    %local _p6_nt_mean _p6_nt_std _p6_nt_med _p6_nt_q1 _p6_nt_q3 _p6_nt_min _p6_nt_max;
+    proc sql noprint;
+      select Mean, StdDev, Median, LowerQuartile, UpperQuartile, Minimum, Maximum
+      into :_p6_nt_mean trimmed, :_p6_nt_std trimmed, :_p6_nt_med trimmed,
+           :_p6_nt_q1 trimmed, :_p6_nt_q3 trimmed,
+           :_p6_nt_min trimmed, :_p6_nt_max trimmed
+      from work._p6_nt_means;
+    quit;
+    %if &p6_fail = 1 %then %return;
+    /* Set SAS missing for blanks */
+    %if %bquote(&_p6_nt_mean) = %bquote() %then %let _p6_nt_mean = .;
+    %if %bquote(&_p6_nt_std)  = %bquote() %then %let _p6_nt_std  = .;
+    %if %bquote(&_p6_nt_med)  = %bquote() %then %let _p6_nt_med  = .;
+    %if %bquote(&_p6_nt_q1)   = %bquote() %then %let _p6_nt_q1   = .;
+    %if %bquote(&_p6_nt_q3)   = %bquote() %then %let _p6_nt_q3   = .;
+    %if %bquote(&_p6_nt_min)  = %bquote() %then %let _p6_nt_min  = .;
+    %if %bquote(&_p6_nt_max)  = %bquote() %then %let _p6_nt_max  = .;
+
+    /* Top unparsed values (most frequent, up to 5) for LEVEL rows */
+    /* DATA step: ?? best32. in DATA step is valid (C1 bars ?? only in PROC SQL) */
+    data work._p6_nt_unparsed_raw;
+      length uval $200;
+      set &lib..&ds (keep=&_p6_ntr_vname);
+      if strip(&_p6_ntr_vname) ne ''
+        and input(strip(&_p6_ntr_vname), ?? best32.) = .;
+      uval = strip(&_p6_ntr_vname);
+      keep uval;
+    run;
+    %if &p6_fail = 1 %then %return;
+
+    proc sql noprint;
+      create table work._p6_nt_unparsed as
+        select uval, count(*) as ucnt
+        from work._p6_nt_unparsed_raw
+        group by uval
+        order by ucnt desc, uval;
+    quit;
+    %if &p6_fail = 1 %then %return;
+    %_p6_ok(section=p6_numtext unparsed &_p6_ntr_vname);
+    %if &p6_fail = 1 %then %return;
+
+    /* Emit stat rows for this NUM_TEXT variable */
+    data work._p6_nt_rows;
+      %_p6_attrib;
+      family         = upcase("&family");
+      variable       = "&_p6_ntr_vname";
+      var_class      = 'NUM_TEXT';
+      level          = '';
+      pct_total      = .;
+      pct_nonmiss    = .;
+      small_cell_flag = '';
+      date_kind      = '';
+      display_format = '';
+
+      /* N_DISTINCT row */
+      stat       = 'N_DISTINCT';
+      n          = &_p6_ntr_nd;
+      value      = .;
+      sort_order = 0;
+      output;
+
+      /* N (parsed count) */
+      stat       = 'N';
+      n          = &_p6_ntr_nparse;
+      value      = .;
+      sort_order = 3;
+      pct_total  = n / &_p6_total * 100;
+      output;
+
+      /* N_MISSING */
+      stat       = 'N_MISSING';
+      n          = &_p6_ntr_nmiss;
+      value      = .;
+      sort_order = 4;
+      pct_total  = n / &_p6_total * 100;
+      output;
+
+      /* N_UNPARSED (includes placeholders) */
+      stat       = 'N_UNPARSED';
+      n          = &_p6_ntr_nunparsed;
+      value      = .;
+      sort_order = 5;
+      pct_total  = n / &_p6_total * 100;
+      output;
+
+      /* MEAN */
+      stat       = 'MEAN';  n = .; value = &_p6_nt_mean; sort_order = 6; output;
+      /* SD */
+      stat       = 'SD';    n = .; value = &_p6_nt_std;  sort_order = 7; output;
+      /* MEDIAN */
+      stat       = 'MEDIAN'; n = .; value = &_p6_nt_med;  sort_order = 8; output;
+      /* Q1 */
+      stat       = 'Q1';    n = .; value = &_p6_nt_q1;   sort_order = 9; output;
+      /* Q3 */
+      stat       = 'Q3';    n = .; value = &_p6_nt_q3;   sort_order = 10; output;
+      /* MIN */
+      stat       = 'MIN';   n = .; value = &_p6_nt_min;  sort_order = 11; output;
+      /* MAX */
+      stat       = 'MAX';   n = .; value = &_p6_nt_max;  sort_order = 12; output;
+
+      stop;
+    run;
+    %if &p6_fail = 1 %then %return;
+    %_p6_ok(section=p6_numtext stat rows &_p6_ntr_vname);
+    %if &p6_fail = 1 %then %return;
+
+    proc append base=work._p6_rows data=work._p6_nt_rows;
+    run;
+    %if &p6_fail = 1 %then %return;
+
+    /* Top-5 LEVEL rows for unparsed values */
+    data work._p6_nt_lev_rows;
+      %_p6_attrib;
+      length _so 8;
+      retain _so 19;
+      set work._p6_nt_unparsed (obs=5);
+      family          = upcase("&family");
+      variable        = "&_p6_ntr_vname";
+      var_class       = 'NUM_TEXT';
+      stat            = 'LEVEL';
+      level           = uval;
+      n               = ucnt;
+      value           = .;
+      pct_total       = n / &_p6_total * 100;
+      pct_nonmiss     = .;
+      _so             = _so + 1;
+      sort_order      = _so;
+      if n >= 1 and n <= 10
+        then small_cell_flag = 'Y';
+        else small_cell_flag = 'N';
+      date_kind       = '';
+      display_format  = '';
+      keep family variable var_class stat level n value pct_total pct_nonmiss
+           sort_order small_cell_flag date_kind display_format;
+    run;
+    %if &p6_fail = 1 %then %return;
+    %_p6_ok(section=p6_numtext level rows &_p6_ntr_vname);
+    %if &p6_fail = 1 %then %return;
+
+    proc append base=work._p6_rows data=work._p6_nt_lev_rows;
+    run;
+    %if &p6_fail = 1 %then %return;
+    %_p6_ok(section=p6_numtext append &_p6_ntr_vname);
+    %if &p6_fail = 1 %then %return;
+
+    %let _p6_ntri = %eval(&_p6_ntri + 1);
+  %end;
+
+  %put NOTE: [06_profile] p6_numtext complete: &_p6_ntr_total NUM_TEXT variable(s) processed;
+
+%mend p6_numtext;
+
+/* ============================================================
    %p6_write_output
    1. Build work._p6_final from work._p6_rows (sorted).
    2. Validate in WORK (D-08 class-specific reconciliation,
@@ -1539,14 +2129,15 @@
   /* ---- Step 2: Validation ---- */
 
   /* --- D-08: class-specific reconciliation per variable --- */
-  /* LOW_CARD: sum(n where stat in ('LEVEL','MISSING')) = &_p6_total */
-  /* HIGH_CARD: sum(n where stat in ('LEVEL','OTHER','MISSING')) = &_p6_total */
-  /*            count(LEVEL rows) = 10 */
-  /*            N_DISTINCT n = n_distinct from classifier */
+  /* LOW_CARD:    sum(n where stat in ('LEVEL','MISSING')) = &_p6_total */
+  /* HIGH_CARD:   sum(n where stat in ('LEVEL','OTHER','MISSING')) = &_p6_total */
+  /*              count(LEVEL rows) = 10 */
+  /*              N_DISTINCT n = n_distinct from classifier */
   /* CONT_NUM/DATE: n(N) + n(N_MISSING) = &_p6_total */
+  /* SUPPRESSED:  n(N) + n(MISSING) = &_p6_total */
+  /* NUM_TEXT:    n(N) + n(N_MISSING) + n(N_UNPARSED) = &_p6_total */
   /* D-07: single MISSING row, n = &_p6_total */
 
-  /* --- D-08: class-specific reconciliation per variable --- */
   /* Step 1: compute per-variable per-class sums */
   proc sql noprint;
     create table work._p6_recon_sums as
@@ -1556,6 +2147,8 @@
              sum(case when stat in ('LEVEL','OTHER','MISSING')       then n else 0 end) as hc_sum,
              sum(case when stat='N'                                  then n else 0 end) as cn_n,
              sum(case when stat='N_MISSING'                          then n else 0 end) as cn_nmiss,
+             sum(case when stat='N_UNPARSED'                         then n else 0 end) as nt_nunparsed,
+             sum(case when stat='MISSING'                            then n else 0 end) as sup_miss,
              count(*)                                                                   as row_cnt,
              max(case when stat='MISSING' then n else 0 end)                            as miss_n
       from work._p6_final
@@ -1581,7 +2174,13 @@
         or
         (var_class in ('CONT_NUM','DATE')
           and (cn_n + cn_nmiss) ne &_p6_total
-          and not (row_cnt=1 and miss_n=&_p6_total));
+          and not (row_cnt=1 and miss_n=&_p6_total))
+        or
+        (var_class='SUPPRESSED'
+          and (cn_n + sup_miss) ne &_p6_total)
+        or
+        (var_class='NUM_TEXT'
+          and (cn_n + cn_nmiss + nt_nunparsed) ne &_p6_total);
   quit;
   %if &p6_fail = 1 %then %return;
   %_p6_ok(section=p6_write_output d08 recon query);
@@ -1845,7 +2444,8 @@
    assigned to &lib inside the macro when blank.
    C26: no literal "pdd." in macro body -- use &lib / &outlib.
    ============================================================ */
-%macro pdd_profile(lib=, ds=, prefix=, family=, outlib=, export=1, require_name_map=1);
+%macro pdd_profile(lib=, ds=, prefix=, family=, outlib=, export=1, require_name_map=1,
+                   suppress_file=, num_text_threshold=0.95);
 
   /* ---- Rerun safety: delete any stale WORK._p6_* tables and reset globals ---- */
   %local _p6_stale_list;
@@ -1890,6 +2490,56 @@
   %p6_classify_vars(lib=&lib, ds=&ds, prefix=&prefix, family=&family, require_name_map=&require_name_map);
   %if &p6_fail = 1 %then %return;
 
+  /* ---- 2b. D-09: load suppression list and override var_class=SUPPRESSED ---- */
+  %if %bquote(&suppress_file) ne %bquote() %then %do;
+    /* Load suppress list from CSV (must have variable,reason columns) */
+    proc import datafile="&suppress_file"
+                out=work._p6_suppress_raw
+                dbms=csv replace;
+      getnames=yes;
+    run;
+    %if &p6_fail = 1 %then %return;
+    %_p6_ok(section=pdd_profile suppress load);
+    %if &p6_fail = 1 %then %return;
+
+    /* Validate: every listed variable must exist in the dataset (prefix-matched vars) */
+    %local _p6_sup_bad_n;
+    proc sql noprint;
+      select count(*) into :_p6_sup_bad_n trimmed
+      from work._p6_suppress_raw
+      where upcase(strip(variable)) not in (select upcase(name) from work._p6_vars);
+    quit;
+    %if &p6_fail = 1 %then %return;
+    %if &_p6_sup_bad_n > 0 %then %do;
+      %local _p6_sup_bad_vars;
+      proc sql noprint;
+        select strip(variable) into :_p6_sup_bad_vars separated by ', '
+        from work._p6_suppress_raw
+        where upcase(strip(variable)) not in (select upcase(name) from work._p6_vars);
+      quit;
+      %p6_fail_out(msg=%str(suppress_file lists &_p6_sup_bad_n variable(s) not in &lib..&ds: &_p6_sup_bad_vars));
+      %return;
+    %end;
+    %if &p6_fail = 1 %then %return;
+
+    /* Override var_class to SUPPRESSED for listed variables */
+    proc sql noprint;
+      update work._p6_vars
+      set var_class = 'SUPPRESSED'
+      where upcase(name) in (select upcase(strip(variable)) from work._p6_suppress_raw);
+    quit;
+    %if &p6_fail = 1 %then %return;
+    %_p6_ok(section=pdd_profile suppress reclassify);
+    %if &p6_fail = 1 %then %return;
+
+    %local _p6_sup_n_log;
+    proc sql noprint;
+      select count(*) into :_p6_sup_n_log trimmed
+      from work._p6_vars where var_class='SUPPRESSED';
+    quit;
+    %put NOTE: [06_profile] D-09: &_p6_sup_n_log SUPPRESSED variable(s) loaded from suppress_file;
+  %end;
+
   /* ---- 3. Compute &_p6_lvl_len = max(64, max char length), capped at 32767 ---- */
   %global _p6_lvl_len;
   %local _p6_max_char_len;
@@ -1929,6 +2579,14 @@
 
   /* ---- 7. HIGH_CARD frequency ---- */
   %p6_freq_highcard(lib=&lib, ds=&ds);
+  %if &p6_fail = 1 %then %return;
+
+  /* ---- 7b. D-10: Numeric text reclassification (HIGH_CARD char only) ---- */
+  %p6_numtext(lib=&lib, ds=&ds, num_text_threshold=&num_text_threshold);
+  %if &p6_fail = 1 %then %return;
+
+  /* ---- 7c. D-09: Suppressed variable stat rows ---- */
+  %p6_suppressed(lib=&lib, ds=&ds);
   %if &p6_fail = 1 %then %return;
 
   /* ---- 8. Validate, publish, export ---- */
