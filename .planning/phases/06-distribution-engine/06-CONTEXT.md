@@ -6,7 +6,7 @@
 <domain>
 ## Phase Boundary
 
-Build `%pdd_profile(lib=, ds=, prefix=, family=)` — a reusable SAS macro that classifies every
+Build `%pdd_profile(lib=, ds=, prefix=, family=, outlib=, export=1, require_name_map=1)` — a reusable SAS macro that classifies every
 variable in a dataset by distinct-value count, computes the appropriate distribution statistics,
 and writes the result to a long-format SAS dataset in the `pdd` library plus an exchange CSV.
 
@@ -42,8 +42,9 @@ cohort restriction.
 
 ### Small-Cell Flag
 - **D-04:** Every level row (LOW_CARD levels, HIGH_CARD top-10, OTHER, MISSING) carries
-  `small_cell_flag` ($1): `'Y'` if `n < 11`, `'N'` otherwise. Phase 6 sets the flag only;
-  no suppression or masking in Phase 6. Phase 7 owns display decisions.
+  `small_cell_flag` ($1): `'Y'` if `1 <= n <= 10`, `'N'` otherwise. Empty MISSING rows
+  (n=0) are **not** flagged ('N'). Blank on N_DISTINCT and all STAT rows.
+  Phase 6 sets the flag only; no suppression or masking in Phase 6. Phase 7 owns display decisions.
 
 ### Variable Exclusions
 - **D-05:** Two variable categories are excluded from profiling (not written to `pdd.prf_&family`):
@@ -70,16 +71,22 @@ cohort restriction.
     because date counts have a different interpretive meaning than categorical counts.
 
 ### 100% Missing Variables
-- **D-07:** Variables where every row is missing are still profiled. Output: a single MISSING row
-  with `n = total_rows`, `pct_total = 100`, `pct_nonmiss = .`, `sort_order = 99`. No other rows.
-  `var_class` is assigned by storage type: LOW_CARD for any type (0 non-missing distinct values
-  satisfies ≤ 20 threshold), except DATE-format numerics which stay DATE.
+- **D-07:** Variables where every row is missing are still profiled regardless of var_class
+  (LOW_CARD, CONT_NUM, DATE, HIGH_CARD — though HIGH_CARD requires >=21 distinct non-missing
+  so D-07 effectively only applies to LOW_CARD/CONT_NUM/DATE in practice).
+  Output: exactly one row: stat='MISSING', n=&_p6_total, pct_total=100, pct_nonmiss=.,
+  sort_order=99, small_cell_flag per D-04. var_class/date_kind/display_format kept from classifier.
+  Branch BEFORE PROC MEANS so all-missing numeric variables never reach it.
 
-### Reconciliation Assertion
-- **D-08:** After generating all rows for a variable, assert:
-  `sum(n for all rows where stat != 'N_DISTINCT') = total_rows`.
-  Hard stop (`%fail_out`) if assertion fails for any variable. This catches denominator errors
-  before they reach Phase 7.
+### Reconciliation Assertion (class-specific)
+- **D-08:** After generating all rows, assert per variable (hard stop via %p6_fail_out):
+  - **LOW_CARD:** `sum(n where stat in ('LEVEL','MISSING')) = &_p6_total`
+  - **HIGH_CARD:** `sum(n where stat in ('LEVEL','OTHER','MISSING')) = &_p6_total`;
+    count(LEVEL rows) = 10; N_DISTINCT n = classifier n_distinct
+  - **CONT_NUM/DATE:** `n(N) + n(N_MISSING) = &_p6_total`
+  - **D-07 variables (any class):** single MISSING row with n = &_p6_total
+  Adding MEAN/SD/MIN/MAX etc. into the sum would incorrectly fail every numeric variable;
+  reconciliation is therefore class-specific, not a blanket row sum.
 
 ### Claude's Discretion
 - Internal macro structure: section guards (`%_p6_ok`), log routing, generated include file
@@ -148,22 +155,33 @@ cohort restriction.
 <specifics>
 ## Specific Requirements (from discussion)
 
-### Long-Format Table Schema for `pdd.prf_&family`
+### Long-Format Table Schema for `pdd.prf_&family` (LOCKED, 13 columns)
 
-| Column | Type | Length | Description |
-|--------|------|--------|-------------|
-| family | $32 | | e.g. 'PCNR' |
-| variable | $200 | | e.g. 'PCNR_SEX' |
-| var_class | $12 | | 'LOW_CARD' / 'CONT_NUM' / 'HIGH_CARD' / 'DATE' |
-| stat | $40 | | Level value for LOW_CARD/HIGH_CARD; stat name for CONT_NUM/DATE (e.g. 'MEAN'); 'MISSING', 'OTHER', 'N_DISTINCT' |
-| n | 8 | | Count for this row |
-| pct_total | 8 | | n / total_rows * 100 (blank on N_DISTINCT row) |
-| pct_nonmiss | 8 | | n / n_nonmiss * 100 (blank on MISSING and N_DISTINCT rows) |
-| sort_order | 8 | | Display sort within variable (0 = N_DISTINCT, 1–10 = top levels, 11 = OTHER, 99 = MISSING, 1–N for LOW_CARD levels) |
-| small_cell_flag | $1 | | 'Y' if n < 11, 'N' otherwise (blank on N_DISTINCT row) |
-| display_format | $32 | | SAS format name for DATE tier variables; blank for all other tiers |
+| # | Column | Type | Length | Description |
+|---|--------|------|--------|-------------|
+| 1 | family | $32 | 32 | e.g. 'PCNR' (uppercased) |
+| 2 | variable | $32 | 32 | e.g. 'PCNR_SEX' |
+| 3 | var_class | $12 | 12 | 'LOW_CARD' / 'CONT_NUM' / 'HIGH_CARD' / 'DATE' |
+| 4 | stat | $12 | 12 | Row type identifier only (never category text): LEVEL / MISSING / OTHER / N_DISTINCT / N / N_MISSING / MEAN / SD / MEDIAN / Q1 / Q3 / MIN / MAX |
+| 5 | level | $&_p6_lvl_len | max(64, max char var length), capped 32767 | Category text on LEVEL rows only; blank elsewhere. Char = strip(value); numeric = strip(put(v,best32.)) |
+| 6 | n | 8 | 8 | Count on LEVEL/MISSING/OTHER/N_DISTINCT/N/N_MISSING rows; blank (.) on MEAN/SD/MEDIAN/Q1/Q3/MIN/MAX rows |
+| 7 | value | 8 | 8 | Statistic on MEAN/SD/MEDIAN/Q1/Q3/MIN/MAX rows; blank (.) on count rows |
+| 8 | pct_total | 8 | 8 | n / total_rows * 100 on LEVEL/OTHER/MISSING/N/N_MISSING rows; blank on N_DISTINCT and STAT rows |
+| 9 | pct_nonmiss | 8 | 8 | n / n_nonmiss * 100 on LEVEL and OTHER rows only; blank on MISSING / N_DISTINCT / all STAT rows |
+| 10 | sort_order | 8 | 8 | LOW_CARD: 1..k by n desc level asc, 99=MISSING. HIGH_CARD: 0=N_DISTINCT, 1..10=top levels, 11=OTHER, 99=MISSING. CONT_NUM/DATE: N=1 N_MISSING=2 MEAN=3 SD=4 MEDIAN=5 Q1=6 Q3=7 MIN=8 MAX=9 |
+| 11 | small_cell_flag | $1 | 1 | 'Y' if 1<=n<=10, 'N' otherwise on LEVEL/OTHER/MISSING rows; blank on N_DISTINCT and all STAT rows |
+| 12 | date_kind | $8 | 8 | 'DATE' / 'DATETIME' / 'TIME' on DATE-class rows; blank elsewhere |
+| 13 | display_format | $32 | 32 | SAS format name for DATE tier variables; blank for all other tiers. Phase 7 must NOT apply display_format to SD rows (SD is a duration in days/seconds) |
 
-Exchange CSV `exchange\profile_pcnr.csv` carries identical columns (UTF-8, no index, PROC EXPORT).
+Exchange CSV `exchange\profile_pcnr.csv` carries identical columns in the same order (UTF-8, PROC EXPORT).
+
+### Macro Signature (full)
+```
+%pdd_profile(lib=, ds=, prefix=, family=, outlib=, export=1, require_name_map=1)
+```
+- `outlib=` — libref to publish `prf_&family` to (default blank = &lib at runtime; not self-referential in macro definition)
+- `export=1` — write `&exchange_path.\profile_&family..csv` (UTF-8); `export=0` skips CSV (test isolation)
+- `require_name_map=1` — enforce &lib..name_map for D-05 exclusion
 
 ### Validation / Acceptance Test
 - Run `%pdd_profile(lib=pdd, ds=pcnr, prefix=PCNR_, family=PCNR)`

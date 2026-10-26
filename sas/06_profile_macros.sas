@@ -1463,3 +1463,383 @@
   %put NOTE: [06_profile] p6_freq_highcard complete;
 
 %mend p6_freq_highcard;
+
+/* ============================================================
+   %p6_write_output
+   1. Build work._p6_final from work._p6_rows (sorted).
+   2. Validate in WORK (D-08 class-specific reconciliation,
+      variable set check, schema check, integrity checks).
+   3. Publish to &outlib..prf_&family only after all checks pass.
+   4. Export UTF-8 CSV when export=1.
+   Parameters:
+     outlib= SAS libref to publish to (default blank -- set by %pdd_profile)
+     family= Family label (e.g. PCNR)
+     export= 1 to write exchange CSV; 0 to skip (test isolation)
+   C26: no literal "pdd." -- use &outlib.
+   ============================================================ */
+%macro p6_write_output(outlib=, family=, export=1);
+  %_p6_ok(section=p6_write_output entry);
+  %if &p6_fail = 1 %then %return;
+
+  /* ---- Step 1: Build work._p6_final sorted by variable, sort_order ---- */
+  proc sort data=work._p6_rows out=work._p6_final;
+    by variable sort_order;
+  run;
+  %if &p6_fail = 1 %then %return;
+  %_p6_ok(section=p6_write_output sort);
+  %if &p6_fail = 1 %then %return;
+
+  /* Apply schema attrib in a DATA step to lock column order/types/lengths */
+  data work._p6_final;
+    %_p6_attrib;
+    set work._p6_final;
+    family = upcase("&family");
+  run;
+  %if &p6_fail = 1 %then %return;
+  %_p6_ok(section=p6_write_output schema attrib);
+  %if &p6_fail = 1 %then %return;
+
+  /* ---- Step 2: Validation ---- */
+
+  /* --- D-08: class-specific reconciliation per variable --- */
+  /* LOW_CARD: sum(n where stat in ('LEVEL','MISSING')) = &_p6_total */
+  /* HIGH_CARD: sum(n where stat in ('LEVEL','OTHER','MISSING')) = &_p6_total */
+  /*            count(LEVEL rows) = 10 */
+  /*            N_DISTINCT n = n_distinct from classifier */
+  /* CONT_NUM/DATE: n(N) + n(N_MISSING) = &_p6_total */
+  /* D-07: single MISSING row, n = &_p6_total */
+
+  proc sql noprint;
+    create table work._p6_recon_fail as
+      select variable, var_class,
+             sum(case when stat in ('LEVEL','MISSING') and var_class='LOW_CARD' then n else 0 end) as lc_sum,
+             sum(case when stat in ('LEVEL','OTHER','MISSING') and var_class='HIGH_CARD' then n else 0 end) as hc_sum,
+             count(case when stat='LEVEL' and var_class='HIGH_CARD' then 1 end) as hc_lev_cnt,
+             sum(case when stat='N' and var_class in ('CONT_NUM','DATE') then n else 0 end) as cn_n,
+             sum(case when stat='N_MISSING' and var_class in ('CONT_NUM','DATE') then n else 0 end) as cn_nmiss,
+             /* D-07 detection: single MISSING row where n=&_p6_total (any class) */
+             count(*) as row_cnt,
+             max(case when stat='MISSING' then n else 0 end) as miss_n
+      from work._p6_final
+      group by variable, var_class
+      having
+        (var_class='LOW_CARD'  and lc_sum ne &_p6_total
+          /* D-07 LOW_CARD exception: one MISSING row with n=&_p6_total */
+          and not (row_cnt=1 and miss_n=&_p6_total))
+        or
+        (var_class='HIGH_CARD' and hc_sum ne &_p6_total)
+        or
+        (var_class in ('CONT_NUM','DATE')
+          and (cn_n + cn_nmiss) ne &_p6_total
+          /* D-07 CONT_NUM/DATE exception: one MISSING row */
+          and not (row_cnt=1 and miss_n=&_p6_total));
+  quit;
+  %if &p6_fail = 1 %then %return;
+  %_p6_ok(section=p6_write_output d08 recon query);
+  %if &p6_fail = 1 %then %return;
+
+  %local _p6_recon_n;
+  proc sql noprint;
+    select count(*) into :_p6_recon_n trimmed
+    from work._p6_recon_fail;
+  quit;
+  %if &_p6_recon_n > 0 %then %do;
+    %local _p6_recon_vars;
+    proc sql noprint;
+      select variable into :_p6_recon_vars separated by ', '
+      from (select variable from work._p6_recon_fail obs=5);
+    quit;
+    %p6_fail_out(msg=%str(D-08 reconciliation failed for &_p6_recon_n variable(s): &_p6_recon_vars [first 5 shown]));
+    %return;
+  %end;
+  %if &p6_fail = 1 %then %return;
+  %put NOTE: [06_profile] D-08 reconciliation passed for all variables;
+
+  /* HIGH_CARD: count(LEVEL rows) = 10 per variable (unless D-07) */
+  proc sql noprint;
+    create table work._p6_hc_lev_fail as
+      select variable
+      from work._p6_final
+      where var_class='HIGH_CARD'
+      group by variable
+      having count(case when stat='LEVEL' then 1 end) ne 10
+         and max(case when stat='MISSING' then n else 0 end) ne &_p6_total;
+  quit;
+  %if &p6_fail = 1 %then %return;
+  %_p6_ok(section=p6_write_output hc level count check);
+  %if &p6_fail = 1 %then %return;
+
+  %local _p6_hclev_n;
+  proc sql noprint;
+    select count(*) into :_p6_hclev_n trimmed
+    from work._p6_hc_lev_fail;
+  quit;
+  %if &_p6_hclev_n > 0 %then %do;
+    %local _p6_hclev_vars;
+    proc sql noprint;
+      select variable into :_p6_hclev_vars separated by ', '
+      from (select variable from work._p6_hc_lev_fail obs=5);
+    quit;
+    %p6_fail_out(msg=%str(HIGH_CARD LEVEL count not 10 for: &_p6_hclev_vars [first 5 shown]));
+    %return;
+  %end;
+  %if &p6_fail = 1 %then %return;
+
+  /* HIGH_CARD: N_DISTINCT n = classifier n_distinct */
+  proc sql noprint;
+    create table work._p6_hc_nd_fail as
+      select f.variable
+      from (select variable, max(case when stat='N_DISTINCT' then n end) as nd_n
+            from work._p6_final
+            where var_class='HIGH_CARD'
+            group by variable) as f
+      inner join work._p6_vars as v on upcase(f.variable) = upcase(v.name)
+      where f.nd_n ne v.n_distinct;
+  quit;
+  %if &p6_fail = 1 %then %return;
+  %_p6_ok(section=p6_write_output hc ndist vs classifier check);
+  %if &p6_fail = 1 %then %return;
+
+  %local _p6_hcnd_n;
+  proc sql noprint;
+    select count(*) into :_p6_hcnd_n trimmed
+    from work._p6_hc_nd_fail;
+  quit;
+  %if &_p6_hcnd_n > 0 %then %do;
+    %local _p6_hcnd_vars;
+    proc sql noprint;
+      select variable into :_p6_hcnd_vars separated by ', '
+      from (select variable from work._p6_hc_nd_fail obs=5);
+    quit;
+    %p6_fail_out(msg=%str(HIGH_CARD N_DISTINCT mismatch vs classifier for: &_p6_hcnd_vars [first 5 shown]));
+    %return;
+  %end;
+  %if &p6_fail = 1 %then %return;
+  %put NOTE: [06_profile] HIGH_CARD level count and N_DISTINCT checks passed;
+
+  /* --- Variable set check: distinct vars in output = work._p6_vars exactly --- */
+  %local _p6_vset_n;
+  proc sql noprint;
+    select count(*) into :_p6_vset_n trimmed
+    from work._p6_final;
+  quit;
+  %if &p6_fail = 1 %then %return;
+
+  /* Count distinct output variables */
+  %local _p6_out_nv;
+  proc sql noprint;
+    select count(distinct variable) into :_p6_out_nv trimmed
+    from work._p6_final;
+  quit;
+  %if &p6_fail = 1 %then %return;
+
+  %if &_p6_out_nv ne &_p6_nv %then %do;
+    %p6_fail_out(msg=%str(Variable set check: output has &_p6_out_nv distinct variables but expected &_p6_nv));
+    %return;
+  %end;
+  %if &p6_fail = 1 %then %return;
+
+  /* Check for extras (output vars not in _p6_vars) */
+  %local _p6_extra_n;
+  proc sql noprint;
+    select count(*) into :_p6_extra_n trimmed
+    from (select distinct variable from work._p6_final) as f
+    where upcase(f.variable) not in (select upcase(name) from work._p6_vars);
+  quit;
+  %if &_p6_extra_n > 0 %then %do;
+    %p6_fail_out(msg=%str(Variable set check: &_p6_extra_n output variable(s) not in work._p6_vars));
+    %return;
+  %end;
+  %if &p6_fail = 1 %then %return;
+  %put NOTE: [06_profile] Variable set check passed: &_p6_out_nv distinct variables;
+
+  /* --- Schema check: 13 columns by name, type, and order --- */
+  %local _p6_schema_n;
+  proc sql noprint;
+    select count(*) into :_p6_schema_n trimmed
+    from dictionary.columns
+    where libname='WORK' and memname='_P6_FINAL'
+    having count(*) = 13;
+  quit;
+  %if &p6_fail = 1 %then %return;
+  %if %bquote(&_p6_schema_n) ne 13 %then %do;
+    %p6_fail_out(msg=%str(Schema check: work._p6_final has &_p6_schema_n column(s) -- expected 13));
+    %return;
+  %end;
+  %if &p6_fail = 1 %then %return;
+  %put NOTE: [06_profile] Schema check passed: 13 columns confirmed;
+
+  /* --- Integrity: no LEVEL row with blank variable --- */
+  %local _p6_blank_var_n;
+  proc sql noprint;
+    select count(*) into :_p6_blank_var_n trimmed
+    from work._p6_final
+    where stat='LEVEL' and (variable='' or variable is missing);
+  quit;
+  %if &_p6_blank_var_n > 0 %then %do;
+    %p6_fail_out(msg=%str(Integrity: &_p6_blank_var_n LEVEL row(s) with blank variable));
+    %return;
+  %end;
+  %if &p6_fail = 1 %then %return;
+
+  /* --- Integrity: no duplicate (variable, sort_order) --- */
+  %local _p6_dup_n;
+  proc sql noprint;
+    select count(*) into :_p6_dup_n trimmed
+    from (select variable, sort_order, count(*) as cnt
+          from work._p6_final
+          group by variable, sort_order
+          having cnt > 1);
+  quit;
+  %if &_p6_dup_n > 0 %then %do;
+    %p6_fail_out(msg=%str(Integrity: &_p6_dup_n duplicate (variable, sort_order) combination(s)));
+    %return;
+  %end;
+  %if &p6_fail = 1 %then %return;
+  %put NOTE: [06_profile] All integrity checks passed;
+
+  /* ---- Step 3: Publish (only reached if all validations passed) ---- */
+  data &outlib..prf_&family;
+    set work._p6_final;
+  run;
+  %if &p6_fail = 1 %then %return;
+  %_p6_ok(section=p6_write_output publish);
+  %if &p6_fail = 1 %then %return;
+  %put NOTE: [06_profile] Published &outlib..prf_&family (&_p6_vset_n rows, &_p6_out_nv variables);
+
+  /* ---- Step 4: Export CSV (only when export=1) ---- */
+  %if &export = 1 %then %do;
+    filename _p6out "&exchange_path.\profile_&family..csv" encoding='utf-8';
+    proc export data=work._p6_final
+                outfile=_p6out
+                dbms=csv
+                replace;
+    run;
+    %if &syserr > 4 %then %do;
+      %p6_fail_out(msg=%str(PROC EXPORT failed for profile_&family..csv syserr=&syserr));
+      filename _p6out clear;
+      %return;
+    %end;
+    %if %sysfunc(fexist(_p6out)) = 0 %then %do;
+      %p6_fail_out(msg=%str(CSV not found after PROC EXPORT: &exchange_path.\profile_&family..csv));
+      filename _p6out clear;
+      %return;
+    %end;
+    filename _p6out clear;
+    %put NOTE: [06_profile] Exported &exchange_path.\profile_&family..csv (UTF-8);
+  %end;
+  %else %do;
+    %put NOTE: [06_profile] export=0 -- CSV export skipped;
+  %end;
+
+%mend p6_write_output;
+
+/* ============================================================
+   %pdd_profile   *** ENTRY POINT -- DEFINED LAST (C13) ***
+   Chain: preflight -> classify_vars -> compute lvl_len ->
+          init _p6_rows -> freq_lowcard -> stats_contnum ->
+          freq_highcard -> write_output
+   Parameters:
+     lib=             SAS libref of source dataset
+     ds=              Dataset name (no libref)
+     prefix=          Variable prefix to profile (e.g. PCNR_)
+     family=          Family label (e.g. PCNR)
+     outlib=          Publish libref (default blank = &lib at runtime)
+     export=          1 (default) = write exchange CSV; 0 = skip
+     require_name_map= 1 (default) = require &lib..name_map for D-05
+   Note on outlib default: cannot self-reference &lib in the default
+   expression (Phase 5 recursive-default lesson).  Default is blank;
+   assigned to &lib inside the macro when blank.
+   C26: no literal "pdd." in macro body -- use &lib / &outlib.
+   ============================================================ */
+%macro pdd_profile(lib=, ds=, prefix=, family=, outlib=, export=1, require_name_map=1);
+
+  /* ---- Rerun safety: delete any stale WORK._p6_* tables and reset globals ---- */
+  proc sql noprint;
+    select memname into :_p6_stale_list separated by ' '
+    from dictionary.tables
+    where libname='WORK' and memname like '_P6_%';
+  quit;
+
+  %local _p6_sname;
+  %if %bquote(&_p6_stale_list) ne %bquote() %then %do;
+    %let _p6_sname = 1;
+    %do %while (%scan(&_p6_stale_list, &_p6_sname) ne );
+      %local _p6_stale_ds;
+      %let _p6_stale_ds = %scan(&_p6_stale_list, &_p6_sname);
+      proc datasets lib=work nolist;
+        delete &_p6_stale_ds;
+      quit;
+      %let _p6_sname = %eval(&_p6_sname + 1);
+    %end;
+  %end;
+
+  %global p6_fail p6_fail_msg;
+  %let p6_fail     = 0;
+  %let p6_fail_msg = ;
+
+  /* ---- Resolve outlib default ---- */
+  %local _p6_outlib;
+  %if %bquote(&outlib) = %bquote() %then
+    %let _p6_outlib = &lib;
+  %else
+    %let _p6_outlib = &outlib;
+
+  %put NOTE: [06_profile] %pdd_profile starting: lib=&lib ds=&ds prefix=&prefix family=&family outlib=&_p6_outlib export=&export;
+
+  /* ---- 1. Preflight ---- */
+  %p6_preflight(lib=&lib, ds=&ds, require_name_map=&require_name_map);
+  %if &p6_fail = 1 %then %return;
+
+  /* ---- 2. Classify variables ---- */
+  %p6_classify_vars(lib=&lib, ds=&ds, prefix=&prefix, family=&family, require_name_map=&require_name_map);
+  %if &p6_fail = 1 %then %return;
+
+  /* ---- 3. Compute &_p6_lvl_len = max(64, max char length), capped at 32767 ---- */
+  %global _p6_lvl_len;
+  %local _p6_max_char_len;
+  proc sql noprint;
+    select max(length) into :_p6_max_char_len trimmed
+    from work._p6_vars
+    where type='char';
+  quit;
+  %if &p6_fail = 1 %then %return;
+
+  %if %bquote(&_p6_max_char_len) = %bquote() %then
+    %let _p6_lvl_len = 64;
+  %else %if &_p6_max_char_len > 32767 %then
+    %let _p6_lvl_len = 32767;
+  %else %if &_p6_max_char_len < 64 %then
+    %let _p6_lvl_len = 64;
+  %else
+    %let _p6_lvl_len = &_p6_max_char_len;
+  %put NOTE: [06_profile] _p6_lvl_len=&_p6_lvl_len (max char var length=&_p6_max_char_len, floor 64, cap 32767);
+
+  /* ---- 4. Initialise empty work._p6_rows with the schema (DATA step with stop;) ---- */
+  data work._p6_rows;
+    %_p6_attrib;
+    stop;
+  run;
+  %if &p6_fail = 1 %then %return;
+  %_p6_ok(section=pdd_profile init _p6_rows);
+  %if &p6_fail = 1 %then %return;
+
+  /* ---- 5. LOW_CARD frequency ---- */
+  %p6_freq_lowcard(lib=&lib, ds=&ds);
+  %if &p6_fail = 1 %then %return;
+
+  /* ---- 6. CONT_NUM / DATE statistics ---- */
+  %p6_stats_contnum(lib=&lib, ds=&ds);
+  %if &p6_fail = 1 %then %return;
+
+  /* ---- 7. HIGH_CARD frequency ---- */
+  %p6_freq_highcard(lib=&lib, ds=&ds);
+  %if &p6_fail = 1 %then %return;
+
+  /* ---- 8. Validate, publish, export ---- */
+  %p6_write_output(outlib=&_p6_outlib, family=&family, export=&export);
+  %if &p6_fail = 1 %then %return;
+
+  %put NOTE: [06_profile] %pdd_profile complete for family=&family;
+
+%mend pdd_profile;
