@@ -103,6 +103,7 @@ $allowedErrorSubstrings = @(
     'D-08 reconciliation failed'
     'name_map does not exist'
     'Errors printed on pages'
+    'D-09: suppress_file is required'   # TC-24 expected-fail (require_suppress=1 guard)
 )
 
 # ---------------------------------------------------------------------------

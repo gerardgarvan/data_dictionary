@@ -341,8 +341,10 @@ data work.name_map;
   pcnr_name = 'T_L21';    status = 'PCNR';          output;
 run;
 
-/* Run profiler on the synthetic fixture (WORK only, no CSV export) */
-%pdd_profile(lib=work, ds=_t_ds, prefix=T_, family=TEST, outlib=work, export=0);
+/* Run profiler on the synthetic fixture (WORK only, no CSV export).
+   require_suppress=0: synthetic tests do not use a suppress file. */
+%pdd_profile(lib=work, ds=_t_ds, prefix=T_, family=TEST, outlib=work, export=0,
+             require_suppress=0);
 
 /*==========================================================================
   TC-01 -- Classification: correct var_class per variable
@@ -1023,7 +1025,7 @@ run;
   %let p6_fail_msg = ;
 
   %pdd_profile(lib=work, ds=_t_ds, prefix=T_, family=NMT,
-               outlib=work, export=0, require_name_map=1);
+               outlib=work, export=0, require_name_map=1, require_suppress=0);
 
   %_assert_fail(label=TC06-no-name_map-fail, expected_text=name_map);
 
@@ -1057,7 +1059,8 @@ run;
   quit;
 
   /* Rerun profiler */
-  %pdd_profile(lib=work, ds=_t_ds, prefix=T_, family=TEST, outlib=work, export=0);
+  %pdd_profile(lib=work, ds=_t_ds, prefix=T_, family=TEST, outlib=work, export=0,
+               require_suppress=0);
 
   %_assert_pass(label=TC12-no-fail-after-rerun);
 
@@ -1188,7 +1191,7 @@ run;
   /* Run profiler with suppress_file on a fresh outlib dataset */
   %let p6_fail = 0; %let p6_fail_msg = ;
   %pdd_profile(lib=work, ds=_t_ds, prefix=T_, family=SUP15, outlib=work,
-               export=0, suppress_file=&_sup_file);
+               export=0, suppress_file=&_sup_file, require_suppress=1);
 
   %_assert_pass(label=TC15-suppress-no-fail);
 
@@ -1274,7 +1277,7 @@ run;
 
   %let p6_fail = 0; %let p6_fail_msg = ;
   %pdd_profile(lib=work, ds=_t_ds, prefix=T_, family=SUP16, outlib=work,
-               export=0, suppress_file=&_sup_file);
+               export=0, suppress_file=&_sup_file, require_suppress=1);
 
   %_assert_pass(label=TC16-suppress-no-fail);
 
@@ -1501,7 +1504,8 @@ run;
   /* Run profile on synthetic fixture; log hygiene checked externally via
      tools/check_test_log.ps1 on the persisted .log file. */
   %let p6_fail = 0; %let p6_fail_msg = ;
-  %pdd_profile(lib=work, ds=_t_ds, prefix=T_, family=TC21, outlib=work, export=0);
+  %pdd_profile(lib=work, ds=_t_ds, prefix=T_, family=TC21, outlib=work, export=0,
+               require_suppress=0);
 
   %_assert_pass(label=TC21-profile-no-fail);
 
@@ -1694,7 +1698,9 @@ run;
   %local _t0 _t1 _elapsed;
   %let _t0 = %sysfunc(datetime());
 
-  %pdd_profile(lib=pdd, ds=pcnr, prefix=PCNR_, family=PCNR, outlib=work, export=0);
+  %pdd_profile(lib=pdd, ds=pcnr, prefix=PCNR_, family=PCNR, outlib=work, export=0,
+               suppress_file="C:\data_dictionary\docs\profile_suppress.csv",
+               categorical_file="C:\data_dictionary\docs\profile_categorical.csv");
 
   %let _t1 = %sysfunc(datetime());
   %let _elapsed = %sysevalf(&_t1 - &_t0);

@@ -1507,6 +1507,48 @@
 %mend p6_freq_highcard;
 
 /* ============================================================
+   %_p6_read_varlist
+   Shared CSV reader for suppress and categorical lists.
+   Reads a two-column (variable, reason) CSV with a header row.
+   Parameters:
+     file=  path to the CSV; may be bare or already quote-wrapped
+            (both "path" and path forms accepted)
+     out=   WORK dataset to create (e.g. work._p6_suppress_raw)
+   Fails via %p6_fail_out when the file is missing or cannot be read.
+   C14: no bare data; / set;   C11: no macro keyword in quoted PUT.
+   ============================================================ */
+%macro _p6_read_varlist(file=, out=);
+  /* Strip surrounding double-quotes that callers may embed in the path.
+     %bquote prevents comma/paren issues; %qsysfunc(dequote()) removes
+     one layer of surrounding double-quotes if present. */
+  %local _p6_rvl_path;
+  %let _p6_rvl_path = %qsysfunc(dequote(%superq(file)));
+
+  /* Fail if file does not exist on disk */
+  %if %sysfunc(fileexist(&_p6_rvl_path)) = 0 %then %do;
+    %p6_fail_out(msg=%str(varlist file not found: &_p6_rvl_path));
+    %return;
+  %end;
+
+  /* Assign a temporary fileref, read the CSV, deassign */
+  filename _p6rvl "&_p6_rvl_path" lrecl=32767;
+  data &out;
+    length variable $32 reason $100;
+    infile _p6rvl dsd firstobs=2 truncover;
+    input variable $ reason $;
+    variable = strip(variable);
+    reason   = strip(reason);
+    if variable = '' then delete;
+  run;
+  filename _p6rvl clear;
+
+  %if &syserr > 4 %then %do;
+    %p6_fail_out(msg=%str(varlist read failed (syserr=&syserr): &_p6_rvl_path));
+    %return;
+  %end;
+%mend _p6_read_varlist;
+
+/* ============================================================
    %p6_suppressed
    D-09: Value suppression. Processes all SUPPRESSED variables
    (var_class already set to 'SUPPRESSED' in work._p6_vars before
@@ -2726,27 +2768,12 @@
     %put NOTE: [06_profile] p6_suppressed: no suppress_file provided (require_suppress=0) -- skipping;
   %end;
   %else %do;
-    /* Check that suppress_file exists on disk */
-    %if %sysfunc(fileexist(&suppress_file)) = 0 %then %do;
-      %if &require_suppress = 1 %then %do;
-        %p6_fail_out(msg=%str(D-09: suppress_file not found: &suppress_file));
-        %return;
-      %end;
-      %put NOTE: [06_profile] p6_suppressed: suppress_file not found -- skipping;
-    %end;
-    %else %do;
-      /* Load suppress list with DATA step INFILE (avoids PROC IMPORT type guessing) */
-      data work._p6_suppress_raw;
-        length variable $32 reason $100;
-        infile "&suppress_file" dsd firstobs=2 truncover;
-        input variable $ reason $;
-        variable = strip(variable);
-        reason   = strip(reason);
-        if variable = '' then delete;
-      run;
-      %if &p6_fail = 1 %then %return;
-      %_p6_ok(section=pdd_profile suppress load);
-      %if &p6_fail = 1 %then %return;
+    /* Load suppress list via shared reader (handles path with or without quotes).
+       %_p6_read_varlist fails via %p6_fail_out when the file is missing. */
+    %_p6_read_varlist(file=%superq(suppress_file), out=work._p6_suppress_raw);
+    %if &p6_fail = 1 %then %return;
+    %_p6_ok(section=pdd_profile suppress load);
+    %if &p6_fail = 1 %then %return;
 
       /* Check for 0 data rows */
       %local _p6_sup_nraw;
@@ -2799,7 +2826,6 @@
         quit;
         %put NOTE: [06_profile] D-09: &_p6_sup_n_log SUPPRESSED variable(s) loaded from suppress_file;
       %end;
-    %end;
   %end;
 
   /* ---- 2c. D-11: load categorical override list (skip NUM_TEXT for listed vars) ---- */
@@ -2808,18 +2834,8 @@
   %global _p6_cat_n;
   %let _p6_cat_n = 0;
   %if %bquote(&categorical_file) ne %bquote() %then %do;
-    %if %sysfunc(fileexist(&categorical_file)) = 0 %then %do;
-      %p6_fail_out(msg=%str(D-11: categorical_file not found: &categorical_file));
-      %return;
-    %end;
-    data work._p6_categorical_raw;
-      length variable $32 reason $100;
-      infile "&categorical_file" dsd firstobs=2 truncover;
-      input variable $ reason $;
-      variable = strip(variable);
-      reason   = strip(reason);
-      if variable = '' then delete;
-    run;
+    /* Load categorical list via shared reader (handles path with or without quotes) */
+    %_p6_read_varlist(file=%superq(categorical_file), out=work._p6_categorical_raw);
     %if &p6_fail = 1 %then %return;
     %_p6_ok(section=pdd_profile categorical load);
     %if &p6_fail = 1 %then %return;
