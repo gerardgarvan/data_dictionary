@@ -23,6 +23,7 @@ from pdd.dictionary_workbook import (
     SHEET_ORDER,
     apply_age_topcode,
     apply_suppression,
+    build_qc_sheet,
     build_sources_sheet,
     build_variables_sheet,
     write_workbook,
@@ -1024,3 +1025,135 @@ def test_no_pandas_warnings_from_write_workbook(tmp_path):
             pass  # pandas version without this warning class
         # Must not raise
         write_workbook(exchange_dir, out_path, docs_dir, config=cfg)
+
+
+# ---------------------------------------------------------------------------
+# Bug 1: QC n_all_missing_vars
+# ---------------------------------------------------------------------------
+
+def test_qc_n_all_missing_vars(tmp_path):
+    """build_qc_sheet receives n_all_missing from build_variables_sheet output.
+
+    Two CONT_NUM variables both have N=0 (all-missing). QC must report
+    n_all_missing_vars=2, not 0.
+    """
+    import openpyxl
+
+    profile_rows = (
+        "family,variable,var_class,stat,level,n,value,pct_total,pct_nonmiss,"
+        "sort_order,small_cell_flag,date_kind,display_format\n"
+        "F,PCNR_A,CONT_NUM,N,,0,,,, 0,,,\n"
+        "F,PCNR_A,CONT_NUM,N_MISSING,,100,,,, 0,,,\n"
+        "F,PCNR_B,CONT_NUM,N,,0,,,, 0,,,\n"
+        "F,PCNR_B,CONT_NUM,N_MISSING,,100,,,, 0,,,\n"
+    )
+    profile_df = pd.read_csv(
+        __import__("io").StringIO(profile_rows), dtype=str, keep_default_na=False
+    )
+    namemap_df = pd.DataFrame(columns=["s_code", "pcnr_name", "original_header", "status"])
+    cfg = _cfg()
+
+    _, var_rows = build_variables_sheet(
+        profile_df, namemap_df, {}, cfg, total_rows=100
+    )
+    n_all_missing = sum(1 for r in var_rows if r[8] == "Y")
+    assert n_all_missing == 2, f"Expected 2 all-missing vars, got {n_all_missing}"
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    build_qc_sheet(profile_df, ws, n_all_missing)
+
+    # Find the n_all_missing_vars row
+    result = None
+    for row in ws.iter_rows(values_only=True):
+        if row and row[0] == "n_all_missing_vars":
+            result = row[1]
+            break
+    assert result == 2, f"QC n_all_missing_vars expected 2, got {result!r}"
+
+
+# ---------------------------------------------------------------------------
+# Bug 2: NUM_TEXT N_UNPARSED primary-suppressed, N visible
+# ---------------------------------------------------------------------------
+
+def test_num_text_n_unparsed_primary_suppressed_n_visible():
+    """When N=1460 (visible) and N_UNPARSED=<11 (primary-suppressed):
+    - n_nonmiss must equal 1460 (not '<11')
+    - summary must NOT say 'fewer than 11 values'
+    - summary must include '<11 non-numeric entries'
+    - pct_missing must be blank (N_MISSING is complementary-suppressed)
+    """
+    profile_rows = _make_rows(
+        {"variable": "PCNR_X", "var_class": "NUM_TEXT", "stat": "N", "n": "1460", "small_cell_flag": "N"},
+        {"variable": "PCNR_X", "var_class": "NUM_TEXT", "stat": "N_UNPARSED", "n": "<11", "small_cell_flag": "Y"},
+        {"variable": "PCNR_X", "var_class": "NUM_TEXT", "stat": "N_MISSING", "n": "suppressed", "small_cell_flag": "N"},
+        {"variable": "PCNR_X", "var_class": "NUM_TEXT", "stat": "MEAN", "value": "5.3", "small_cell_flag": "N"},
+        {"variable": "PCNR_X", "var_class": "NUM_TEXT", "stat": "SD", "value": "1.2", "small_cell_flag": "N"},
+        {"variable": "PCNR_X", "var_class": "NUM_TEXT", "stat": "MEDIAN", "value": "5.0", "small_cell_flag": "N"},
+    )
+    namemap_df = pd.DataFrame(columns=["s_code", "pcnr_name", "original_header", "status"])
+    cfg = _cfg()
+
+    _, var_rows = build_variables_sheet(
+        profile_rows, namemap_df, {}, cfg, total_rows=1466
+    )
+    assert var_rows, "Expected at least one VARIABLES row"
+    row = var_rows[0]
+
+    n_nonmiss = row[5]   # index 5 = n_nonmiss
+    pct_missing = row[6]  # index 6 = pct_missing
+    summary = row[9]      # index 9 = summary
+
+    assert n_nonmiss == 1460, f"n_nonmiss should be 1460, got {n_nonmiss!r}"
+    assert pct_missing == "", f"pct_missing should be blank when N_MISSING suppressed, got {pct_missing!r}"
+    assert "fewer than 11 values" not in str(summary), (
+        f"summary must not say 'fewer than 11 values' when N is visible; got {summary!r}"
+    )
+    assert "<11 non-numeric entries" in str(summary), (
+        f"summary must include '<11 non-numeric entries'; got {summary!r}"
+    )
+
+
+def test_num_text_n_primary_suppressed_still_fewer_than_11():
+    """When N itself is primary-suppressed (<11), summary = 'fewer than 11 values'."""
+    profile_rows = _make_rows(
+        {"variable": "PCNR_Y", "var_class": "NUM_TEXT", "stat": "N", "n": "<11", "small_cell_flag": "Y"},
+        {"variable": "PCNR_Y", "var_class": "NUM_TEXT", "stat": "N_UNPARSED", "n": "suppressed", "small_cell_flag": "N"},
+        {"variable": "PCNR_Y", "var_class": "NUM_TEXT", "stat": "N_MISSING", "n": "1000", "small_cell_flag": "N"},
+    )
+    namemap_df = pd.DataFrame(columns=["s_code", "pcnr_name", "original_header", "status"])
+    cfg = _cfg()
+
+    _, var_rows = build_variables_sheet(
+        profile_rows, namemap_df, {}, cfg, total_rows=1010
+    )
+    assert var_rows
+    summary = var_rows[0][9]
+    assert summary == "fewer than 11 values", f"Got {summary!r}"
+
+
+def test_num_text_no_cell_equals_n_plus_n_unparsed_when_unparsed_suppressed():
+    """When N_UNPARSED is primary-suppressed, no VARIABLES cell must equal N + N_UNPARSED.
+
+    E.g. N=1460, N_UNPARSED=<11 — cell must never be 1460 + any number 1-10.
+    n_nonmiss must be 1460, not a sum that reveals N_UNPARSED.
+    """
+    profile_rows = _make_rows(
+        {"variable": "PCNR_Z", "var_class": "NUM_TEXT", "stat": "N", "n": "1460", "small_cell_flag": "N"},
+        {"variable": "PCNR_Z", "var_class": "NUM_TEXT", "stat": "N_UNPARSED", "n": "<11", "small_cell_flag": "Y"},
+        {"variable": "PCNR_Z", "var_class": "NUM_TEXT", "stat": "N_MISSING", "n": "suppressed", "small_cell_flag": "N"},
+    )
+    namemap_df = pd.DataFrame(columns=["s_code", "pcnr_name", "original_header", "status"])
+    cfg = _cfg()
+
+    _, var_rows = build_variables_sheet(
+        profile_rows, namemap_df, {}, cfg, total_rows=1470
+    )
+    assert var_rows
+    row = var_rows[0]
+    # Any integer cell 1461-1469 would reveal that N_UNPARSED is 1-9
+    for cell in row:
+        if isinstance(cell, int) and 1461 <= cell <= 1469:
+            raise AssertionError(
+                f"Cell value {cell} equals N + N_UNPARSED, revealing suppressed N_UNPARSED"
+            )

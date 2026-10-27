@@ -652,16 +652,24 @@ def _derive_n_nonmiss(
         n_raw = str(n_row.iloc[0]["n"]).strip() if not n_row.empty else ""
         unp_raw = str(unp_row.iloc[0]["n"]).strip() if not unp_row.empty else ""
 
-        # If either is suppressed, propagate
+        # N suppressed: propagate N status directly (N_UNPARSED state irrelevant)
         if n_raw in ("<11", "suppressed"):
             return _resolve_count_cell(n_raw, total_rows)
-        if unp_raw in ("<11", "suppressed"):
-            return _resolve_count_cell(unp_raw, total_rows)
 
+        # N is visible. Derive n_nonmiss from N alone (never add N_UNPARSED when it
+        # is suppressed — that would allow back-calculation of N_MISSING).
         n_val = _to_int_n(n_raw)
-        unp_val = _to_int_n(unp_raw) or 0
         if n_val is None:
             return "", ""
+
+        unp_suppressed = unp_raw in ("<11", "suppressed")
+        if unp_suppressed:
+            # N_UNPARSED hidden: report n_nonmiss = N only, pct_missing blank
+            # (can't compute exact pct without knowing N_UNPARSED)
+            return n_val, ""
+
+        # Both N and N_UNPARSED visible: n_nonmiss = N + N_UNPARSED
+        unp_val = _to_int_n(unp_raw) or 0
         n_nm = n_val + unp_val
         pct_miss = ""
         if total_rows and total_rows > 0:
@@ -842,15 +850,21 @@ def _summary_num_text(var_rows: pd.DataFrame) -> str:
     mean = _get_val("MEAN")
     sd = _get_val("SD")
     median = _get_val("MEDIAN")
-    n_unp = _get_n("N_UNPARSED")
+    n_unp_raw = _get_n("N_UNPARSED")
 
     parts = []
     if mean:
         parts.append(f"mean {mean}" + (f" (SD {sd})" if sd else ""))
     if median:
         parts.append(f"median {median}")
-    if n_unp:
-        parts.append(f"{n_unp} unparsed")
+
+    # Append non-numeric entries note based on N_UNPARSED suppression state
+    if n_unp_raw == "<11":
+        parts.append("<11 non-numeric entries")
+    elif n_unp_raw == "suppressed":
+        pass  # complementary-suppressed: no note (would reveal info)
+    elif n_unp_raw:
+        parts.append(f"{n_unp_raw} non-numeric entries")
     return "; ".join(parts)
 
 
@@ -954,8 +968,14 @@ def build_sources_sheet(
 # QC sheet
 # ---------------------------------------------------------------------------
 
-def build_qc_sheet(profile_df: pd.DataFrame, ws: Any) -> None:
-    """Write QC sheet to ws with two tables."""
+def build_qc_sheet(
+    profile_df: pd.DataFrame, ws: Any, n_all_missing: int = 0
+) -> None:
+    """Write QC sheet to ws with two tables.
+
+    n_all_missing: count of variables with all_missing='Y' from build_variables_sheet.
+    Passed in to avoid re-deriving with total_rows=None (which returns '' not 0).
+    """
     # Table 1: var_class breakdown
     var_classes = profile_df.groupby("variable")["var_class"].first()
     class_counts = var_classes.value_counts().sort_index()
@@ -974,17 +994,6 @@ def build_qc_sheet(profile_df: pd.DataFrame, ws: Any) -> None:
     )
     n_suppressed_vars = int((var_classes == "SUPPRESSED").sum())
 
-    # Derive n_all_missing by checking each variable's n_nonmiss
-    all_missing_count = 0
-    for var_name in profile_df["variable"].unique():
-        var_rows = profile_df[profile_df["variable"] == var_name]
-        vc = str(var_rows["var_class"].iloc[0])
-        n_nm, _ = _derive_n_nonmiss(var_rows, vc, None)
-        if isinstance(n_nm, int) and n_nm == 0:
-            all_missing_count += 1
-        elif n_nm == 0:
-            all_missing_count += 1
-
     t2_start_row = ws.max_row + 1
     t2_headers = ["metric", "value"]
     ws.append(t2_headers)
@@ -995,7 +1004,7 @@ def build_qc_sheet(profile_df: pd.DataFrame, ws: Any) -> None:
 
     ws.append(["n_small_cell_vars", n_small_cell_vars])
     ws.append(["n_suppressed_vars", n_suppressed_vars])
-    ws.append(["n_all_missing_vars", all_missing_count])
+    ws.append(["n_all_missing_vars", n_all_missing])
 
 
 # ---------------------------------------------------------------------------
@@ -1239,7 +1248,8 @@ def write_workbook(
             style_sheet(ws)
 
         elif sheet_name == "QC":
-            build_qc_sheet(profile_df, ws)
+            n_all_missing = sum(1 for r in var_rows if r[8] == "Y")
+            build_qc_sheet(profile_df, ws, n_all_missing)
             style_sheet(ws)
 
         elif sheet_name in PLACEHOLDER_TEXT:
