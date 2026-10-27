@@ -11,6 +11,15 @@ sasjs lint
 
 Both must show zero errors on the edited file.
 
+## Python setup
+
+The pipeline interpreter is `.venv\Scripts\python.exe` (default `PDD_PYTHON` in `run_pipeline.cmd`).
+Install dependencies into it before running:
+
+```
+.venv\Scripts\python.exe -m pip install -r python\requirements.txt
+```
+
 ## After any Python edit
 
 Run both quality gates before committing:

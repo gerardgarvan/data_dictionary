@@ -23,6 +23,19 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+# Early import check: fail fast with actionable message if deps missing.
+try:
+    import pandas  # noqa: F401
+    import openpyxl  # noqa: F401
+except ImportError as _imp_err:
+    _pkg = str(_imp_err).split("'")[-2] if "'" in str(_imp_err) else str(_imp_err)
+    print(
+        f"{_pkg} not installed for {sys.executable} -- "
+        f"run {sys.executable} -m pip install -r requirements.txt",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
 from pdd.config import DOCS_PATH, EXCHANGE_PATH, LOGS_PATH, OUT_PATH
 from pdd.dictionary_workbook import (
     DEFAULT_DISPLAY_CONFIG,

@@ -962,3 +962,65 @@ def test_no_suppressed_count_leaks(tmp_path):
                             )
                     except (ValueError, TypeError):
                         pass
+
+
+# ---------------------------------------------------------------------------
+# pandas 3.x compat: no FutureWarning / SettingWithCopyWarning
+
+
+def test_no_pandas_warnings_from_write_workbook(tmp_path):
+    """
+    write_workbook must emit no FutureWarning or SettingWithCopyWarning.
+    Covers pandas 3.x copy-on-write and new string dtype behaviour.
+    """
+    import warnings
+
+    exchange_dir = tmp_path / "exchange"
+    exchange_dir.mkdir()
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
+    out_path = tmp_path / "out3" / "test3.xlsx"
+
+    (docs_dir / "age_variables.csv").write_text("variable,reason\nPCNR_Age_at_Encounter,age\n")
+
+    profile_rows = (
+        "family,variable,var_class,stat,level,n,value,pct_total,pct_nonmiss,"
+        "sort_order,small_cell_flag,date_kind,display_format\n"
+        # LOW_CARD: one small-cell row
+        "F,PCNR_LC,LOW_CARD,LEVEL,SmallVal,5,,5.0,5.5,1,Y,,\n"
+        "F,PCNR_LC,LOW_CARD,LEVEL,BigVal,95,,95.0,95.0,2,N,,\n"
+        # CONT_NUM: age variable with LEVEL row >89 and small N_MISSING
+        "F,PCNR_Age_at_Encounter,CONT_NUM,N,,100,,,, 0,,,\n"
+        "F,PCNR_Age_at_Encounter,CONT_NUM,N_MISSING,,3,,,, 0,,,\n"
+        "F,PCNR_Age_at_Encounter,CONT_NUM,MEAN,,,72.3,,,0,,,\n"
+        "F,PCNR_Age_at_Encounter,CONT_NUM,MIN,,,91.0,,,0,,,\n"
+        # NUM_TEXT: text-mask trigger
+        "F,PCNR_NT,NUM_TEXT,N,,80,,,, 0,,,\n"
+        "F,PCNR_NT,NUM_TEXT,LEVEL,SecretText,5,,5.0,6.0,1,Y,,\n"
+    )
+    (exchange_dir / "profile_PCNR.csv").write_text(profile_rows)
+
+    nm_header = "s_code,col_order,sas_name,original_header,trunc_flag,status,group_id,pcnr_name,sas_type,length"
+    (exchange_dir / "name_map_dict.csv").write_text(
+        f"{nm_header}\n"
+        "s01,1,PCNR_LC,LC,0,PCNR,1,PCNR_LC,C,32\n"
+        "s01,2,PCNR_Age_at_Encounter,Age,0,PCNR,2,PCNR_Age_at_Encounter,N,8\n"
+        "s01,3,PCNR_NT,NT,0,PCNR,3,PCNR_NT,C,32\n"
+    )
+    si_header = "s_code,filename,row_count,col_count,sha256,mod_date"
+    (exchange_dir / "source_inventory.csv").write_text(
+        f"{si_header}\ns01,file1.csv,100,5,{'a' * 64},2026-01-01\n"
+    )
+
+    cfg = _cfg(small_cell_mode="suppress", age_topcode=True,
+               age_variables_file="age_variables.csv")
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", FutureWarning)
+        try:
+            from pandas.errors import SettingWithCopyWarning
+            warnings.simplefilter("error", SettingWithCopyWarning)
+        except ImportError:
+            pass  # pandas version without this warning class
+        # Must not raise
+        write_workbook(exchange_dir, out_path, docs_dir, config=cfg)
