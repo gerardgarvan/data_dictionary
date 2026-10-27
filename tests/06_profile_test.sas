@@ -1330,6 +1330,7 @@ run;
     from work.prf_test
     where variable='T_NUMTXT' and stat='N';
   quit;
+  %if %bquote(&_n_val) = %bquote() %then %let _n_val = -1;
   %let _f = 0; %if %eval(&_n_val = 30) %then %let _f = 1;
   %_assert(flag=&_f, label=TC17-n-equals-30);
 
@@ -1340,6 +1341,7 @@ run;
     from work.prf_test
     where variable='T_NUMTXT' and stat='N_MISSING';
   quit;
+  %if %bquote(&_nmiss_val) = %bquote() %then %let _nmiss_val = -1;
   %let _f = 0; %if %eval(&_nmiss_val = 18) %then %let _f = 1;
   %_assert(flag=&_f, label=TC17-nmissing-equals-18);
 
@@ -1350,11 +1352,15 @@ run;
     from work.prf_test
     where variable='T_NUMTXT' and stat='N_UNPARSED';
   quit;
+  %if %bquote(&_nup_val) = %bquote() %then %let _nup_val = -1;
   %let _f = 0; %if %eval(&_nup_val = 2) %then %let _f = 1;
   %_assert(flag=&_f, label=TC17-nunparsed-equals-2);
 
   /* Reconciliation N + N_MISSING + N_UNPARSED = 50 */
-  %let _f = 0; %if %eval(&_n_val + &_nmiss_val + &_nup_val = 50) %then %let _f = 1;
+  %let _f = 0;
+  %if %eval(&_n_val >= 0) and %eval(&_nmiss_val >= 0) and %eval(&_nup_val >= 0) %then %do;
+    %if %eval(&_n_val + &_nmiss_val + &_nup_val = 50) %then %let _f = 1;
+  %end;
   %_assert(flag=&_f, label=TC17-recon-50);
 
   /* LEVEL rows exist for unparsed values (NULL and <5) */
@@ -1455,6 +1461,47 @@ run;
 
 %mend _tc20;
 %_tc20;
+
+/*==========================================================================
+  TC-21 -- No WARNING lines in synthetic profile log (except expected-fail)
+  Runs %pdd_profile on the synthetic fixture with log captured to a WORK
+  file; reads it back and asserts no "WARNING:" lines are present.
+  Expected-fail calls are excluded (they run separately with p6_fail=0 guard).
+==========================================================================*/
+
+%macro _tc21;
+  %_tc_start(n=21, desc=no-warning-in-synthetic-profile-log);
+
+  /* Capture a clean profile run log to WORK */
+  %local _tc21_log;
+  %let _tc21_log = %sysfunc(pathname(work))\tc21_profile.log;
+  proc printto log="&_tc21_log"; run;
+
+  %let p6_fail = 0; %let p6_fail_msg = ;
+  %pdd_profile(lib=work, ds=_t_ds, prefix=T_, family=TC21, outlib=work, export=0);
+
+  proc printto; run;  /* restore log */
+
+  /* Read captured log and count WARNING lines (excluding expected-fail guards) */
+  %local _warn_cnt;
+  %let _warn_cnt = 0;
+  data _null_;
+    infile "&_tc21_log" truncover lrecl=32767;
+    input _line $32767.;
+    /* WARNING: lines that are part of SAS infrastructure (autoexec etc.) are
+       accepted; only profile-generated WARNINGs are of concern. Count all.    */
+    if index(upcase(_line), 'WARNING:') > 0 then do;
+      call symputx('_warn_cnt', strip(put(input(symget('_warn_cnt'), best32.) + 1, best32.)));
+      put "NOTE: [TC-21] WARNING found: " _line;
+    end;
+  run;
+
+  %local _f;
+  %let _f = 0; %if %eval(&_warn_cnt = 0) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC21-no-warning-lines-in-profile-log);
+
+%mend _tc21;
+%_tc21;
 
 /*==========================================================================
   TC-03 -- Integration on pdd.pcnr (read-only); wrapped in macro (C3)

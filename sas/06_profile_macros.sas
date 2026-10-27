@@ -1976,6 +1976,15 @@
   /* _prs = wide table: _nt1.._ntK numeric (. when unparseable) for PROC MEANS. */
   /* _upraw = long table: varname + uval for unparsed LEVEL rows.               */
   /* W9-exempt: single consolidated pass; no &lib..&ds read inside variable loop.*/
+  /* _upraw pre-initialised (stop;) to guarantee columns exist when 0 unparsed.  */
+  /* keep= per-dataset in data statement controls column scope; no step drop.    */
+  /* vname(_src(_j)) returns the source variable name for the varname column.   */
+  data work._p6_nt_upraw;
+    length varname $32 uval $&_p6_lvl_len;
+    stop;
+  run;
+  %if &p6_fail = 1 %then %return;
+
   data work._p6_nt_prs (keep=
         %let _p6_ntri = 1;
         %do %while (&_p6_ntri <= &_p6_ntr_total);
@@ -1983,8 +1992,8 @@
           %let _p6_ntri = %eval(&_p6_ntri + 1);
         %end;
         )
-       work._p6_nt_upraw (keep=varname uval);
-    length varname $32 uval $200;
+       work._p6_nt_upraw_new (keep=varname uval);
+    length varname $32 uval $&_p6_lvl_len;
     array _src {&_p6_ntr_total} $ &_p6_ntr_maxlen
       %let _p6_ntri = 1;
       %do %while (&_p6_ntri <= &_p6_ntr_total);
@@ -2012,15 +2021,21 @@
         /* Collect unparsed non-blank values for LEVEL rows */
         if _num(_j) = . then do;
           varname = vname(_src(_j));
-          uval    = strip(_src(_j));
-          output work._p6_nt_upraw;
+          uval    = substr(strip(_src(_j)), 1, &_p6_lvl_len);
+          output work._p6_nt_upraw_new;
         end;
       end;
       else _num(_j) = .;
     end;
     output work._p6_nt_prs;
-    drop _j varname uval;
+    drop _j;
   run;
+  %if &p6_fail = 1 %then %return;
+
+  /* Append new unparsed rows (may be 0) into the pre-initialised _upraw table  */
+  proc append base=work._p6_nt_upraw data=work._p6_nt_upraw_new force;
+  run;
+  %if &p6_fail = 1 %then %return;
   %if &p6_fail = 1 %then %return;
   %_p6_ok(section=p6_numtext parsed-copy + unparsed collect);
   %if &p6_fail = 1 %then %return;
