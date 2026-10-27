@@ -65,16 +65,22 @@ options mprint;
     call symputx('_p7m_nobs',   pcnr_nobs, 'L');
   run;
 
-  /* Get current pdd.pcnr modate formatted the same way: put(modate,16.) trimmed string */
+  /* Get current pdd.pcnr modate formatted the same way: put(modate,16.) string.
+     TRIMMED only after INTO targets, not in the SELECT list. */
   proc sql noprint;
-    select put(modate, 16.) trimmed, nobs
+    select put(modate, 16.), nobs
     into :_p7m_cur_modate trimmed, :_p7m_cur_nobs trimmed
     from dictionary.tables
     where libname='PDD' and memname='PCNR';
   quit;
 
+  %if &sqlrc > 0 %then %do;
+    %put ERROR: P7-MANIFEST: dictionary.tables query failed (sqlrc=&sqlrc). Cannot verify manifest.;
+    %let _p7_fail = 1;
+    %return;
+  %end;
   %if &_p7m_cur_modate = %then %do;
-    %put ERROR: P7-MANIFEST: pdd.pcnr not found in dictionary.tables.;
+    %put ERROR: P7-MANIFEST: pdd.pcnr not found in dictionary.tables (0 rows returned).;
     %let _p7_fail = 1;
     %return;
   %end;

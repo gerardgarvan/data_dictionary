@@ -21,6 +21,7 @@ C11 SAS macro keyword inside a quoted string on a PUT line (macro-in-put)
 C13 Macro called before its %macro definition within the same file
 C14 DATA or SET statement with no dataset name (bare "data ;" / "set ;")
 C19 put() / input() inside %sysfunc() -- use putn()/putc() or inputn()/inputc()
+C20 TRIMMED keyword in PROC SQL SELECT list -- valid only after INTO targets
 W2  Assert-style count query: reports dataset name and WHERE-clause columns for reviewer
 
 Usage
@@ -328,6 +329,49 @@ def check_sql_no_sqlrc(path, lines):
                 and not re.search(r'\bPROC\s+SQL\b', raw, CI):
             in_sql = False
 
+    return hits
+
+
+# ── C20: TRIMMED keyword in PROC SQL SELECT list (before INTO) ────────────────
+#
+# Correct:  select put(modate, 16.), nobs into :mv trimmed, :mv2 trimmed
+# Wrong:    select put(modate, 16.) trimmed, nobs into :mv trimmed, :mv2 trimmed
+#
+# TRIMMED is a modifier for macro variable targets in the INTO clause.
+# Placing it in the SELECT list triggers ERROR 22-322 and silently empties
+# the macro variable, producing misleading "not found" errors downstream.
+
+def check_sql_select_trimmed(path, lines):
+    hits = []
+    in_sql = False
+    past_into = False
+    select_lineno = None
+    for i, raw in enumerate(lines, 1):
+        if re.search(r'\bPROC\s+SQL\b', raw, CI):
+            in_sql = True
+            past_into = False
+            select_lineno = None
+        if not in_sql:
+            continue
+        if re.match(r'\s*QUIT\s*;', raw, CI) or (
+                re.match(r'\s*(DATA|PROC)\s+\w', raw, CI) and
+                not re.search(r'\bPROC\s+SQL\b', raw, CI)):
+            in_sql = False
+            past_into = False
+            select_lineno = None
+            continue
+        if re.search(r'\bSELECT\b', raw, CI) and not re.search(r'\bINTO\b', raw, CI):
+            select_lineno = i
+            past_into = False
+        if re.search(r'\bINTO\s*:', raw, CI):
+            past_into = True
+        # Flag TRIMMED that appears before INTO has been seen on this SELECT
+        if not past_into and re.search(r'\bTRIMMED\b', raw, CI):
+            lineno = select_lineno if select_lineno else i
+            hits.append((path, i, 'C20',
+                'TRIMMED keyword in PROC SQL SELECT list -- '
+                'TRIMMED is only valid after INTO macro-variable targets; '
+                'in the SELECT list it triggers ERROR 22-322 and empties the macro variable'))
     return hits
 
 
@@ -1403,6 +1447,7 @@ CHECKS = [
     check_literal_pdd_in_macro,
     check_like_in_datastep,
     check_ds_read_in_varloop,
+    check_sql_select_trimmed,
 ]
 
 

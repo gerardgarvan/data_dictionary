@@ -663,3 +663,44 @@ def test_w9_clean_on_phase6_macros():
         lines = fh.read().split("\n")
     hits = sas_lint.check_ds_read_in_varloop(str(path), lines)
     assert hits == [], "W9 in 06_profile_macros.sas:\n" + "\n".join(str(h) for h in hits)
+
+
+# ---------------------------------------------------------------------------
+# C20: TRIMMED in PROC SQL SELECT list
+
+
+def _c20_hits(code):
+    return sas_lint.check_sql_select_trimmed("test.sas", code.split("\n"))
+
+
+def test_c20_fires_on_trimmed_in_select_list():
+    code = """
+proc sql noprint;
+  select put(modate, 16.) trimmed, nobs
+  into :mv1 trimmed, :mv2 trimmed
+  from dictionary.tables;
+quit;
+"""
+    hits = _c20_hits(code)
+    assert hits, "C20 should fire when TRIMMED appears in SELECT list"
+    assert hits[0][2] == "C20"
+
+
+def test_c20_clean_when_trimmed_only_in_into():
+    code = """
+proc sql noprint;
+  select put(modate, 16.), nobs
+  into :mv1 trimmed, :mv2 trimmed
+  from dictionary.tables;
+quit;
+"""
+    hits = _c20_hits(code)
+    assert hits == [], f"C20 false positive: {hits}"
+
+
+def test_c20_clean_on_07_build_profile():
+    path = ROOT / "sas" / "07_build_profile.sas"
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        lines = fh.read().split("\n")
+    hits = sas_lint.check_sql_select_trimmed(str(path), lines)
+    assert hits == [], "C20 in 07_build_profile.sas:\n" + "\n".join(str(h) for h in hits)
