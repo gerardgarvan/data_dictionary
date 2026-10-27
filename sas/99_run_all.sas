@@ -380,18 +380,25 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
   %else
     %put NOTE: [99_run_all] Phase 6 skipped (not in PDD_PHASES=&pdd_phases_run);
 
+  /* =========================================================================
+     PHASE 7 -- Dictionary Workbook Writer (SAS orchestrator)
+     ========================================================================= */
+  %_check_pipeline_ok(phase=7);
+  %if %_phase_in(7) %then %do;
+    %let _ts = %sysfunc(datetime(), datetime20.);
+    %put NOTE: [timing] phase 7 start &_ts;
+    %put NOTE: ---- Phase 7: Dictionary workbook writer SAS orchestrator --;
+    %include "&sas_path.\07_build_profile.sas";
+    %put NOTE: ---- Phase 7 SAS orchestrator complete --------------------;
+    %let pdd_phases_done = &pdd_phases_done 7;
+    %let _ts = %sysfunc(datetime(), datetime20.);
+    %put NOTE: [timing] phase 7 end &_ts;
+  %end;
+  %else
+    %put NOTE: [99_run_all] Phase 7 skipped (not in PDD_PHASES=&pdd_phases_run);
+
 %mend _run_phases;
 %_run_phases;
-
-
-/* =========================================================================
-   PHASE 7 -- Dictionary Workbook Writer
-   ========================================================================= */
-/*
-%put NOTE: ---- Phase 7: Dictionary workbook writer -------------------;
-%include "&sas_path.\07_dictionary_xlsx.sas";
-%put NOTE: ---- Phase 7 complete --------------------------------------;
-*/
 
 
 /* =========================================================================
