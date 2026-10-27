@@ -110,9 +110,14 @@ REM ---- Later phases will add 02_source_guard.sas, 03_import.sas, etc. ----
 call :run_program "99 run_all" "99_run_all.sas"
 if !ERRORLEVEL! NEQ 0 goto :fail
 
-REM ---- Phase 4 Python: write name map review workbook ----
-call :run_python "Phase 4 Python write_name_map_review" "write_name_map_review.py"
-if !ERRORLEVEL! NEQ 0 goto :fail
+REM ---- Phase 4 Python: write name map review workbook (only when phase 4 requested) ----
+echo %PDD_PHASES% | findstr /i "\<4\>" >nul 2>&1
+if !ERRORLEVEL! EQU 0 (
+  call :run_python "Phase 4 Python write_name_map_review" "write_name_map_review.py"
+  if !ERRORLEVEL! NEQ 0 goto :fail
+) else (
+  echo Phase 4 Python skipped -- phase 4 not in PDD_PHASES
+)
 
 REM ---- Phase 5 Python: write pcnr_qc.xlsx (only when phase 5 requested) ----
 echo %PDD_PHASES% | findstr /i "\<5\>" >nul 2>&1
@@ -120,6 +125,7 @@ if !ERRORLEVEL! EQU 0 (
   echo Phase 5 Python: writing pcnr_qc.xlsx
   set _P5_EXCHANGE=P:\PeCAN Master Data\Gerard\data_dictionary\exchange
   set _P5_QC=P:\PeCAN Master Data\Gerard\data_dictionary\qc
+  echo === run %DATE% %TIME% === > "%LOGS_PATH%\write_pcnr_qc_console.txt"
   "%PDD_PYTHON%" "%~dp0python\scripts\write_pcnr_qc.py" --exchange "%_P5_EXCHANGE%" --qc "%_P5_QC%" --logs "%LOGS_PATH%" >> "%LOGS_PATH%\write_pcnr_qc_console.txt" 2>&1
   if !ERRORLEVEL! NEQ 0 (
     echo Phase 5 Python FAILED -- see logs\write_pcnr_qc_console.txt
@@ -135,6 +141,7 @@ REM ---- Phase 7 Python: write pdd_v1_0.xlsx (only when phase 7 requested) ----
 echo %PDD_PHASES% | findstr /i "\<7\>" >nul 2>&1
 if !ERRORLEVEL! EQU 0 (
   echo Phase 7 Python: writing pdd_v1_0.xlsx
+  echo === run %DATE% %TIME% === > "%LOGS_PATH%\write_dictionary_console.txt"
   "%PDD_PYTHON%" "%~dp0python\scripts\write_dictionary.py" >> "%LOGS_PATH%\write_dictionary_console.txt" 2>&1
   if !ERRORLEVEL! NEQ 0 (
     echo Phase 7 Python FAILED -- see logs\write_dictionary_console.txt

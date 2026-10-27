@@ -74,7 +74,7 @@ def validate_exchange_headers(exchange_dir: Path, docs_dir: Path) -> list[str]:
     # Build required-column index: {filename: [col, ...]}
     required: dict[str, list[str]] = {}
     phase7_files = {"profile_PCNR.csv", "name_map_dict.csv", "source_inventory.csv"}
-    with schema_path.open(newline="", encoding="utf-8") as fh:
+    with schema_path.open(newline="", encoding="utf-8-sig") as fh:
         for row in csv.DictReader(fh):
             fname = row.get("file", "").strip()
             col = row.get("column", "").strip()
@@ -88,7 +88,7 @@ def validate_exchange_headers(exchange_dir: Path, docs_dir: Path) -> list[str]:
         if not csv_path.exists():
             errors.append(f"Exchange file missing: {csv_path}")
             continue
-        with csv_path.open(newline="", encoding="utf-8") as fh:
+        with csv_path.open(newline="", encoding="utf-8-sig") as fh:
             reader = csv.DictReader(fh)
             actual = set(reader.fieldnames or [])
         expected = required.get(fname, [])
