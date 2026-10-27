@@ -131,6 +131,21 @@ if !ERRORLEVEL! EQU 0 (
   echo Phase 5 Python skipped -- phase 5 not in PDD_PHASES
 )
 
+REM ---- Phase 7 Python: write pdd_v1_0.xlsx (only when phase 7 requested) ----
+echo %PDD_PHASES% | findstr /i "\<7\>" >nul 2>&1
+if !ERRORLEVEL! EQU 0 (
+  echo Phase 7 Python: writing pdd_v1_0.xlsx
+  "%PDD_PYTHON%" "%~dp0python\scripts\write_dictionary.py" >> "%LOGS_PATH%\write_dictionary_console.txt" 2>&1
+  if !ERRORLEVEL! NEQ 0 (
+    echo Phase 7 Python FAILED -- see logs\write_dictionary_console.txt
+    echo Phase 7 Python FAILED >> "%MASTER_LOG%"
+    goto :fail
+  )
+  echo Phase 7 Python complete.
+) else (
+  echo Phase 7 Python skipped -- phase 7 not in PDD_PHASES
+)
+
 REM ---- Scan master log for ERROR lines ----
 set _ERRS=0
 for /f %%E in ('findstr /b /c:"ERROR" "%MASTER_LOG%" 2^>nul ^| find /c /v ""') do set _ERRS=%%E
