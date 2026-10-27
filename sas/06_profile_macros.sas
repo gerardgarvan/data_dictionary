@@ -1793,13 +1793,25 @@
   %_p6_ok(section=p6_numtext entry);
   %if &p6_fail = 1 %then %return;
 
-  /* Count HIGH_CARD char variables eligible for numtext check */
+  /* Count HIGH_CARD char variables eligible for numtext check.
+     D-11: variables listed in work._p6_categorical_raw (if it exists) are excluded. */
   %local _p6_nt_n;
-  proc sql noprint;
-    select count(*) into :_p6_nt_n trimmed
-    from work._p6_vars
-    where var_class = 'HIGH_CARD' and type = 'char';
-  quit;
+  %if %sysfunc(exist(work._p6_categorical_raw)) %then %do;
+    proc sql noprint;
+      select count(*) into :_p6_nt_n trimmed
+      from work._p6_vars
+      where var_class = 'HIGH_CARD' and type = 'char'
+        and upcase(name) not in
+          (select upcase(strip(variable)) from work._p6_categorical_raw);
+    quit;
+  %end;
+  %else %do;
+    proc sql noprint;
+      select count(*) into :_p6_nt_n trimmed
+      from work._p6_vars
+      where var_class = 'HIGH_CARD' and type = 'char';
+    quit;
+  %end;
   %if &p6_fail = 1 %then %return;
 
   %if &_p6_nt_n = 0 %then %do;
@@ -1809,13 +1821,32 @@
 
   %put NOTE: [06_profile] p6_numtext: checking &_p6_nt_n HIGH_CARD char variable(s) for numeric text;
 
-  /* Load HIGH_CARD char variable names and declared lengths into macro arrays */
-  /* _p6_ntl_K = declared char length (used to set explicit array element length) */
+  /* Load HIGH_CARD char variable names and declared lengths into macro arrays.
+     D-11: exclude categorical override variables (same logic as count above). */
   %local _p6_nt_total _p6_nt_maxlen;
   %let _p6_nt_total  = 0;
   %let _p6_nt_maxlen = 1;
+  %if %sysfunc(exist(work._p6_categorical_raw)) %then %do;
+    /* Build a WORK subset excluding categorical vars, then load from it */
+    proc sql noprint;
+      create table work._p6_nt_eligible as
+        select *
+        from work._p6_vars
+        where var_class = 'HIGH_CARD' and type = 'char'
+          and upcase(name) not in
+            (select upcase(strip(variable)) from work._p6_categorical_raw);
+    quit;
+  %end;
+  %else %do;
+    proc sql noprint;
+      create table work._p6_nt_eligible as
+        select *
+        from work._p6_vars
+        where var_class = 'HIGH_CARD' and type = 'char';
+    quit;
+  %end;
   data _null_;
-    set work._p6_vars (where=(var_class='HIGH_CARD' and type='char'));
+    set work._p6_nt_eligible;
     call symputx(cats('_p6_ntv_', strip(put(_n_, best32.))), strip(name), 'L');
     call symputx(cats('_p6_ntl_', strip(put(_n_, best32.))), strip(put(length, best32.)), 'L');
     call symputx('_p6_nt_total',  strip(put(_n_, best32.)), 'L');
@@ -2535,6 +2566,50 @@
 
   %put NOTE: [06_profile] All integrity checks passed;
 
+  /* --- D-09 SUPPRESSED output validation (runs only when suppress list was loaded) --- */
+  %if %sysfunc(exist(work._p6_suppress_raw)) %then %do;
+    /* Every suppress-list variable must appear in output with var_class='SUPPRESSED' */
+    %local _p6_sup_miss_n;
+    proc sql noprint;
+      select count(*) into :_p6_sup_miss_n trimmed
+      from work._p6_suppress_raw as s
+      where upcase(strip(s.variable)) not in
+        (select upcase(variable) from work._p6_final where var_class='SUPPRESSED');
+    quit;
+    %if &_p6_sup_miss_n > 0 %then %do;
+      %p6_fail_out(msg=%str(D-09 validation: &_p6_sup_miss_n suppress-list variable(s) missing from SUPPRESSED output));
+      %return;
+    %end;
+    %if &p6_fail = 1 %then %return;
+
+    /* No LEVEL row for any SUPPRESSED variable */
+    %local _p6_sup_lev_n;
+    proc sql noprint;
+      select count(*) into :_p6_sup_lev_n trimmed
+      from work._p6_final
+      where var_class='SUPPRESSED' and stat='LEVEL';
+    quit;
+    %if &_p6_sup_lev_n > 0 %then %do;
+      %p6_fail_out(msg=%str(D-09 validation: &_p6_sup_lev_n LEVEL row(s) found for SUPPRESSED variable(s)));
+      %return;
+    %end;
+    %if &p6_fail = 1 %then %return;
+
+    /* All rows for SUPPRESSED variables must have blank level */
+    %local _p6_sup_nonblank_n;
+    proc sql noprint;
+      select count(*) into :_p6_sup_nonblank_n trimmed
+      from work._p6_final
+      where var_class='SUPPRESSED' and strip(level) ne '';
+    quit;
+    %if &_p6_sup_nonblank_n > 0 %then %do;
+      %p6_fail_out(msg=%str(D-09 validation: &_p6_sup_nonblank_n SUPPRESSED row(s) have non-blank level));
+      %return;
+    %end;
+    %if &p6_fail = 1 %then %return;
+    %put NOTE: [06_profile] D-09 validation passed;
+  %end;
+
   /* ---- Step 3: Publish (only reached if all validations passed) ---- */
   data &outlib..prf_&family;
     set work._p6_final;
@@ -2584,13 +2659,19 @@
      outlib=          Publish libref (default blank = &lib at runtime)
      export=          1 (default) = write exchange CSV; 0 = skip
      require_name_map= 1 (default) = require &lib..name_map for D-05
+     suppress_file=   path to variable,reason CSV (D-09 suppression)
+     require_suppress= 1 (default) = FAIL if suppress_file blank/missing/empty;
+                       0 = suppression optional (unit tests without suppress_file)
+     categorical_file= path to variable,reason CSV (D-11 categorical override --
+                       listed HIGH_CARD vars skip NUM_TEXT reclassification)
    Note on outlib default: cannot self-reference &lib in the default
    expression (Phase 5 recursive-default lesson).  Default is blank;
    assigned to &lib inside the macro when blank.
    C26: no literal "pdd." in macro body -- use &lib / &outlib.
    ============================================================ */
 %macro pdd_profile(lib=, ds=, prefix=, family=, outlib=, export=1, require_name_map=1,
-                   suppress_file=, num_text_threshold=0.95);
+                   suppress_file=, require_suppress=1, categorical_file=,
+                   num_text_threshold=0.95);
 
   /* ---- Rerun safety: delete any stale WORK._p6_* tables and reset globals ---- */
   %local _p6_stale_list;
@@ -2636,53 +2717,138 @@
   %if &p6_fail = 1 %then %return;
 
   /* ---- 2b. D-09: load suppression list and override var_class=SUPPRESSED ---- */
-  %if %bquote(&suppress_file) ne %bquote() %then %do;
-    /* Load suppress list from CSV (must have variable,reason columns) */
-    proc import datafile="&suppress_file"
-                out=work._p6_suppress_raw
-                dbms=csv replace;
-      getnames=yes;
+  /* require_suppress=1: FAIL if suppress_file is blank, file is missing, or has 0 data rows */
+  %if %bquote(&suppress_file) = %bquote() %then %do;
+    %if &require_suppress = 1 %then %do;
+      %p6_fail_out(msg=%str(D-09: suppress_file is required (require_suppress=1) but was not provided));
+      %return;
+    %end;
+    %put NOTE: [06_profile] p6_suppressed: no suppress_file provided (require_suppress=0) -- skipping;
+  %end;
+  %else %do;
+    /* Check that suppress_file exists on disk */
+    %if %sysfunc(fileexist(&suppress_file)) = 0 %then %do;
+      %if &require_suppress = 1 %then %do;
+        %p6_fail_out(msg=%str(D-09: suppress_file not found: &suppress_file));
+        %return;
+      %end;
+      %put NOTE: [06_profile] p6_suppressed: suppress_file not found -- skipping;
+    %end;
+    %else %do;
+      /* Load suppress list with DATA step INFILE (avoids PROC IMPORT type guessing) */
+      data work._p6_suppress_raw;
+        length variable $32 reason $100;
+        infile "&suppress_file" dsd firstobs=2 truncover;
+        input variable $ reason $;
+        variable = strip(variable);
+        reason   = strip(reason);
+        if variable = '' then delete;
+      run;
+      %if &p6_fail = 1 %then %return;
+      %_p6_ok(section=pdd_profile suppress load);
+      %if &p6_fail = 1 %then %return;
+
+      /* Check for 0 data rows */
+      %local _p6_sup_nraw;
+      proc sql noprint;
+        select count(*) into :_p6_sup_nraw trimmed
+        from work._p6_suppress_raw;
+      quit;
+      %if &_p6_sup_nraw = 0 %then %do;
+        %if &require_suppress = 1 %then %do;
+          %p6_fail_out(msg=%str(D-09: suppress_file has 0 data rows (require_suppress=1): &suppress_file));
+          %return;
+        %end;
+        %put NOTE: [06_profile] p6_suppressed: suppress_file has 0 data rows -- skipping;
+      %end;
+      %else %do;
+        /* Validate: every listed variable must exist in the dataset (prefix-matched vars) */
+        %local _p6_sup_bad_n;
+        proc sql noprint;
+          select count(*) into :_p6_sup_bad_n trimmed
+          from work._p6_suppress_raw
+          where upcase(strip(variable)) not in (select upcase(name) from work._p6_vars);
+        quit;
+        %if &p6_fail = 1 %then %return;
+        %if &_p6_sup_bad_n > 0 %then %do;
+          %local _p6_sup_bad_vars;
+          proc sql noprint;
+            select strip(variable) into :_p6_sup_bad_vars separated by ', '
+            from work._p6_suppress_raw
+            where upcase(strip(variable)) not in (select upcase(name) from work._p6_vars);
+          quit;
+          %p6_fail_out(msg=%str(suppress_file lists &_p6_sup_bad_n variable(s) not in &lib..&ds: &_p6_sup_bad_vars));
+          %return;
+        %end;
+        %if &p6_fail = 1 %then %return;
+
+        /* Override var_class to SUPPRESSED for listed variables */
+        proc sql noprint;
+          update work._p6_vars
+          set var_class = 'SUPPRESSED'
+          where upcase(name) in (select upcase(strip(variable)) from work._p6_suppress_raw);
+        quit;
+        %if &p6_fail = 1 %then %return;
+        %_p6_ok(section=pdd_profile suppress reclassify);
+        %if &p6_fail = 1 %then %return;
+
+        %local _p6_sup_n_log;
+        proc sql noprint;
+          select count(*) into :_p6_sup_n_log trimmed
+          from work._p6_vars where var_class='SUPPRESSED';
+        quit;
+        %put NOTE: [06_profile] D-09: &_p6_sup_n_log SUPPRESSED variable(s) loaded from suppress_file;
+      %end;
+    %end;
+  %end;
+
+  /* ---- 2c. D-11: load categorical override list (skip NUM_TEXT for listed vars) ---- */
+  /* categorical_file= path to variable,reason CSV; listed HIGH_CARD vars are excluded  */
+  /* from NUM_TEXT reclassification (they stay HIGH_CARD or LOW_CARD as classified).    */
+  %global _p6_cat_n;
+  %let _p6_cat_n = 0;
+  %if %bquote(&categorical_file) ne %bquote() %then %do;
+    %if %sysfunc(fileexist(&categorical_file)) = 0 %then %do;
+      %p6_fail_out(msg=%str(D-11: categorical_file not found: &categorical_file));
+      %return;
+    %end;
+    data work._p6_categorical_raw;
+      length variable $32 reason $100;
+      infile "&categorical_file" dsd firstobs=2 truncover;
+      input variable $ reason $;
+      variable = strip(variable);
+      reason   = strip(reason);
+      if variable = '' then delete;
     run;
     %if &p6_fail = 1 %then %return;
-    %_p6_ok(section=pdd_profile suppress load);
+    %_p6_ok(section=pdd_profile categorical load);
     %if &p6_fail = 1 %then %return;
 
-    /* Validate: every listed variable must exist in the dataset (prefix-matched vars) */
-    %local _p6_sup_bad_n;
+    /* Validate: every listed variable must exist in work._p6_vars */
+    %local _p6_cat_bad_n;
     proc sql noprint;
-      select count(*) into :_p6_sup_bad_n trimmed
-      from work._p6_suppress_raw
+      select count(*) into :_p6_cat_bad_n trimmed
+      from work._p6_categorical_raw
       where upcase(strip(variable)) not in (select upcase(name) from work._p6_vars);
     quit;
     %if &p6_fail = 1 %then %return;
-    %if &_p6_sup_bad_n > 0 %then %do;
-      %local _p6_sup_bad_vars;
+    %if &_p6_cat_bad_n > 0 %then %do;
+      %local _p6_cat_bad_vars;
       proc sql noprint;
-        select strip(variable) into :_p6_sup_bad_vars separated by ', '
-        from work._p6_suppress_raw
+        select strip(variable) into :_p6_cat_bad_vars separated by ', '
+        from work._p6_categorical_raw
         where upcase(strip(variable)) not in (select upcase(name) from work._p6_vars);
       quit;
-      %p6_fail_out(msg=%str(suppress_file lists &_p6_sup_bad_n variable(s) not in &lib..&ds: &_p6_sup_bad_vars));
+      %p6_fail_out(msg=%str(categorical_file lists &_p6_cat_bad_n variable(s) not in &lib..&ds: &_p6_cat_bad_vars));
       %return;
     %end;
     %if &p6_fail = 1 %then %return;
 
-    /* Override var_class to SUPPRESSED for listed variables */
     proc sql noprint;
-      update work._p6_vars
-      set var_class = 'SUPPRESSED'
-      where upcase(name) in (select upcase(strip(variable)) from work._p6_suppress_raw);
+      select count(*) into :_p6_cat_n trimmed
+      from work._p6_categorical_raw;
     quit;
-    %if &p6_fail = 1 %then %return;
-    %_p6_ok(section=pdd_profile suppress reclassify);
-    %if &p6_fail = 1 %then %return;
-
-    %local _p6_sup_n_log;
-    proc sql noprint;
-      select count(*) into :_p6_sup_n_log trimmed
-      from work._p6_vars where var_class='SUPPRESSED';
-    quit;
-    %put NOTE: [06_profile] D-09: &_p6_sup_n_log SUPPRESSED variable(s) loaded from suppress_file;
+    %put NOTE: [06_profile] D-11: &_p6_cat_n categorical override variable(s) loaded from categorical_file;
   %end;
 
   /* ---- 3. Compute &_p6_lvl_len = max(64, max char length), capped at 32767 ---- */

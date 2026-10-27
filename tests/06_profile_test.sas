@@ -1562,6 +1562,81 @@ run;
 %_tc22;
 
 /*==========================================================================
+  TC-24 -- require_suppress=1 expected-fail when suppress_file omitted
+  Verifies D-09 guard: a production-style call with require_suppress=1
+  (default) and no suppress_file must set p6_fail=1 and not abort.
+==========================================================================*/
+
+%macro _tc24;
+  %_tc_start(n=24, desc=require-suppress-fails-when-suppress-file-omitted);
+
+  %let p6_fail = 0; %let p6_fail_msg = ;
+  %pdd_profile(lib=work, ds=_t_ds, prefix=T_, family=TC24, outlib=work,
+               export=0, require_suppress=1);
+
+  /* Expected: p6_fail=1 (require_suppress guard fired) */
+  %local _f;
+  %let _f = 0; %if &p6_fail = 1 %then %let _f = 1;
+  %_assert(flag=&_f, label=TC24-require-suppress-sets-p6-fail);
+
+  /* Reset for subsequent tests */
+  %let p6_fail = 0; %let p6_fail_msg = ;
+
+%mend _tc24;
+%_tc24;
+
+/*==========================================================================
+  TC-25 -- categorical_file overrides NUM_TEXT for listed variables
+  T_NUMTXT would normally be reclassified to NUM_TEXT (parse rate >= 0.95).
+  When it is listed in categorical_file, it must stay HIGH_CARD with no
+  NUM_TEXT rows and must have the standard HIGH_CARD row pattern instead.
+==========================================================================*/
+
+%macro _tc25;
+  %_tc_start(n=25, desc=categorical-override-skips-numtext);
+
+  /* Write a temp categorical CSV listing T_NUMTXT */
+  %local _tc25_cat;
+  %let _tc25_cat = %sysfunc(pathname(work))\tc25_cat.csv;
+  data _null_;
+    file "&_tc25_cat";
+    put 'variable,reason';
+    put 'T_NUMTXT,categorical override test';
+  run;
+
+  %let p6_fail = 0; %let p6_fail_msg = ;
+  %pdd_profile(lib=work, ds=_t_ds, prefix=T_, family=TC25, outlib=work,
+               export=0, require_suppress=0,
+               categorical_file="&_tc25_cat");
+
+  %local _f _cnt;
+
+  /* Profile must succeed */
+  %_assert_pass(label=TC25-profile-no-fail);
+  %if &p6_fail = 1 %then %return;
+
+  /* T_NUMTXT must NOT appear as NUM_TEXT */
+  proc sql noprint;
+    select count(*) into :_cnt trimmed
+    from work.prf_tc25
+    where upcase(variable)='T_NUMTXT' and var_class='NUM_TEXT';
+  quit;
+  %let _f = 0; %if %eval(&_cnt = 0) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC25-T_NUMTXT-not-reclassified-to-NUM_TEXT);
+
+  /* T_NUMTXT must appear as HIGH_CARD (categorical override keeps it) */
+  proc sql noprint;
+    select count(*) into :_cnt trimmed
+    from work.prf_tc25
+    where upcase(variable)='T_NUMTXT' and var_class='HIGH_CARD';
+  quit;
+  %let _f = 0; %if %eval(&_cnt > 0) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC25-T_NUMTXT-stays-HIGH_CARD);
+
+%mend _tc25;
+%_tc25;
+
+/*==========================================================================
   TC-03 -- Integration on pdd.pcnr (read-only); wrapped in macro (C3)
 ==========================================================================*/
 

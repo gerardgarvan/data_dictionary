@@ -72,7 +72,9 @@
    ============================================================ */
 %p6_route_log;
 
-%pdd_profile(lib=pdd, ds=pcnr, prefix=PCNR_, family=PCNR);
+%pdd_profile(lib=pdd, ds=pcnr, prefix=PCNR_, family=PCNR,
+             suppress_file="C:\data_dictionary\docs\profile_suppress.csv",
+             categorical_file="C:\data_dictionary\docs\profile_categorical.csv");
 
 %p6_restore_log;
 
