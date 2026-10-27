@@ -51,6 +51,24 @@
 
 %include "&sas_path.\06_profile_macros.sas";
 
+/* Manifest write — called only from _p6_check_result success branch */
+%macro _p6_write_manifest;
+  %local _p6m_modate _p6m_nobs _p6m_dttm;
+  proc sql noprint;
+    select put(modate, 16.), nobs
+    into :_p6m_modate trimmed, :_p6m_nobs trimmed
+    from dictionary.tables
+    where libname='PDD' and memname='PCNR';
+  quit;
+  %let _p6m_dttm = %sysfunc(datetime(), datetime20.);
+  data _null_;
+    file "&exchange_path.\profile_PCNR_manifest.csv" dsd lrecl=500;
+    put "pcnr_modate,pcnr_nobs,run_dttm";
+    put "&_p6m_modate.,&_p6m_nobs.,&_p6m_dttm.";
+  run;
+  %put NOTE: P6-MANIFEST: profile_PCNR_manifest.csv written (modate=&_p6m_modate, nobs=&_p6m_nobs).;
+%mend _p6_write_manifest;
+
 %macro _p6_check_result;
   %global p6_fail p6_fail_msg;
   %if %symexist(p6_fail) = 0 %then %let p6_fail = 0;
@@ -63,6 +81,8 @@
   %end;
   %else %do;
     %put NOTE: [06_profile] Phase 6 complete.;
+    /* Write freshness manifest for Phase 7 pre-flight check */
+    %_p6_write_manifest;
   %end;
 %mend _p6_check_result;
 
