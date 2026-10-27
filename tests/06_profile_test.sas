@@ -298,7 +298,7 @@ data work._t_ds;
     T_HZNOMISS = cats('Z', put(mod(_i - 1, 25) + 1, z2.));
 
     /* TC-15 D-09 suppression: free-text char variable -- varied lengths, no parse */
-    T_FREETEXT = cats('Free text entry number ', strip(put(_i, best32.)),
+    T_FREETEXT = cat('Free text entry number ', strip(put(_i, best32.)),
                       repeat(' extra', mod(_i, 5)));
 
     /* TC-16 D-09 suppression: numeric-looking IDs '1001'..'1050' */

@@ -370,7 +370,7 @@
   %let _p6_nbatches = %eval((&_p6_total_vars + &_p6_batch_size - 1) / &_p6_batch_size);
 
   data work._p6_nl_all;
-    length TableVar $32 NNonMissLevels 8 TableVarLabel $256;
+    length TableVar $32 NNonMissLevels 8;
     %local _p6_sb;
     %let _p6_sb = 1;
     set
@@ -896,7 +896,7 @@
 
       data work._p6_lc_piece;
         %_p6_attrib;
-        length _raw_val $32767;
+        call missing(of _all_);
         set work._p6_lc_sorted end=_eof;
         family         = upcase("&family");
         variable       = "&&_p6_lcv_&_p6_lci";
@@ -921,7 +921,7 @@
           else small_cell_flag = 'N';
         date_kind      = "&&_p6_lck_&_p6_lci";
         display_format = "&&_p6_lcf_&_p6_lci";
-        drop _raw_val COUNT &&_p6_lcv_&_p6_lci;
+        drop COUNT &&_p6_lcv_&_p6_lci;
         output;
       run;
       %if &p6_fail = 1 %then %return;
@@ -1102,6 +1102,7 @@
 
       data work._p6_cn_piece;
         %_p6_attrib;
+        call missing(of _all_);
         set work._p6_cn_stats (where=(upcase(strip(Variable)) = upcase("&_p6_cn_vname")));
 
         /* Common fields */
@@ -1365,6 +1366,7 @@
     /* Build all rows for this variable */
     data work._p6_hc_piece;
       %_p6_attrib;
+      call missing(of _all_);
       set work._p6_hc_sorted end=_eof;
 
       /* Keep only top-10 non-missing levels */
@@ -1868,7 +1870,12 @@
     end;
 
     if _eof then do _j = 1 to &_p6_nt_total;
-      varname      = vname(_ntv(_j));
+      /* Set varname via macro-generated IF chain -- avoids vname() with loop counter */
+      %let _p6_ntj = 1;
+      %do %while (&_p6_ntj <= &_p6_nt_total);
+        if _j = &_p6_ntj then varname = "&&_p6_ntv_&_p6_ntj";
+        %let _p6_ntj = %eval(&_p6_ntj + 1);
+      %end;
       n_nonmiss    = _nm(_j);
       n_placeholder = _nph(_j);
       n_parse      = _np(_j);
@@ -2022,7 +2029,7 @@
             if _j = &_p6_ntri then varname = "&&_p6_ntrv_&_p6_ntri";
             %let _p6_ntri = %eval(&_p6_ntri + 1);
           %end;
-          uval = substr(strip(_src(_j)), 1, &_p6_lvl_len);
+          uval = strip(_src(_j)); /* direct assign; SAS truncates to $&_p6_lvl_len via length stmt */
           output work._p6_nt_upraw;
         end;
       end;
@@ -2699,6 +2706,7 @@
   /* ---- 4. Initialise empty work._p6_rows with the schema (DATA step with stop;) ---- */
   data work._p6_rows;
     %_p6_attrib;
+    call missing(of _all_);
     stop;
   run;
   %if &p6_fail = 1 %then %return;
