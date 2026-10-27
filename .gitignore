@@ -20,6 +20,9 @@
 !docs/exchange_schema.csv
 # Exception: PCNR value equivalence pairs for CODING_EQUIV conflict_class, no PHI -- D-QC-01
 !docs/pcnr_value_equiv.csv
+# Exception: Phase 6 suppression and categorical override lists, no PHI -- D-09 D-11
+!docs/profile_suppress.csv
+!docs/profile_categorical.csv
 
 # SAS logs and output
 *.log

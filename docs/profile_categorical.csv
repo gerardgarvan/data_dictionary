@@ -1,0 +1,13 @@
+variable,reason
+PCNR_CPT_1,procedure code
+PCNR_ron_CPT_1,procedure code
+PCNR_ron_CPT_2_DIGIT,procedure code 2-digit
+PCNR_ron_CPT_3_DIGIT,procedure code 3-digit
+PCNR_ron_CPT_4_DIGIT,procedure code 4-digit
+PCNR_CPT1_Class,procedure code class
+PCNR_Base_Procedure_Code_1,base procedure code
+PCNR_ron_Base_Procedure_Code_1,base procedure code
+PCNR_ron_BPC_4_DIGIT,base procedure code 4-digit
+PCNR_ron_BPC_5_DIGIT,base procedure code 5-digit
+PCNR_ron_BPC_6_DIGIT,base procedure code 6-digit
+PCNR_ron_BPC_7_DIGIT,base procedure code 7-digit
