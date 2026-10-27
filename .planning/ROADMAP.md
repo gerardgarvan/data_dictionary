@@ -99,10 +99,10 @@ Plans:
 - Sheet order: KEY (leftmost) | PCNR_ | NAME_MAP | SOURCES | QC; UF header colors via `python\pdd\xlsx_style.py`
 - Placeholder sheets for PCNC, PCND, CLK, LAB, MED, INTRA, each marked "source pending"
 - **Done when:** Gerard reviews the workbook and v1.0 ships
-- **Plans:** 3 plans
+- **Plans:** 1/3 plans executed
 
 Plans:
-- [ ] 07-01-PLAN.md -- SAS orchestrator (07_build_profile.sas), exchange_schema.csv extension, source_notes.csv seed
+- [x] 07-01-PLAN.md -- SAS orchestrator (07_build_profile.sas), exchange_schema.csv extension, source_notes.csv seed
 - [ ] 07-02-PLAN.md -- python/pdd/dictionary_workbook.py core module + test suite (wave 2, parallel with 07-01)
 - [ ] 07-03-PLAN.md -- python/scripts/write_dictionary.py entry point + run_pipeline.cmd Phase 7 block (wave 3)
 
