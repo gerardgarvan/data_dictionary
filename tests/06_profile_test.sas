@@ -1463,9 +1463,13 @@ run;
 %_tc20;
 
 /*==========================================================================
-  TC-21 -- No WARNING lines in synthetic profile log (except expected-fail)
+  TC-21 -- No WARNING/error lines in synthetic profile log
   Runs %pdd_profile on the synthetic fixture with log captured to a WORK
-  file; reads it back and asserts no "WARNING:" lines are present.
+  file; reads it back and asserts:
+    (a) no "WARNING:" lines
+    (b) no "Invalid.*argument" lines (e.g. SUBSTR bad length)
+    (c) no "is uninitialized" lines
+    (d) no "Limit set by ERRORS=" lines
   Expected-fail calls are excluded (they run separately with p6_fail=0 guard).
 ==========================================================================*/
 
@@ -1482,26 +1486,104 @@ run;
 
   proc printto; run;  /* restore log */
 
-  /* Read captured log and count WARNING lines (excluding expected-fail guards) */
-  %local _warn_cnt;
-  %let _warn_cnt = 0;
+  /* Read captured log and count bad lines */
+  %local _warn_cnt _badarg_cnt _uninit_cnt _errlim_cnt;
+  %let _warn_cnt   = 0;
+  %let _badarg_cnt = 0;
+  %let _uninit_cnt = 0;
+  %let _errlim_cnt = 0;
   data _null_;
     infile "&_tc21_log" truncover lrecl=32767;
     input _line $32767.;
-    /* WARNING: lines that are part of SAS infrastructure (autoexec etc.) are
-       accepted; only profile-generated WARNINGs are of concern. Count all.    */
-    if index(upcase(_line), 'WARNING:') > 0 then do;
+    _up = upcase(_line);
+    if index(_up, 'WARNING:') > 0 then do;
       call symputx('_warn_cnt', strip(put(input(symget('_warn_cnt'), best32.) + 1, best32.)));
       put "NOTE: [TC-21] WARNING found: " _line;
     end;
+    /* NOTE: Invalid ... argument to function (e.g. SUBSTR bad third arg) */
+    if index(_up, 'INVALID') > 0 and index(_up, 'ARGUMENT') > 0 then do;
+      call symputx('_badarg_cnt', strip(put(input(symget('_badarg_cnt'), best32.) + 1, best32.)));
+      put "NOTE: [TC-21] INVALID ARGUMENT found: " _line;
+    end;
+    if index(_up, 'IS UNINITIALIZED') > 0 then do;
+      call symputx('_uninit_cnt', strip(put(input(symget('_uninit_cnt'), best32.) + 1, best32.)));
+      put "NOTE: [TC-21] UNINITIALIZED found: " _line;
+    end;
+    if index(_up, 'LIMIT SET BY ERRORS=') > 0 then do;
+      call symputx('_errlim_cnt', strip(put(input(symget('_errlim_cnt'), best32.) + 1, best32.)));
+      put "NOTE: [TC-21] ERRORS= LIMIT found: " _line;
+    end;
+    drop _up;
   run;
 
   %local _f;
   %let _f = 0; %if %eval(&_warn_cnt = 0) %then %let _f = 1;
   %_assert(flag=&_f, label=TC21-no-warning-lines-in-profile-log);
 
+  %let _f = 0; %if %eval(&_badarg_cnt = 0) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC21-no-invalid-argument-in-profile-log);
+
+  %let _f = 0; %if %eval(&_uninit_cnt = 0) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC21-no-uninitialized-in-profile-log);
+
+  %let _f = 0; %if %eval(&_errlim_cnt = 0) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC21-no-errors-limit-in-profile-log);
+
 %mend _tc21;
 %_tc21;
+
+/*==========================================================================
+  TC-22 -- NUM_TEXT LEVEL rows correct for T_NUMTXT and T_NUM95
+  T_NUMTXT unparsed values: 'NULL' (1 row) and '<5' (1 row).
+  T_NUM95 unparsed values: 'UNKNOWN' (10 rows).
+  TC-21 runs %pdd_profile(family=TC21) which includes T_NUMID as NUM_TEXT
+  (no suppress_file); use work.prf_tc21 produced by TC-21.
+==========================================================================*/
+
+%macro _tc22;
+  %_tc_start(n=22, desc=numtext-level-rows-correct);
+
+  %local _f _cnt _n_val;
+
+  /* T_NUMTXT: LEVEL row for 'NULL' with n=1 */
+  proc sql noprint;
+    select count(*) into :_cnt trimmed
+    from work.prf_tc21
+    where upcase(variable)='T_NUMTXT' and stat='LEVEL' and upcase(strip(level))='NULL' and n=1;
+  quit;
+  %let _f = 0; %if %eval(&_cnt = 1) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC22-T_NUMTXT-LEVEL-NULL-n1);
+
+  /* T_NUMTXT: LEVEL row for '<5' with n=1 */
+  proc sql noprint;
+    select count(*) into :_cnt trimmed
+    from work.prf_tc21
+    where upcase(variable)='T_NUMTXT' and stat='LEVEL' and strip(level)='<5' and n=1;
+  quit;
+  %let _f = 0; %if %eval(&_cnt = 1) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC22-T_NUMTXT-LEVEL-lt5-n1);
+
+  /* T_NUM95: LEVEL row for 'UNKNOWN' with n=10 */
+  proc sql noprint;
+    select count(*) into :_cnt trimmed
+    from work.prf_tc21
+    where upcase(variable)='T_NUM95' and stat='LEVEL' and upcase(strip(level))='UNKNOWN' and n=10;
+  quit;
+  %let _f = 0; %if %eval(&_cnt = 1) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC22-T_NUM95-LEVEL-UNKNOWN-n10);
+
+  /* T_NUMTXT: no LEVEL row for numeric values (only unparsed appear as LEVEL) */
+  proc sql noprint;
+    select count(*) into :_cnt trimmed
+    from work.prf_tc21
+    where upcase(variable)='T_NUMTXT' and stat='LEVEL'
+      and upcase(strip(level)) not in ('NULL','<5');
+  quit;
+  %let _f = 0; %if %eval(&_cnt = 0) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC22-T_NUMTXT-no-numeric-LEVEL-rows);
+
+%mend _tc22;
+%_tc22;
 
 /*==========================================================================
   TC-03 -- Integration on pdd.pcnr (read-only); wrapped in macro (C3)
