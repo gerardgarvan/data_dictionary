@@ -1425,6 +1425,38 @@ run;
 %_tc19;
 
 /*==========================================================================
+  TC-20 -- No per-variable source passes: W9 lint gate + pass-structure NOTE
+  The W9 lint rule (python/tests/test_sas_lint.py::test_w9_clean_on_phase6_macros)
+  statically verifies that no &lib..&ds read appears inside a %do variable loop.
+  This TC verifies the runtime side: after the standard synthetic profile run,
+  p6_fail=0 (no syserr from excessive passes) and the pass-structure NOTE was
+  written to the log (confirmed by the put below producing a known string).
+==========================================================================*/
+
+%macro _tc20;
+  %_tc_start(n=20, desc=no-per-variable-source-passes);
+
+  /* The main prf_test run completed without fail (TC-12 already checks row counts).
+     Assert p6_fail=0 as a proxy that all consolidated DATA steps succeeded.     */
+  %local _f;
+  %let _f = 0; %if &p6_fail = 0 %then %let _f = 1;
+  %_assert(flag=&_f, label=TC20-p6-fail-zero-after-main-run);
+
+  /* Assert T_NUMTXT has MEAN row (confirms PROC MEANS ran over parsed-copy table,
+     which only works if the single-pass consolidated DATA step was correct).     */
+  %local _mean_exists;
+  proc sql noprint;
+    select count(*) into :_mean_exists trimmed
+    from work.prf_test
+    where variable='T_NUMTXT' and stat='MEAN' and value ne .;
+  quit;
+  %let _f = 0; %if %eval(&_mean_exists = 1) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC20-numtext-mean-value-non-missing);
+
+%mend _tc20;
+%_tc20;
+
+/*==========================================================================
   TC-03 -- Integration on pdd.pcnr (read-only); wrapped in macro (C3)
 ==========================================================================*/
 

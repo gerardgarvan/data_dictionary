@@ -612,3 +612,54 @@ def test_c27_clean_on_phase6_macros():
         lines = fh.read().split("\n")
     hits = sas_lint.check_like_in_datastep(str(path), lines)
     assert hits == [], "C27 in 06_profile_macros.sas:\n" + "\n".join(str(h) for h in hits)
+
+
+# ---------------------------------------------------------------------------
+# W9: DATA/PROC reading &lib..&ds inside a %do variable loop
+# ---------------------------------------------------------------------------
+
+def test_w9_fires_on_set_in_do_loop():
+    lines = [
+        "%do %while (&i <= &n);",
+        "  data work.tmp; set &lib..&ds; run;",
+        "%end;",
+    ]
+    hits = sas_lint.check_ds_read_in_varloop("<test>", lines)
+    assert len(hits) == 1, f"W9 should fire once: {hits}"
+    assert hits[0][2] == "W9"
+
+
+def test_w9_fires_on_data_eq_in_do_loop():
+    lines = [
+        "%do i = 1 %to &n;",
+        "  proc means data=&mylib..&myds; run;",
+        "%end;",
+    ]
+    hits = sas_lint.check_ds_read_in_varloop("<test>", lines)
+    assert len(hits) == 1, f"W9 should fire once: {hits}"
+
+
+def test_w9_exempt_suppresses():
+    lines = [
+        "%do %while (&i <= &n);",
+        "  data work.tmp; set &lib..&ds; /* W9-exempt */ run;",
+        "%end;",
+    ]
+    hits = sas_lint.check_ds_read_in_varloop("<test>", lines)
+    assert hits == [], f"W9-exempt should suppress: {hits}"
+
+
+def test_w9_ignores_read_outside_loop():
+    lines = [
+        "data work.tmp; set &lib..&ds; run;",
+    ]
+    hits = sas_lint.check_ds_read_in_varloop("<test>", lines)
+    assert hits == [], f"W9 outside loop should not fire: {hits}"
+
+
+def test_w9_clean_on_phase6_macros():
+    path = ROOT / "sas" / "06_profile_macros.sas"
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        lines = fh.read().split("\n")
+    hits = sas_lint.check_ds_read_in_varloop(str(path), lines)
+    assert hits == [], "W9 in 06_profile_macros.sas:\n" + "\n".join(str(h) for h in hits)

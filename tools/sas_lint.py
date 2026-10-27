@@ -1320,6 +1320,47 @@ def check_like_in_datastep(path, lines):
     return hits
 
 
+# ── W9: DATA/PROC reading &lib..&ds inside a %do variable loop ───────────────
+
+_W9_DO_START = re.compile(r'%do\s+(%while\b|[a-z_]\w*\s*=)', CI)
+_W9_DO_END   = re.compile(r'%end\s*;', CI)
+_W9_SOURCE_READ = re.compile(
+    r'(?:'
+    r'\bset\s+&\w+\.\.\&\w+\b'         # set &lib..&ds
+    r'|'
+    r'\bdata\s*=\s*&\w+\.\.\&\w+'      # data=&lib..&ds (proc step option)
+    r')',
+    CI,
+)
+# Matches content inside a double-quoted SAS string (put "..."; or file= "...")
+_W9_IN_DQUOTE = re.compile(r'"[^"]*(?:set\s+&|data\s*=\s*&)[^"]*"', CI)
+_W9_EXEMPT = re.compile(r'W9-exempt', CI)
+
+
+def check_ds_read_in_varloop(path, lines):
+    """W9: DATA/PROC step reading &lib..&ds inside a percent-do variable loop.
+
+    Each full-dataset read inside a %do loop costs one source-table pass per
+    iteration; consolidate into a single pre-loop step instead.
+    Suppress with a trailing comment containing 'W9-exempt'.
+    """
+    hits = []
+    do_depth = 0
+    for i, raw in enumerate(lines, 1):
+        stripped = re.sub(r'/\*.*?\*/', '', raw)
+        if _W9_DO_START.search(stripped):
+            do_depth += 1
+        if _W9_DO_END.search(stripped):
+            do_depth = max(do_depth - 1, 0)
+        if do_depth > 0 and _W9_SOURCE_READ.search(stripped):
+            if not _W9_EXEMPT.search(raw) and not _W9_IN_DQUOTE.search(stripped):
+                hits.append((path, i, 'W9',
+                    'DATA/PROC step reads &lib..&ds inside a %%do variable loop '
+                    '-- consolidate into a single pre-loop pass; '
+                    'add W9-exempt comment if this is intentional'))
+    return hits
+
+
 # ── runner ────────────────────────────────────────────────────────────────────
 
 CHECKS = [
@@ -1361,6 +1402,7 @@ CHECKS = [
     check_sysfunc_missing,
     check_literal_pdd_in_macro,
     check_like_in_datastep,
+    check_ds_read_in_varloop,
 ]
 
 

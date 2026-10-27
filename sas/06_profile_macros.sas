@@ -1556,8 +1556,93 @@
   %_p6_ok(section=p6_suppressed varname load);
   %if &p6_fail = 1 %then %return;
 
-  /* Process each SUPPRESSED variable */
-  %local _p6_supi;
+  /* ONE DATA step over &lib..&ds for all SUPPRESSED variables.                      */
+  /* Generates per-variable IF blocks; no loop over &lib..&ds.                       */
+  /* W9-exempt: single consolidated pass; no &lib..&ds read inside variable loop.    */
+  data work._p6_sup_stats;
+    length _vname $32
+      %local _p6_supi;
+      %let _p6_supi = 1;
+      %do %while (&_p6_supi <= &_p6_sup_total);
+        _nm_&_p6_supi 8 _nmiss_&_p6_supi 8 _np_&_p6_supi 8
+        _nmin_&_p6_supi 8 _nmax_&_p6_supi 8
+        _lmin_&_p6_supi 8 _lmax_&_p6_supi 8
+        %let _p6_supi = %eval(&_p6_supi + 1);
+      %end;
+      ;
+    retain
+      %let _p6_supi = 1;
+      %do %while (&_p6_supi <= &_p6_sup_total);
+        _nm_&_p6_supi 0 _nmiss_&_p6_supi 0 _np_&_p6_supi 0
+        _nmin_&_p6_supi . _nmax_&_p6_supi .
+        _lmin_&_p6_supi . _lmax_&_p6_supi .
+        %let _p6_supi = %eval(&_p6_supi + 1);
+      %end;
+      ;
+    set &lib..&ds (keep=
+      %let _p6_supi = 1;
+      %do %while (&_p6_supi <= &_p6_sup_total);
+        &&_p6_supv_&_p6_supi
+        %let _p6_supi = %eval(&_p6_supi + 1);
+      %end;
+      ) end=_eof;
+
+    /* Per-variable unrolled accumulators */
+    %let _p6_supi = 1;
+    %do %while (&_p6_supi <= &_p6_sup_total);
+      %if &&_p6_supt_&_p6_supi = char %then %do;
+        if strip(&&_p6_supv_&_p6_supi) = '' then _nmiss_&_p6_supi = _nmiss_&_p6_supi + 1;
+        else do;
+          _nm_&_p6_supi = _nm_&_p6_supi + 1;
+          if input(strip(&&_p6_supv_&_p6_supi), ?? best32.) ne . then do;
+            _np_&_p6_supi = _np_&_p6_supi + 1;
+            if _nmin_&_p6_supi = . or input(strip(&&_p6_supv_&_p6_supi), ?? best32.) < _nmin_&_p6_supi
+              then _nmin_&_p6_supi = input(strip(&&_p6_supv_&_p6_supi), ?? best32.);
+            if _nmax_&_p6_supi = . or input(strip(&&_p6_supv_&_p6_supi), ?? best32.) > _nmax_&_p6_supi
+              then _nmax_&_p6_supi = input(strip(&&_p6_supv_&_p6_supi), ?? best32.);
+          end;
+          if _lmin_&_p6_supi = . or length(strip(&&_p6_supv_&_p6_supi)) < _lmin_&_p6_supi
+            then _lmin_&_p6_supi = length(strip(&&_p6_supv_&_p6_supi));
+          if _lmax_&_p6_supi = . or length(strip(&&_p6_supv_&_p6_supi)) > _lmax_&_p6_supi
+            then _lmax_&_p6_supi = length(strip(&&_p6_supv_&_p6_supi));
+        end;
+      %end;
+      %else %do;
+        if &&_p6_supv_&_p6_supi = . then _nmiss_&_p6_supi = _nmiss_&_p6_supi + 1;
+        else do;
+          _nm_&_p6_supi = _nm_&_p6_supi + 1;
+          _np_&_p6_supi = _nm_&_p6_supi; /* numeric always parseable */
+          if _nmin_&_p6_supi = . or &&_p6_supv_&_p6_supi < _nmin_&_p6_supi
+            then _nmin_&_p6_supi = &&_p6_supv_&_p6_supi;
+          if _nmax_&_p6_supi = . or &&_p6_supv_&_p6_supi > _nmax_&_p6_supi
+            then _nmax_&_p6_supi = &&_p6_supv_&_p6_supi;
+        end;
+      %end;
+      %let _p6_supi = %eval(&_p6_supi + 1);
+    %end;
+
+    if _eof then do;
+      %let _p6_supi = 1;
+      %do %while (&_p6_supi <= &_p6_sup_total);
+        _vname = "&&_p6_supv_&_p6_supi";
+        output;
+        %let _p6_supi = %eval(&_p6_supi + 1);
+      %end;
+    end;
+    keep _vname
+      %let _p6_supi = 1;
+      %do %while (&_p6_supi <= &_p6_sup_total);
+        _nm_&_p6_supi _nmiss_&_p6_supi _np_&_p6_supi
+        _nmin_&_p6_supi _nmax_&_p6_supi _lmin_&_p6_supi _lmax_&_p6_supi
+        %let _p6_supi = %eval(&_p6_supi + 1);
+      %end;
+      ;
+  run;
+  %if &p6_fail = 1 %then %return;
+  %_p6_ok(section=p6_suppressed one-pass stats);
+  %if &p6_fail = 1 %then %return;
+
+  /* Extract stats for each SUPPRESSED variable and emit rows */
   %let _p6_supi = 1;
   %do %while (&_p6_supi <= &_p6_sup_total);
     %local _p6_sup_vname _p6_sup_vtype _p6_sup_dk _p6_sup_df _p6_sup_nd;
@@ -1567,67 +1652,17 @@
     %let _p6_sup_df    = &&_p6_supf_&_p6_supi;
     %let _p6_sup_nd    = &&_p6_supd_&_p6_supi;
 
-    /* Compute: n_nonmiss, n_missing, n_parse (numeric parseable non-missing),
-       min_val, max_val for the variable in one DATA step pass */
-    data work._p6_sup_stats;
-      length _vname $32 n_nonmiss 8 n_miss 8 n_parse 8
-             num_min 8 num_max 8 len_min 8 len_max 8;
-      retain n_nonmiss 0 n_miss 0 n_parse 0
-             num_min . num_max . len_min . len_max .;
-      set &lib..&ds end=_eof;
-
-      %if &_p6_sup_vtype = char %then %do;
-        /* Character variable */
-        if strip(&_p6_sup_vname) = '' then n_miss = n_miss + 1;
-        else do;
-          n_nonmiss = n_nonmiss + 1;
-          /* Try numeric parse */
-          if input(strip(&_p6_sup_vname), ?? best32.) ne . then do;
-            n_parse = n_parse + 1;
-            /* Track numeric min/max */
-            if num_min = . or input(strip(&_p6_sup_vname), ?? best32.) < num_min
-              then num_min = input(strip(&_p6_sup_vname), ?? best32.);
-            if num_max = . or input(strip(&_p6_sup_vname), ?? best32.) > num_max
-              then num_max = input(strip(&_p6_sup_vname), ?? best32.);
-          end;
-          /* Track char length min/max */
-          if len_min = . or length(strip(&_p6_sup_vname)) < len_min
-            then len_min = length(strip(&_p6_sup_vname));
-          if len_max = . or length(strip(&_p6_sup_vname)) > len_max
-            then len_max = length(strip(&_p6_sup_vname));
-        end;
-      %end;
-      %else %do;
-        /* Numeric variable */
-        if &_p6_sup_vname = . then n_miss = n_miss + 1;
-        else do;
-          n_nonmiss = n_nonmiss + 1;
-          n_parse = n_nonmiss; /* numeric is always parseable */
-          if num_min = . or &_p6_sup_vname < num_min then num_min = &_p6_sup_vname;
-          if num_max = . or &_p6_sup_vname > num_max then num_max = &_p6_sup_vname;
-        end;
-      %end;
-
-      if _eof then do;
-        _vname = "&_p6_sup_vname";
-        output;
-      end;
-      keep _vname n_nonmiss n_miss n_parse num_min num_max len_min len_max;
-    run;
-    %if &p6_fail = 1 %then %return;
-    %_p6_ok(section=p6_suppressed stats pass &_p6_sup_vname);
-    %if &p6_fail = 1 %then %return;
-
-    /* Extract stats into macro vars */
     %local _p6_sup_nnonmiss _p6_sup_nmiss _p6_sup_nparse
            _p6_sup_nummin _p6_sup_nummax _p6_sup_lenmin _p6_sup_lenmax;
     proc sql noprint;
-      select n_nonmiss, n_miss, n_parse,
-             num_min, num_max, len_min, len_max
+      select _nm_&_p6_supi, _nmiss_&_p6_supi, _np_&_p6_supi,
+             _nmin_&_p6_supi, _nmax_&_p6_supi,
+             _lmin_&_p6_supi, _lmax_&_p6_supi
       into :_p6_sup_nnonmiss trimmed, :_p6_sup_nmiss trimmed, :_p6_sup_nparse trimmed,
            :_p6_sup_nummin trimmed, :_p6_sup_nummax trimmed,
            :_p6_sup_lenmin trimmed, :_p6_sup_lenmax trimmed
-      from work._p6_sup_stats;
+      from work._p6_sup_stats
+      where _vname = "&_p6_sup_vname";
     quit;
     %if &p6_fail = 1 %then %return;
     %if %bquote(&_p6_sup_nnonmiss) = %bquote() %then %let _p6_sup_nnonmiss = 0;
@@ -1770,56 +1805,80 @@
 
   %put NOTE: [06_profile] p6_numtext: checking &_p6_nt_n HIGH_CARD char variable(s) for numeric text;
 
-  /* Load HIGH_CARD char variable names into macro arrays */
-  %local _p6_nt_total;
-  %let _p6_nt_total = 0;
+  /* Load HIGH_CARD char variable names and declared lengths into macro arrays */
+  /* _p6_ntl_K = declared char length (used to set explicit array element length) */
+  %local _p6_nt_total _p6_nt_maxlen;
+  %let _p6_nt_total  = 0;
+  %let _p6_nt_maxlen = 1;
   data _null_;
     set work._p6_vars (where=(var_class='HIGH_CARD' and type='char'));
     call symputx(cats('_p6_ntv_', strip(put(_n_, best32.))), strip(name), 'L');
-    call symputx('_p6_nt_total', strip(put(_n_, best32.)), 'L');
+    call symputx(cats('_p6_ntl_', strip(put(_n_, best32.))), strip(put(length, best32.)), 'L');
+    call symputx('_p6_nt_total',  strip(put(_n_, best32.)), 'L');
+    /* running max -- resolved after data step completes */
   run;
   %if &p6_fail = 1 %then %return;
 
-  /* Per-variable DATA step counts (avoids array-length mismatch; ?? in DATA step not PROC SQL) */
-  data work._p6_nt_counts;
-    length varname $32 n_nonmiss 8 n_placeholder 8 n_parse 8;
-    stop;
-  run;
-  %if &p6_fail = 1 %then %return;
-
-  %local _p6_ntj _p6_ntv_cur;
+  /* Compute max declared length across all candidates for array element size */
+  %local _p6_ntj;
   %let _p6_ntj = 1;
   %do %while (&_p6_ntj <= &_p6_nt_total);
-    %let _p6_ntv_cur = &&_p6_ntv_&_p6_ntj;
-
-    /* Count for one HIGH_CARD char variable via DATA step */
-    data work._p6_nt_one;
-      length varname $32 n_nonmiss 8 n_placeholder 8 n_parse 8;
-      retain n_nonmiss 0 n_placeholder 0 n_parse 0;
-      set &lib..&ds (keep=&_p6_ntv_cur) end=_eof;
-      if strip(&_p6_ntv_cur) ne '' then do;
-        n_nonmiss = n_nonmiss + 1;
-        if upcase(strip(&_p6_ntv_cur)) in ('NULL','N/A','NA','?','UNKNOWN','.','-')
-          then n_placeholder = n_placeholder + 1;
-        if input(strip(&_p6_ntv_cur), ?? best32.) ne .
-          then n_parse = n_parse + 1;
-      end;
-      if _eof then do;
-        varname = "&_p6_ntv_cur";
-        output;
-      end;
-      keep varname n_nonmiss n_placeholder n_parse;
-    run;
-    %if &p6_fail = 1 %then %return;
-
-    proc append base=work._p6_nt_counts data=work._p6_nt_one;
-    run;
-    %if &p6_fail = 1 %then %return;
-
+    %if &&_p6_ntl_&_p6_ntj > &_p6_nt_maxlen %then
+      %let _p6_nt_maxlen = &&_p6_ntl_&_p6_ntj;
     %let _p6_ntj = %eval(&_p6_ntj + 1);
   %end;
 
-  %_p6_ok(section=p6_numtext per-var counts);
+  /* ONE DATA step over &lib..&ds to count parse rates for all HIGH_CARD char vars */
+  /* Array declared with explicit $&_p6_nt_maxlen to avoid length-mismatch warnings */
+  /* Accumulators held in _temporary_ arrays; one output row per candidate.         */
+  /* W9-exempt: this is the single consolidated pass; no loop over &lib..&ds.       */
+  data work._p6_nt_counts;
+    length varname $32 n_nonmiss 8 n_placeholder 8 n_parse 8;
+    array _ntv  {&_p6_nt_total} $ &_p6_nt_maxlen
+      %let _p6_ntj = 1;
+      %do %while (&_p6_ntj <= &_p6_nt_total);
+        &&_p6_ntv_&_p6_ntj
+        %let _p6_ntj = %eval(&_p6_ntj + 1);
+      %end;
+      ;
+    array _nm   {&_p6_nt_total} _temporary_;  /* n_nonmiss */
+    array _nph  {&_p6_nt_total} _temporary_;  /* n_placeholder */
+    array _np   {&_p6_nt_total} _temporary_;  /* n_parse */
+
+    if _n_ = 1 then do _j = 1 to &_p6_nt_total;
+      _nm(_j) = 0; _nph(_j) = 0; _np(_j) = 0;
+    end;
+
+    set &lib..&ds (keep=
+      %let _p6_ntj = 1;
+      %do %while (&_p6_ntj <= &_p6_nt_total);
+        &&_p6_ntv_&_p6_ntj
+        %let _p6_ntj = %eval(&_p6_ntj + 1);
+      %end;
+      ) end=_eof;
+
+    do _j = 1 to &_p6_nt_total;
+      if strip(_ntv(_j)) ne '' then do;
+        _nm(_j) = _nm(_j) + 1;
+        if upcase(strip(_ntv(_j))) in ('NULL','N/A','NA','?','UNKNOWN','.','-')
+          then _nph(_j) = _nph(_j) + 1;
+        if input(strip(_ntv(_j)), ?? best32.) ne .
+          then _np(_j) = _np(_j) + 1;
+      end;
+    end;
+
+    if _eof then do _j = 1 to &_p6_nt_total;
+      varname      = vname(_ntv(_j));
+      n_nonmiss    = _nm(_j);
+      n_placeholder = _nph(_j);
+      n_parse      = _np(_j);
+      output;
+    end;
+    keep varname n_nonmiss n_placeholder n_parse;
+    drop _j;
+  run;
+  %if &p6_fail = 1 %then %return;
+  %_p6_ok(section=p6_numtext one-pass count);
   %if &p6_fail = 1 %then %return;
 
   /* Log near-misses (parse rate 80-95%) and reclassify NUM_TEXT vars */
@@ -1870,78 +1929,159 @@
   /* No rows to delete: %p6_numtext runs before %p6_freq_highcard, so no HIGH_CARD */
   /* rows exist yet for these variables.                                              */
 
-  /* Load NUM_TEXT variable names into macro arrays */
+  /* Load NUM_TEXT variable names and counts into macro arrays */
+  /* Also load count data from work._p6_nt_counts for each reclassified var. */
   %local _p6_ntr_total;
   %let _p6_ntr_total = 0;
   data _null_;
     set work._p6_vars (where=(var_class='NUM_TEXT'));
     call symputx(cats('_p6_ntrv_', strip(put(_n_, best32.))), strip(name), 'L');
     call symputx(cats('_p6_ntrd_', strip(put(_n_, best32.))), strip(put(n_distinct, best32.)), 'L');
+    call symputx(cats('_p6_ntrl_', strip(put(_n_, best32.))), strip(put(length, best32.)), 'L');
     call symputx('_p6_ntr_total', strip(put(_n_, best32.)), 'L');
   run;
   %if &p6_fail = 1 %then %return;
 
-  /* Build numeric copy dataset and compute PROC MEANS per NUM_TEXT var */
+  /* Pull per-var counts into macro arrays from work._p6_nt_counts */
   %local _p6_ntri;
   %let _p6_ntri = 1;
   %do %while (&_p6_ntri <= &_p6_ntr_total);
-    %local _p6_ntr_vname _p6_ntr_nd;
-    %let _p6_ntr_vname = &&_p6_ntrv_&_p6_ntri;
-    %let _p6_ntr_nd    = &&_p6_ntrd_&_p6_ntri;
-
-    /* Get counts from the one-pass summary */
-    %local _p6_ntr_nnonmiss _p6_ntr_nph _p6_ntr_nparse _p6_ntr_nmiss _p6_ntr_nunparsed;
+    %local _p6_ntr_nm_&_p6_ntri _p6_ntr_np_&_p6_ntri _p6_ntr_nph_&_p6_ntri;
     proc sql noprint;
-      select n_nonmiss, n_placeholder, n_parse
-      into :_p6_ntr_nnonmiss trimmed, :_p6_ntr_nph trimmed, :_p6_ntr_nparse trimmed
+      select n_nonmiss, n_parse, n_placeholder
+      into :_p6_ntr_nm_&_p6_ntri trimmed,
+           :_p6_ntr_np_&_p6_ntri trimmed,
+           :_p6_ntr_nph_&_p6_ntri trimmed
       from work._p6_nt_counts
-      where upcase(varname) = upcase("&_p6_ntr_vname");
+      where upcase(varname) = upcase("&&_p6_ntrv_&_p6_ntri");
     quit;
     %if &p6_fail = 1 %then %return;
-    %if %bquote(&_p6_ntr_nnonmiss) = %bquote() %then %let _p6_ntr_nnonmiss = 0;
-    %if %bquote(&_p6_ntr_nph)      = %bquote() %then %let _p6_ntr_nph      = 0;
-    %if %bquote(&_p6_ntr_nparse)   = %bquote() %then %let _p6_ntr_nparse   = 0;
+    %if %bquote(&&_p6_ntr_nm_&_p6_ntri)  = %bquote() %then %let _p6_ntr_nm_&_p6_ntri  = 0;
+    %if %bquote(&&_p6_ntr_np_&_p6_ntri)  = %bquote() %then %let _p6_ntr_np_&_p6_ntri  = 0;
+    %if %bquote(&&_p6_ntr_nph_&_p6_ntri) = %bquote() %then %let _p6_ntr_nph_&_p6_ntri = 0;
+    %let _p6_ntri = %eval(&_p6_ntri + 1);
+  %end;
+
+  /* Compute max declared length for array element size */
+  %local _p6_ntr_maxlen;
+  %let _p6_ntr_maxlen = 1;
+  %let _p6_ntri = 1;
+  %do %while (&_p6_ntri <= &_p6_ntr_total);
+    %if &&_p6_ntrl_&_p6_ntri > &_p6_ntr_maxlen %then
+      %let _p6_ntr_maxlen = &&_p6_ntrl_&_p6_ntri;
+    %let _p6_ntri = %eval(&_p6_ntri + 1);
+  %end;
+
+  /* ONE DATA step: build parsed-numeric copy + collect unparsed values.         */
+  /* _prs = wide table: _nt1.._ntK numeric (. when unparseable) for PROC MEANS. */
+  /* _upraw = long table: varname + uval for unparsed LEVEL rows.               */
+  /* W9-exempt: single consolidated pass; no &lib..&ds read inside variable loop.*/
+  data work._p6_nt_prs (keep=
+        %let _p6_ntri = 1;
+        %do %while (&_p6_ntri <= &_p6_ntr_total);
+          _nt&_p6_ntri
+          %let _p6_ntri = %eval(&_p6_ntri + 1);
+        %end;
+        )
+       work._p6_nt_upraw (keep=varname uval);
+    length varname $32 uval $200;
+    array _src {&_p6_ntr_total} $ &_p6_ntr_maxlen
+      %let _p6_ntri = 1;
+      %do %while (&_p6_ntri <= &_p6_ntr_total);
+        &&_p6_ntrv_&_p6_ntri
+        %let _p6_ntri = %eval(&_p6_ntri + 1);
+      %end;
+      ;
+    array _num {&_p6_ntr_total}
+      %let _p6_ntri = 1;
+      %do %while (&_p6_ntri <= &_p6_ntr_total);
+        _nt&_p6_ntri
+        %let _p6_ntri = %eval(&_p6_ntri + 1);
+      %end;
+      ;
+    set &lib..&ds (keep=
+      %let _p6_ntri = 1;
+      %do %while (&_p6_ntri <= &_p6_ntr_total);
+        &&_p6_ntrv_&_p6_ntri
+        %let _p6_ntri = %eval(&_p6_ntri + 1);
+      %end;
+      );
+    do _j = 1 to &_p6_ntr_total;
+      if strip(_src(_j)) ne '' then do;
+        _num(_j) = input(strip(_src(_j)), ?? best32.);
+        /* Collect unparsed non-blank values for LEVEL rows */
+        if _num(_j) = . then do;
+          varname = vname(_src(_j));
+          uval    = strip(_src(_j));
+          output work._p6_nt_upraw;
+        end;
+      end;
+      else _num(_j) = .;
+    end;
+    output work._p6_nt_prs;
+    drop _j varname uval;
+  run;
+  %if &p6_fail = 1 %then %return;
+  %_p6_ok(section=p6_numtext parsed-copy + unparsed collect);
+  %if &p6_fail = 1 %then %return;
+
+  /* ONE PROC MEANS across all _nt1.._ntK columns */
+  /* ODS column names (stackodsoutput): Variable Mean StdDev Median Q1 Q3 Min Max */
+  ods listing close;
+  ods output summary=work._p6_nt_means;
+  proc means data=work._p6_nt_prs stackodsoutput mean std median q1 q3 min max;
+    var
+      %let _p6_ntri = 1;
+      %do %while (&_p6_ntri <= &_p6_ntr_total);
+        _nt&_p6_ntri
+        %let _p6_ntri = %eval(&_p6_ntri + 1);
+      %end;
+      ;
+  run;
+  ods output close;
+  ods listing;
+  %if &p6_fail = 1 %then %return;
+  %_p6_ok(section=p6_numtext proc means all vars);
+  %if &p6_fail = 1 %then %return;
+
+  /* Build top-5 unparsed frequency per variable from collected unparsed table */
+  proc sql noprint;
+    create table work._p6_nt_upfreq as
+      select varname, uval, count(*) as ucnt
+      from work._p6_nt_upraw
+      group by varname, uval
+      order by varname, ucnt desc, uval;
+  quit;
+  %if &p6_fail = 1 %then %return;
+  %_p6_ok(section=p6_numtext unparsed freq);
+  %if &p6_fail = 1 %then %return;
+
+  /* Emit stat rows per NUM_TEXT variable using macro arrays + PROC MEANS ODS table */
+  /* _p6_nt_means has one row per _ntI with Variable='_ntI', and stat columns.      */
+  %let _p6_ntri = 1;
+  %do %while (&_p6_ntri <= &_p6_ntr_total);
+    %local _p6_ntr_vname _p6_ntr_nd _p6_ntr_nnonmiss _p6_ntr_nparse
+           _p6_ntr_nph _p6_ntr_nmiss _p6_ntr_nunparsed;
+    %let _p6_ntr_vname    = &&_p6_ntrv_&_p6_ntri;
+    %let _p6_ntr_nd       = &&_p6_ntrd_&_p6_ntri;
+    %let _p6_ntr_nnonmiss = &&_p6_ntr_nm_&_p6_ntri;
+    %let _p6_ntr_nparse   = &&_p6_ntr_np_&_p6_ntri;
+    %let _p6_ntr_nph      = &&_p6_ntr_nph_&_p6_ntri;
     %let _p6_ntr_nmiss    = %eval(&_p6_total - &_p6_ntr_nnonmiss);
     %let _p6_ntr_nunparsed = %eval(&_p6_ntr_nnonmiss - &_p6_ntr_nparse);
 
-    /* Build numeric dataset from parsed values */
-    /* Use IF not WHERE for _val: it is a computed variable, not on &lib..&ds */
-    data work._p6_nt_parsed;
-      length _val 8;
-      set &lib..&ds (keep=&_p6_ntr_vname);
-      if strip(&_p6_ntr_vname) = '' then delete;
-      _val = input(strip(&_p6_ntr_vname), ?? best32.);
-      if _val = . then delete;
-      keep _val;
-    run;
-    %if &p6_fail = 1 %then %return;
-    %_p6_ok(section=p6_numtext parse &_p6_ntr_vname);
-    %if &p6_fail = 1 %then %return;
-
-    /* PROC MEANS on parsed values */
-    ods listing close;
-    ods output summary=work._p6_nt_means;
-    proc means data=work._p6_nt_parsed stackodsoutput mean std median q1 q3 min max;
-      var _val;
-    run;
-    ods output close;
-    ods listing;
-    %if &p6_fail = 1 %then %return;
-    %_p6_ok(section=p6_numtext proc means &_p6_ntr_vname);
-    %if &p6_fail = 1 %then %return;
-
-    /* Extract stats from wide stackodsoutput row */
-    /* Column names: Mean StdDev Median LowerQuartile UpperQuartile Minimum Maximum */
+    /* Extract stats for this variable from the single PROC MEANS ODS table */
+    /* Variable column in stackodsoutput = '_nt&_p6_ntri' (the array element name) */
     %local _p6_nt_mean _p6_nt_std _p6_nt_med _p6_nt_q1 _p6_nt_q3 _p6_nt_min _p6_nt_max;
     proc sql noprint;
-      select Mean, StdDev, Median, LowerQuartile, UpperQuartile, Minimum, Maximum
+      select Mean, StdDev, Median, Q1, Q3, Min, Max
       into :_p6_nt_mean trimmed, :_p6_nt_std trimmed, :_p6_nt_med trimmed,
            :_p6_nt_q1 trimmed, :_p6_nt_q3 trimmed,
            :_p6_nt_min trimmed, :_p6_nt_max trimmed
-      from work._p6_nt_means;
+      from work._p6_nt_means
+      where upcase(Variable) = upcase("_nt&_p6_ntri");
     quit;
     %if &p6_fail = 1 %then %return;
-    /* Set SAS missing for blanks */
     %if %bquote(&_p6_nt_mean) = %bquote() %then %let _p6_nt_mean = .;
     %if %bquote(&_p6_nt_std)  = %bquote() %then %let _p6_nt_std  = .;
     %if %bquote(&_p6_nt_med)  = %bquote() %then %let _p6_nt_med  = .;
@@ -1949,29 +2089,6 @@
     %if %bquote(&_p6_nt_q3)   = %bquote() %then %let _p6_nt_q3   = .;
     %if %bquote(&_p6_nt_min)  = %bquote() %then %let _p6_nt_min  = .;
     %if %bquote(&_p6_nt_max)  = %bquote() %then %let _p6_nt_max  = .;
-
-    /* Top unparsed values (most frequent, up to 5) for LEVEL rows */
-    /* DATA step: ?? best32. in DATA step is valid (C1 bars ?? only in PROC SQL) */
-    data work._p6_nt_unparsed_raw;
-      length uval $200;
-      set &lib..&ds (keep=&_p6_ntr_vname);
-      if strip(&_p6_ntr_vname) ne ''
-        and input(strip(&_p6_ntr_vname), ?? best32.) = .;
-      uval = strip(&_p6_ntr_vname);
-      keep uval;
-    run;
-    %if &p6_fail = 1 %then %return;
-
-    proc sql noprint;
-      create table work._p6_nt_unparsed as
-        select uval, count(*) as ucnt
-        from work._p6_nt_unparsed_raw
-        group by uval
-        order by ucnt desc, uval;
-    quit;
-    %if &p6_fail = 1 %then %return;
-    %_p6_ok(section=p6_numtext unparsed &_p6_ntr_vname);
-    %if &p6_fail = 1 %then %return;
 
     /* Emit stat rows for this NUM_TEXT variable */
     data work._p6_nt_rows;
@@ -2018,19 +2135,19 @@
       output;
 
       /* MEAN */
-      stat       = 'MEAN';  n = .; value = &_p6_nt_mean; sort_order = 6; output;
+      stat       = 'MEAN';   n = .; value = &_p6_nt_mean; sort_order = 6;  output;
       /* SD */
-      stat       = 'SD';    n = .; value = &_p6_nt_std;  sort_order = 7; output;
+      stat       = 'SD';     n = .; value = &_p6_nt_std;  sort_order = 7;  output;
       /* MEDIAN */
-      stat       = 'MEDIAN'; n = .; value = &_p6_nt_med;  sort_order = 8; output;
+      stat       = 'MEDIAN'; n = .; value = &_p6_nt_med;  sort_order = 8;  output;
       /* Q1 */
-      stat       = 'Q1';    n = .; value = &_p6_nt_q1;   sort_order = 9; output;
+      stat       = 'Q1';     n = .; value = &_p6_nt_q1;   sort_order = 9;  output;
       /* Q3 */
-      stat       = 'Q3';    n = .; value = &_p6_nt_q3;   sort_order = 10; output;
+      stat       = 'Q3';     n = .; value = &_p6_nt_q3;   sort_order = 10; output;
       /* MIN */
-      stat       = 'MIN';   n = .; value = &_p6_nt_min;  sort_order = 11; output;
+      stat       = 'MIN';    n = .; value = &_p6_nt_min;  sort_order = 11; output;
       /* MAX */
-      stat       = 'MAX';   n = .; value = &_p6_nt_max;  sort_order = 12; output;
+      stat       = 'MAX';    n = .; value = &_p6_nt_max;  sort_order = 12; output;
 
       stop;
     run;
@@ -2042,12 +2159,12 @@
     run;
     %if &p6_fail = 1 %then %return;
 
-    /* Top-5 LEVEL rows for unparsed values */
+    /* Top-5 LEVEL rows for unparsed values for this variable */
     data work._p6_nt_lev_rows;
       %_p6_attrib;
       length _so 8;
       retain _so 19;
-      set work._p6_nt_unparsed (obs=5);
+      set work._p6_nt_upfreq (where=(upcase(varname)=upcase("&_p6_ntr_vname")) obs=5);
       family          = upcase("&family");
       variable        = "&_p6_ntr_vname";
       var_class       = 'NUM_TEXT';
@@ -2604,6 +2721,17 @@
   %p6_write_output(outlib=&_p6_outlib, family=&family, export=&export);
   %if &p6_fail = 1 %then %return;
 
-  %put NOTE: [06_profile] pdd_profile complete for family=&family;
+  /* Log pass structure for auditability (not a dynamic counter -- design time).    */
+  /* Full-table passes over &lib..&ds per profile call:                            */
+  /*   NLEVELS: ceil(n_vars / 100) PROC FREQ batches (~1 per 100 vars)            */
+  /*   CONT_NUM/DATE: 1 PROC MEANS pass                                           */
+  /*   LOW_CARD: ceil(n_lc / 100) PROC FREQ batches                              */
+  /*   HIGH_CARD: ceil(n_hc / 100) PROC FREQ batches                             */
+  /*   NUM_TEXT count: 1 DATA step (all candidates, keep= list, one pass)         */
+  /*   NUM_TEXT parsed+unparsed: 1 DATA step (all NUM_TEXT vars, one pass)        */
+  /*   SUPPRESSED: 1 DATA step (all SUPPRESSED vars, one pass)                   */
+  /* Total for typical PCNR run: ~13 NLEVELS + 1 contnum + LC batches + HC batches*/
+  /*   + 2 numtext + 1 suppressed.  No loop multiplies passes by variable count.  */
+  %put NOTE: [06_profile] pdd_profile complete for family=&family -- pass structure: NLEVELS-batched CONTNUM-1 LC-batched HC-batched NUMTEXT-2 SUPPRESSED-1 (no per-variable source scans);
 
 %mend pdd_profile;
