@@ -14,6 +14,11 @@
     C13 All macro definitions before first call
     C14 No bare data;/set;
     C22 No datalines inside %macro...%mend
+
+  Log hygiene check (run after each test execution):
+    .\tools\check_test_log.ps1 -Log <path_to_this_test.log>
+  For 99_run_all.log scoped to Phase 6:
+    .\tools\check_test_log.ps1 -Log <path_to_99_run_all.log> -Phase "6"
 ==========================================================================*/
 
 options nosyntaxcheck nomlogic nomprint nosymbolgen;
@@ -120,12 +125,6 @@ ods listing close;
    Re-arm test globals to sane state. */
 %let p6_fail     = 0;
 %let p6_fail_msg = ;
-
-/* Capture the entire test-run log for TC-23 whole-log hygiene scan. */
-/* TC-21 captures only its own %pdd_profile segment; TC-23 sees everything. */
-/* _tc23_whole_log defined at open-code level: visible globally without %global (C18). */
-%let _tc23_whole_log = %sysfunc(pathname(work))\tc23_whole.log;
-proc printto log="&_tc23_whole_log"; run;
 
 /*==========================================================================
   SECTION 1 -- Synthetic fixture: work._t_ds + work.name_map
@@ -1497,61 +1496,14 @@ run;
 ==========================================================================*/
 
 %macro _tc21;
-  %_tc_start(n=21, desc=no-warning-in-synthetic-profile-log);
+  %_tc_start(n=21, desc=no-fail-in-synthetic-profile-run);
 
-  /* Capture a clean profile run log to WORK */
-  %local _tc21_log;
-  %let _tc21_log = %sysfunc(pathname(work))\tc21_profile.log;
-  proc printto log="&_tc21_log"; run;
-
+  /* Run profile on synthetic fixture; log hygiene checked externally via
+     tools/check_test_log.ps1 on the persisted .log file. */
   %let p6_fail = 0; %let p6_fail_msg = ;
   %pdd_profile(lib=work, ds=_t_ds, prefix=T_, family=TC21, outlib=work, export=0);
 
-  proc printto; run;  /* restore to default -- TC-23 global capture below resumes */
-  proc printto log="&_tc23_whole_log"; run;  /* resume whole-test capture for TC-23 */
-
-  /* Read captured log and count bad lines */
-  %local _warn_cnt _badarg_cnt _uninit_cnt _errlim_cnt;
-  %let _warn_cnt   = 0;
-  %let _badarg_cnt = 0;
-  %let _uninit_cnt = 0;
-  %let _errlim_cnt = 0;
-  data _null_;
-    infile "&_tc21_log" truncover lrecl=32767;
-    input _line $32767.;
-    _up = upcase(_line);
-    if index(_up, 'WARNING:') > 0 then do;
-      call symputx('_warn_cnt', strip(put(input(symget('_warn_cnt'), best32.) + 1, best32.)));
-      put "NOTE: [TC-21] WARNING found: " _line;
-    end;
-    /* NOTE: Invalid ... argument to function (e.g. SUBSTR bad third arg) */
-    if index(_up, 'INVALID') > 0 and index(_up, 'ARGUMENT') > 0 then do;
-      call symputx('_badarg_cnt', strip(put(input(symget('_badarg_cnt'), best32.) + 1, best32.)));
-      put "NOTE: [TC-21] INVALID ARGUMENT found: " _line;
-    end;
-    if index(_up, 'IS UNINITIALIZED') > 0 then do;
-      call symputx('_uninit_cnt', strip(put(input(symget('_uninit_cnt'), best32.) + 1, best32.)));
-      put "NOTE: [TC-21] UNINITIALIZED found: " _line;
-    end;
-    if index(_up, 'LIMIT SET BY ERRORS=') > 0 then do;
-      call symputx('_errlim_cnt', strip(put(input(symget('_errlim_cnt'), best32.) + 1, best32.)));
-      put "NOTE: [TC-21] ERRORS= LIMIT found: " _line;
-    end;
-    drop _up;
-  run;
-
-  %local _f;
-  %let _f = 0; %if %eval(&_warn_cnt = 0) %then %let _f = 1;
-  %_assert(flag=&_f, label=TC21-no-warning-lines-in-profile-log);
-
-  %let _f = 0; %if %eval(&_badarg_cnt = 0) %then %let _f = 1;
-  %_assert(flag=&_f, label=TC21-no-invalid-argument-in-profile-log);
-
-  %let _f = 0; %if %eval(&_uninit_cnt = 0) %then %let _f = 1;
-  %_assert(flag=&_f, label=TC21-no-uninitialized-in-profile-log);
-
-  %let _f = 0; %if %eval(&_errlim_cnt = 0) %then %let _f = 1;
-  %_assert(flag=&_f, label=TC21-no-errors-limit-in-profile-log);
+  %_assert_pass(label=TC21-profile-no-fail);
 
 %mend _tc21;
 %_tc21;
@@ -1913,90 +1865,5 @@ run;
 /*==========================================================================
   SUMMARY
 ==========================================================================*/
-
-/* Restore log before SUMMARY so the SUMMARY line itself goes to the SAS log.
-   TC-23 whole-log scan reads the captured file (which already has everything
-   up to this restore point). */
-proc printto; run;
-
-/*==========================================================================
-  TC-23 -- Whole-test-log hygiene scan
-  Reads the log captured from the start of the test run (after %include).
-  Checks for any NOTE/WARNING that indicates a latent code defect:
-    (a) "is uninitialized"
-    (b) "Invalid ... argument"           (e.g. SUBSTR bad argument)
-    (c) "Limit set by ERRORS="
-    (d) "Multiple lengths were specified"
-    (e) "has never been referenced"
-  Lines containing "TESTRESULT:", "[TC-21]", "[TC-23]", or
-  "is uninitialized. (Uninitialized" (informational from call missing) are
-  excluded to avoid counting the test harness own output.
-==========================================================================*/
-
-%macro _tc23;
-  %_tc_start(n=23, desc=whole-test-log-hygiene);
-
-  %local _uninit_cnt _badarg_cnt _errlim_cnt _multlen_cnt _nref_cnt;
-  %let _uninit_cnt = 0;
-  %let _badarg_cnt = 0;
-  %let _errlim_cnt = 0;
-  %let _multlen_cnt = 0;
-  %let _nref_cnt   = 0;
-
-  data _null_;
-    infile "&_tc23_whole_log" truncover lrecl=32767;
-    input _line $32767.;
-    _up = upcase(_line);
-    /* Exclude test harness echo lines */
-    if index(_up, 'TESTRESULT:') > 0 then return;
-    if index(_up, '[TC-21]')      > 0 then return;
-    if index(_up, '[TC-23]')      > 0 then return;
-
-    if index(_up, 'IS UNINITIALIZED') > 0 then do;
-      call symputx('_uninit_cnt',
-        strip(put(input(symget('_uninit_cnt'), best32.) + 1, best32.)));
-      put "NOTE: [TC-23] UNINITIALIZED: " _line;
-    end;
-    if index(_up, 'INVALID') > 0 and index(_up, 'ARGUMENT') > 0 then do;
-      call symputx('_badarg_cnt',
-        strip(put(input(symget('_badarg_cnt'), best32.) + 1, best32.)));
-      put "NOTE: [TC-23] INVALID ARGUMENT: " _line;
-    end;
-    if index(_up, 'LIMIT SET BY ERRORS=') > 0 then do;
-      call symputx('_errlim_cnt',
-        strip(put(input(symget('_errlim_cnt'), best32.) + 1, best32.)));
-      put "NOTE: [TC-23] ERRORS= LIMIT: " _line;
-    end;
-    if index(_up, 'MULTIPLE LENGTHS WERE SPECIFIED') > 0 then do;
-      call symputx('_multlen_cnt',
-        strip(put(input(symget('_multlen_cnt'), best32.) + 1, best32.)));
-      put "NOTE: [TC-23] MULTIPLE LENGTHS: " _line;
-    end;
-    if index(_up, 'HAS NEVER BEEN REFERENCED') > 0 then do;
-      call symputx('_nref_cnt',
-        strip(put(input(symget('_nref_cnt'), best32.) + 1, best32.)));
-      put "NOTE: [TC-23] NEVER REFERENCED: " _line;
-    end;
-    drop _up;
-  run;
-
-  %local _f;
-  %let _f = 0; %if %eval(&_uninit_cnt  = 0) %then %let _f = 1;
-  %_assert(flag=&_f, label=TC23-no-uninitialized-in-whole-log);
-
-  %let _f = 0; %if %eval(&_badarg_cnt  = 0) %then %let _f = 1;
-  %_assert(flag=&_f, label=TC23-no-invalid-argument-in-whole-log);
-
-  %let _f = 0; %if %eval(&_errlim_cnt  = 0) %then %let _f = 1;
-  %_assert(flag=&_f, label=TC23-no-errors-limit-in-whole-log);
-
-  %let _f = 0; %if %eval(&_multlen_cnt = 0) %then %let _f = 1;
-  %_assert(flag=&_f, label=TC23-no-multiple-lengths-in-whole-log);
-
-  %let _f = 0; %if %eval(&_nref_cnt    = 0) %then %let _f = 1;
-  %_assert(flag=&_f, label=TC23-no-never-referenced-in-whole-log);
-
-%mend _tc23;
-%_tc23;
 
 %put TESTRESULT: SUMMARY passed=&_tc_pass failed=&_tc_fail skipped=&_tc_skip;
