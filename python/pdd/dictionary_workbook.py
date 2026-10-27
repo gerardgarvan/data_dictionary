@@ -76,6 +76,12 @@ _LEVEL_CLASS_ROWS = frozenset(["LEVEL", "OTHER", "MISSING"])
 # Var classes that have count-stat rows for stat-class suppression
 _STAT_CLASS_VAR_CLASSES = frozenset(["CONT_NUM", "DATE", "NUM_TEXT", "SUPPRESSED"])
 
+# Columns written as numbers (not strings) in DISTRIBUTIONS sheet
+_DIST_NUMERIC_COLS = frozenset(["n", "value", "pct_total", "pct_nonmiss", "sort_order"])
+
+# Columns written as numbers in NAME_MAP sheet
+_NAMEMAP_NUMERIC_COLS = frozenset(["col_order", "trunc_flag", "group_id", "length"])
+
 PLACEHOLDER_TEXT = {
     "PCNC_": "(source pending — Phase 8)",
     "PCND_": "(source pending — Phase 13)",
@@ -144,6 +150,58 @@ def _to_int_n(val: Any) -> int | None:
         return None
     except (TypeError, ValueError):
         return None
+
+
+def _to_num(val: Any) -> int | float | str:
+    """
+    Convert val to int or float for Excel if it is a plain number.
+    Returns val unchanged if it is a display string like '<11', 'suppressed', '90+'.
+    Strings that are kept as text: '<11', 'suppressed', '90+', 'other text entry',
+    '<11 missing', and any non-numeric string.
+    """
+    if isinstance(val, (int, float)):
+        return val
+    s = str(val).strip()
+    if s in ("<11", "suppressed", "90+", "other text entry", "<11 missing", ""):
+        return val
+    try:
+        f = float(s)
+        if f == int(f) and "." not in s:
+            return int(f)
+        return f
+    except (TypeError, ValueError):
+        return val
+
+
+def _clean_str(val: Any) -> str:
+    """str(val) but treat pandas NA / float nan as empty string."""
+    if val is None:
+        return ""
+    s = str(val)
+    return "" if s.lower() in ("nan", "none", "<na>") else s
+
+
+def _fmt_num(val: Any, pct: bool = False) -> str:
+    """
+    Format a numeric value for summary text.
+    pct=True: 1 decimal place always.
+    pct=False: integers stay integers; abs<10 -> 2 decimals; else 1 decimal.
+    Returns '' for blank/unparseable.
+    """
+    s = str(val).strip()
+    if not s or s in ("nan", ""):
+        return ""
+    try:
+        f = float(s)
+    except (TypeError, ValueError):
+        return s  # already a display string like '90+'
+    if pct:
+        return f"{f:.1f}"
+    if f == int(f) and abs(f) < 1e9:
+        return str(int(f))
+    if abs(f) < 10:
+        return f"{f:.2f}"
+    return f"{f:.1f}"
 
 
 # ---------------------------------------------------------------------------
@@ -387,19 +445,40 @@ def apply_suppression(df: pd.DataFrame, config: dict) -> pd.DataFrame:
             stat_val_mask = var_mask & df["stat"].isin(_STAT_VALUE_ROWS)
             df.loc[stat_val_mask, "value"] = ""
 
-        # Complementary: if exactly 1 primary, suppress next-smallest
+        # Complementary: if exactly 1 primary, choose complementary target carefully.
+        # Goal: keep N visible. Prefer to suppress N_MISSING as complementary.
+        # Rule:
+        #   If primary is N_MISSING: suppress next-smallest of remaining count rows.
+        #   Otherwise (primary is N or N_UNPARSED): suppress N_MISSING if present and
+        #     unsuppressed; else suppress next-smallest of remaining count rows.
         if len(primary_idx) == 1:
+            primary_stat = count_rows.loc[primary_idx[0], "stat"] if primary_idx else None
             remaining = count_rows.drop(index=primary_idx)
-            candidates = remaining[remaining["n"].apply(
+            remaining_unsuppressed = remaining[remaining["n"].apply(
                 lambda v: _to_int_n(v) is not None and _to_int_n(v) > 0
             )]
-            if not candidates.empty:
-                min_n = candidates["n"].apply(lambda v: _to_int_n(v)).min()
-                tie_idx_c = candidates[candidates["n"].apply(lambda v: _to_int_n(v)) == min_n].index
-                df.loc[tie_idx_c, "_stat_comp"] = True
-                df.loc[tie_idx_c, "n"] = "suppressed"
-                df.loc[tie_idx_c, "pct_total"] = ""
-                df.loc[tie_idx_c, "pct_nonmiss"] = ""
+            if not remaining_unsuppressed.empty:
+                if primary_stat != "N_MISSING":
+                    # Prefer N_MISSING as complementary target
+                    nm_cand = remaining_unsuppressed[remaining_unsuppressed["stat"] == "N_MISSING"]
+                    if not nm_cand.empty:
+                        comp_idx = list(nm_cand.index)
+                    else:
+                        # Fall back to next-smallest
+                        min_n = remaining_unsuppressed["n"].apply(lambda v: _to_int_n(v)).min()
+                        comp_idx = list(remaining_unsuppressed[
+                            remaining_unsuppressed["n"].apply(lambda v: _to_int_n(v)) == min_n
+                        ].index)
+                else:
+                    # Primary is N_MISSING: next-smallest of others
+                    min_n = remaining_unsuppressed["n"].apply(lambda v: _to_int_n(v)).min()
+                    comp_idx = list(remaining_unsuppressed[
+                        remaining_unsuppressed["n"].apply(lambda v: _to_int_n(v)) == min_n
+                    ].index)
+                df.loc[comp_idx, "_stat_comp"] = True
+                df.loc[comp_idx, "n"] = "suppressed"
+                df.loc[comp_idx, "pct_total"] = ""
+                df.loc[comp_idx, "pct_nonmiss"] = ""
 
     # --- No-leak guard ---
     _assert_no_leak(df)
@@ -473,7 +552,10 @@ def build_variables_sheet(
                 }
             orig = str(row.get("original_header", "") or "").strip()
             if orig:
-                nm_lookup[pname]["original_headers"].append(orig)
+                seen = nm_lookup[pname].setdefault("_orig_seen", set())
+                if orig.lower() not in seen:
+                    seen.add(orig.lower())
+                    nm_lookup[pname]["original_headers"].append(orig)
             sc = str(row.get("s_code", "") or "").strip()
             if sc:
                 nm_lookup[pname]["source_s_codes"].add(sc)
@@ -673,9 +755,10 @@ def _summary_low_card(var_rows: pd.DataFrame) -> str:
         else:
             pct = str(row["pct_total"]).strip()
             if pct:
-                try:
-                    parts.append(f"{lbl} {float(pct):.1f}%")
-                except (TypeError, ValueError):
+                fmt = _fmt_num(pct, pct=True)
+                if fmt:
+                    parts.append(f"{lbl} {fmt}%")
+                else:
                     parts.append(lbl)
             else:
                 parts.append(lbl)
@@ -700,9 +783,10 @@ def _summary_high_card(var_rows: pd.DataFrame) -> str:
     for _, row in level_rows.head(2).iterrows():
         lbl = str(row["level"])[:20]
         pct = str(row["pct_total"]).strip()
-        try:
-            top_parts.append(f"{lbl} {float(pct):.1f}%")
-        except (TypeError, ValueError):
+        fmt = _fmt_num(pct, pct=True)
+        if fmt:
+            top_parts.append(f"{lbl} {fmt}%")
+        else:
             top_parts.append(lbl)
 
     if top_parts:
@@ -716,7 +800,7 @@ def _summary_cont_num(var_rows: pd.DataFrame) -> str:
         if row.empty:
             return ""
         v = str(row.iloc[0]["value"]).strip()
-        return v if v else ""
+        return _fmt_num(v) if v else ""
 
     mean = _get_val("MEAN")
     sd = _get_val("SD")
@@ -747,7 +831,7 @@ def _summary_num_text(var_rows: pd.DataFrame) -> str:
         if row.empty:
             return ""
         v = str(row.iloc[0]["value"]).strip()
-        return v if v else ""
+        return _fmt_num(v) if v else ""
 
     def _get_n(stat_name: str) -> str:
         row = var_rows[var_rows["stat"] == stat_name]
@@ -804,7 +888,10 @@ def build_distributions_sheet(
     headers = list(profile_df.columns)
     rows_out = []
     for _, row in profile_df.iterrows():
-        rows_out.append([row[c] for c in headers])
+        rows_out.append([
+            _to_num(row[c]) if c in _DIST_NUMERIC_COLS else row[c]
+            for c in headers
+        ])
     return headers, rows_out
 
 
@@ -822,7 +909,11 @@ def build_name_map_sheet(
         by=["s_code", "col_order"],
         key=lambda s: s.apply(lambda v: (int(float(v)) if str(v).replace(".", "").isdigit() else 0) if s.name == "col_order" else v),
     ).iterrows():
-        rows_out.append([str(row.get(c, "") or "") for c in headers])
+        rows_out.append([
+            _to_num(row.get(c, "") or "") if c in _NAMEMAP_NUMERIC_COLS
+            else str(row.get(c, "") or "")
+            for c in headers
+        ])
     return headers, rows_out
 
 
@@ -845,16 +936,16 @@ def build_sources_sheet(
     headers = ["s_code", "filename", "row_count", "col_count", "sha256_short", "mod_date", "description"]
     rows_out = []
     for _, row in merged.iterrows():
-        sha = str(row.get("sha256", "") or "")
+        sha = _clean_str(row.get("sha256", ""))
         sha_short = sha[:12] if sha else ""
         rows_out.append([
-            str(row.get("s_code", "") or ""),
-            str(row.get("filename", "") or ""),
-            str(row.get("row_count", "") or ""),
-            str(row.get("col_count", "") or ""),
+            _clean_str(row.get("s_code", "")),
+            _clean_str(row.get("filename", "")),
+            _to_num(row.get("row_count", "") or ""),
+            _to_num(row.get("col_count", "") or ""),
             sha_short,
-            str(row.get("mod_date", "") or ""),
-            str(row.get("description", "") or ""),
+            _clean_str(row.get("mod_date", "")),
+            _clean_str(row.get("description", "")),
         ])
     return headers, rows_out
 
@@ -911,9 +1002,22 @@ def build_qc_sheet(profile_df: pd.DataFrame, ws: Any) -> None:
 # KEY sheet
 # ---------------------------------------------------------------------------
 
-def _key_rows() -> list[list[str]]:
+def _key_rows(
+    generated_at: str = "",
+    git_commit: str = "",
+    manifest_nobs: str = "",
+    manifest_run_dttm: str = "",
+) -> list[list[str]]:
     """Documentation rows for KEY sheet."""
-    return [
+    header_block = [
+        ["PeCAN Data Dictionary", "", ""],
+        ["Generated", generated_at, ""],
+        ["Git commit", git_commit, ""],
+        ["Source rows (pcnr_nobs)", manifest_nobs, ""],
+        ["Source run_dttm", manifest_run_dttm, ""],
+        ["", "", ""],  # blank separator
+    ]
+    return header_block + [
         ["Item", "Name", "Description"],
         # Sheet purposes
         ["Sheet", "KEY", "This sheet. Documents all sheets, columns, and display rules."],
@@ -945,11 +1049,25 @@ def _key_rows() -> list[list[str]]:
         ["Age topcode", "Variables", "From docs/age_variables.csv (variable, reason). Hard fail if file missing or empty."],
         ["Age topcode", "Tie-break", "Multiple LEVEL rows >89 all merged to '90+'. n summed. pct recomputed. small_cell_flag recomputed."],
         # VARIABLES columns
-        ["Column", "VARIABLES.n_nonmiss", "LOW/HIGH_CARD: total_rows - MISSING n. CONT_NUM/DATE/SUPPRESSED: N stat n. NUM_TEXT: N + N_UNPARSED. If MISSING row suppressed: '<11 missing'. If N primary-suppressed: '<11'. If N complementary-suppressed: 'suppressed'."],
+        ["Column", "VARIABLES.n_nonmiss", "LOW/HIGH_CARD: total_rows - MISSING n. CONT_NUM/DATE/SUPPRESSED: N stat n. NUM_TEXT: N + N_UNPARSED. If MISSING row primary-suppressed: '<11 missing'. If N primary-suppressed: '<11'. If N complementary-suppressed: 'suppressed'. Blank if not derivable."],
         ["Column", "VARIABLES.pct_missing", "Derived: (total_rows - n_nonmiss) / total_rows * 100. Blank if any suppression involved."],
         ["Column", "VARIABLES.n_distinct", "LOW_CARD: count of LEVEL rows. HIGH_CARD/NUM_TEXT/SUPPRESSED: N_DISTINCT stat n. CONT_NUM/DATE: blank."],
         ["Column", "VARIABLES.all_missing", "Y if n_nonmiss==0, N otherwise."],
         ["Column", "VARIABLES.summary", "Rule-generated text. 'fewer than 11 values' if N is primary-suppressed. 'No values (100% missing)' if all-missing."],
+        # DISTRIBUTIONS columns (mirrors profile_PCNR.csv schema)
+        ["Column", "DISTRIBUTIONS.family", "Variable family group."],
+        ["Column", "DISTRIBUTIONS.variable", "PCNR variable name."],
+        ["Column", "DISTRIBUTIONS.var_class", "LOW_CARD / HIGH_CARD / CONT_NUM / DATE / NUM_TEXT / SUPPRESSED."],
+        ["Column", "DISTRIBUTIONS.stat", "Row type: LEVEL/OTHER/MISSING/N/N_MISSING/N_UNPARSED/N_DISTINCT/MEAN/SD/MEDIAN/Q1/Q3/MIN/MAX/RANGE_MIN/RANGE_MAX."],
+        ["Column", "DISTRIBUTIONS.level", "Category label for LEVEL/OTHER/MISSING rows; blank for stat rows."],
+        ["Column", "DISTRIBUTIONS.n", "Count (integer). '<11' = primary small-cell suppressed. 'suppressed' = complementary suppressed."],
+        ["Column", "DISTRIBUTIONS.value", "Statistic (float) for MEAN/SD/MEDIAN/Q1/Q3/MIN/MAX/RANGE_* rows. Blank for count rows. '90+' for age-topcoded values."],
+        ["Column", "DISTRIBUTIONS.pct_total", "n / total_rows * 100. Blank for suppressed rows and stat rows."],
+        ["Column", "DISTRIBUTIONS.pct_nonmiss", "n / n_nonmiss * 100. Blank for suppressed rows and stat rows."],
+        ["Column", "DISTRIBUTIONS.sort_order", "Display sort order within variable."],
+        ["Column", "DISTRIBUTIONS.small_cell_flag", "Y if original n was 1-10 (before suppression). N otherwise. Blank for stat rows."],
+        ["Column", "DISTRIBUTIONS.date_kind", "For DATE variables: calendar year / fiscal year / etc."],
+        ["Column", "DISTRIBUTIONS.display_format", "For SUPPRESSED variables: LENGTH or RANGE."],
     ]
 
 
@@ -986,16 +1104,31 @@ def write_workbook(
     namemap_df = pd.DataFrame(nm_rows, columns=nm_headers)
     inventory_df = pd.DataFrame(inv_rows, columns=inv_headers)
 
-    # --- Derive total_rows from profile ---
-    # Use mode of N stat rows across all variables (or max)
-    n_vals = pd.to_numeric(
-        profile_df[profile_df["stat"] == "N"]["n"], errors="coerce"
-    ).dropna()
-    if len(n_vals) > 0:
-        total_rows = int(n_vals.max())
-    else:
-        # Try MISSING + non-missing sum for LOW_CARD
-        total_rows = None
+    # --- Derive total_rows from manifest (authoritative) ---
+    # profile_PCNR_manifest.csv pcnr_nobs is the exact row count of pdd.pcnr.
+    # Fallback: N + N_MISSING of first CONT_NUM variable in the RAW profile
+    # (before transforms, so age-topcode aggregation does not shift the count).
+    total_rows: int | None = None
+    manifest_path = exchange_dir / "profile_PCNR_manifest.csv"
+    if manifest_path.exists():
+        try:
+            _, manifest_rows = read_csv(manifest_path)
+            if manifest_rows:
+                nobs_raw = str(manifest_rows[0].get("pcnr_nobs", "")).strip()
+                total_rows = int(float(nobs_raw)) if nobs_raw else None
+        except Exception:
+            total_rows = None
+    if total_rows is None:
+        # Fallback: N + N_MISSING for first CONT_NUM variable
+        cn = profile_df[profile_df["var_class"] == "CONT_NUM"]["variable"].iloc[0] if not profile_df[profile_df["var_class"] == "CONT_NUM"].empty else None
+        if cn is not None:
+            cn_rows = profile_df[profile_df["variable"] == cn]
+            n_row = cn_rows[cn_rows["stat"] == "N"]
+            nm_row = cn_rows[cn_rows["stat"] == "N_MISSING"]
+            n_val = _to_int_n(str(n_row.iloc[0]["n"])) if not n_row.empty else None
+            nm_val = _to_int_n(str(nm_row.iloc[0]["n"])) if not nm_row.empty else None
+            if n_val is not None:
+                total_rows = n_val + (nm_val or 0)
 
     # --- LOCKED TRANSFORM ORDER ---
 
@@ -1024,6 +1157,31 @@ def write_workbook(
     nm_sheet_headers, nm_sheet_rows = build_name_map_sheet(namemap_df)
     src_headers, src_rows = build_sources_sheet(inventory_df, docs_dir)
 
+    # --- Collect KEY metadata ---
+    import datetime
+    _generated_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    _git_commit = ""
+    try:
+        import subprocess
+        _git_commit = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=str(Path(__file__).parent),
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+    except Exception:
+        pass
+    _manifest_nobs = ""
+    _manifest_run_dttm = ""
+    if manifest_path.exists():
+        try:
+            _, _mrows = read_csv(manifest_path)
+            if _mrows:
+                _manifest_nobs = str(_mrows[0].get("pcnr_nobs", "")).strip()
+                _manifest_run_dttm = str(_mrows[0].get("run_dttm", "")).strip()
+        except Exception:
+            pass
+
     # --- Write workbook ---
     out_path.parent.mkdir(parents=True, exist_ok=True)
     wb = Workbook()
@@ -1033,9 +1191,20 @@ def write_workbook(
         ws = wb.create_sheet(sheet_name)
 
         if sheet_name == "KEY":
-            key_data = _key_rows()
-            headers = key_data[0]
-            data = key_data[1:]
+            key_data = _key_rows(
+                generated_at=_generated_at,
+                git_commit=_git_commit,
+                manifest_nobs=_manifest_nobs,
+                manifest_run_dttm=_manifest_run_dttm,
+            )
+            # Header block rows come before the column-header row; write_table
+            # treats key_data[0] as headers, so pass header_block + data separately.
+            # The first 6 rows are the metadata block; the 7th is ["Item","Name","Description"].
+            _meta_block = key_data[:6]
+            headers = key_data[6]
+            data = key_data[7:]
+            for meta_row in _meta_block:
+                ws.append(meta_row)
             write_table(ws, headers, data)
             style_sheet(ws)
 

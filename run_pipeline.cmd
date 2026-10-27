@@ -158,7 +158,7 @@ set _ERRS=0
 for /f %%E in ('findstr /b /c:"ERROR" "%MASTER_LOG%" 2^>nul ^| find /c /v ""') do set _ERRS=%%E
 if !_ERRS! GTR 0 (
   echo.
-  echo PIPELINE FAILED: %_ERRS% ERROR line(s) found in master log.
+  echo PIPELINE FAILED: %_ERRS% ERROR line^(s^) found in master log.
   echo See: %MASTER_LOG%
   echo PIPELINE FAILED: %_ERRS% ERROR lines found >> "%MASTER_LOG%"
   exit /b 1
@@ -169,7 +169,7 @@ set _MASTER_WARNS=0
 for /f %%W in ('findstr /b /c:"WARNING" "%MASTER_LOG%" 2^>nul ^| find /c /v ""') do set _MASTER_WARNS=%%W
 if !_MASTER_WARNS! GTR 0 (
   echo.
-  echo PIPELINE FAILED: !_MASTER_WARNS! WARNING line(s) found in master log.
+  echo PIPELINE FAILED: !_MASTER_WARNS! WARNING line^(s^) found in master log.
   echo See: %MASTER_LOG%
   echo PIPELINE FAILED: !_MASTER_WARNS! WARNING lines found >> "%MASTER_LOG%"
   exit /b 1

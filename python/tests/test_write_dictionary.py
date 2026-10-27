@@ -108,3 +108,52 @@ def test_validate_exchange_headers_missing_required_col(tmp_path):
 
     errors = validate_exchange_headers(exchange_dir, docs_dir)
     assert any("family" in e for e in errors), f"Expected 'family' error, got: {errors}"
+
+
+def test_run_pipeline_no_bare_parens_in_echo(tmp_path):
+    """
+    Verify run_pipeline.cmd has no echo lines inside parenthesized if/for blocks
+    that contain unescaped literal '(' or ')'.
+
+    cmd.exe rule: inside 'if (...) (' or 'for ... (' blocks, a bare '(' or ')'
+    in an echo statement causes 'was unexpected at this time'.
+    Escaped forms '^(' and '^)' are permitted.
+    """
+    import re
+
+    cmd_path = Path(__file__).resolve().parents[2] / "run_pipeline.cmd"
+    assert cmd_path.exists(), f"run_pipeline.cmd not found at {cmd_path}"
+
+    lines = cmd_path.read_text(encoding="utf-8").splitlines()
+
+    depth = 0  # parenthesis nesting depth from if/for block openers
+    violations = []
+
+    for lineno, raw in enumerate(lines, start=1):
+        stripped = raw.strip()
+
+        # Track block entry: line ends with bare '(' (the opening of an if/for block)
+        # e.g. "if !ERRORLEVEL! EQU 0 (" or ") else ("
+        if re.search(r'\($', stripped):
+            depth += 1
+
+        if depth > 0 and re.match(r'(?i)echo\b', stripped):
+            # Extract the text after 'echo' (skip the keyword and one optional space)
+            echo_body = re.sub(r'(?i)^echo\s*', '', stripped)
+            # Remove redirect portion (>> or > followed by path) to avoid false positives
+            echo_body = re.sub(r'[>]{1,2}\s*\S+.*$', '', echo_body)
+            # Remove escaped parens so only bare ones remain
+            echo_body = echo_body.replace("^(", "").replace("^)", "")
+            if "(" in echo_body or ")" in echo_body:
+                violations.append(
+                    f"Line {lineno}: unescaped paren in echo inside block: {raw.rstrip()!r}"
+                )
+
+        # Track block exit: line is a bare ')' or ') else ('
+        if re.match(r'^\)', stripped):
+            depth = max(depth - 1, 0)
+
+    assert not violations, (
+        "Unescaped parentheses found in echo statements inside if/for blocks:\n"
+        + "\n".join(violations)
+    )
