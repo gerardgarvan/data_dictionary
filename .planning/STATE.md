@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: PCNR_ raw layer and dictionary framework
-status: Phase 6 in progress — D-09 and D-10 implemented; FIX 1 and FIX 2 applied; tests TC-13..TC-19 added
-last_updated: "2026-10-26T20:00:00.000Z"
+status: Phase 6 complete — merged to master e912941; Phase 7 planning next
+last_updated: "2026-10-26T23:59:00.000Z"
 progress:
   total_phases: 7
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 22
-  completed_plans: 21
+  completed_plans: 22
 ---
 
 # GSD State: PeCAN Data Dictionary (PDD)
@@ -18,10 +18,10 @@ progress:
 | Field | Value |
 |-------|-------|
 | Milestone | v1.0 — PCNR_ raw layer and dictionary framework |
-| Phase | 06 — Distribution engine (plan 04 complete) |
-| Status | Phase 6 plan 04 complete — TC-01..TC-12 test suite created; SAS execution pending |
+| Phase | 07 — Dictionary workbook writer (not started) |
+| Status | Phase 6 complete — Phase 7 planning in progress |
 | Last updated | 2026-10-26 |
-| Stopped at | Completed 06-04-PLAN.md (tests/06_profile_test.sas, commit e5023e3) |
+| Stopped at | Phase 6 merged to master at e912941; /gsd:discuss-phase 7 starting |
 
 ## Milestone v1.0 phase checklist
 
@@ -32,7 +32,7 @@ progress:
 | 3 | Direct import of the 20 sources | ✅ Complete — live run 2026-10-20 20:58 passed all criteria (0 MISMATCH, n_pairs=9001 ndis=0, exit=1 warnings only) |
 | 4 | Name map | ✅ Complete — verified 2026-10-21; Price sign-off pending before Phase 7 |
 | 5 | Build PCNR_ on the spine | ✅ Complete — merged to master at fbf3c35 (2026-10-26). SAS tests passed=94 failed=0; pipeline exit 0, 0 warnings; pdd.pcnr 41,150 × 1,298 PCNR_ + NORM_PSID; recon 0 mismatches; conflicts 97,194 events / 95,840 cells; conflict_class breakdown: REAL 51,835 / CODING_EQUIV 29,644 / PLACEHOLDER 13,038 / ROUNDING 1,956 / NUMERIC_CLOSE 473 / TOPCODE 248; provenance 342,605; ALL_MISSING 56. |
-| 6 | Distribution engine | 🔧 In progress — engine passing 99 tests pre-session; D-09 (suppress_file, SUPPRESSED class), D-10 (NUM_TEXT class, num_text_threshold), FIX 1 (zero-missing n=0), FIX 2 (run_pipeline.cmd phase-5 guard) implemented; TC-13..TC-19 added; gates and commit pending |
+| 6 | Distribution engine | ✅ Complete — merged to master e912941. Tests passed=138 failed=0; check_test_log PASS; pipeline exit 0, 0 warnings. pdd.prf_pcnr: 5,642 rows / 1,297 vars (LOW_CARD 1,097 \| CONT_NUM 123 \| NUM_TEXT 38 \| HIGH_CARD 29 \| SUPPRESSED 10). D-08 recon PASS; D-09 validation PASS. |
 | 7 | Dictionary workbook writer | ⬜ Not started |
 
 ## Milestone v1.x phase checklist (gated)

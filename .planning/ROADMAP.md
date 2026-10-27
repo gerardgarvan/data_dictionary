@@ -84,14 +84,15 @@ Plans:
 ### Phase 6: Distribution engine (reusable macro)
 - `%pdd_profile(lib=, ds=, prefix=, family=)`: classifies each variable by distinct-value count and computes distributions per PDD-D-06
 - Writes long-format profile tables (variable, stat/level, value, n, pct) that any family can reuse
+- **Status: ✅ COMPLETE — merged to master e912941 (2026-10-26). Tests passed=138 failed=0; pipeline exit 0, 0 warnings. pdd.prf_pcnr 5,642 rows / 1,297 vars: LOW_CARD 1,097 | CONT_NUM 123 | NUM_TEXT 38 | HIGH_CARD 29 | SUPPRESSED 10. D-08 recon PASS; D-09 validation PASS. require_suppress=1 guard; categorical_file= D-11 override; check_test_log.ps1 external log hygiene tool added.**
 - **Done when:** run on `pdd.pcnr`, its sex and Patient_Type counts match PROC FREQ and missing counts are exact
-- **Plans:** 3/4 plans executed
+- **Plans:** 4/4 plans complete
 
 Plans:
 - [x] 06-01-PLAN.md — 06_profile_macros.sas Section 0 utilities + %p6_preflight + %p6_classify_vars (four-tier D-06 + D-05 exclusions) (wave 1)
 - [x] 06-02-PLAN.md — 06_profile_macros.sas tier computation + %p6_write_output (D-02/D-03/D-04/D-07/D-08) + %pdd_profile entry point (wave 2)
 - [x] 06-03-PLAN.md — 06_profile.sas orchestrator + wire Phase 6 into 99_run_all.sas (wave 3)
-- [ ] 06-04-PLAN.md — tests/06_profile_test.sas TC-01..TC-08 acceptance suite (wave 3)
+- [x] 06-04-PLAN.md — tests/06_profile_test.sas TC-01..TC-25 acceptance suite + D-09/D-10/D-11 + check_test_log.ps1 (wave 4)
 
 ### Phase 7: Dictionary workbook writer
 - SAS writes distribution data to `pdd` library; Python (`python\scripts\write_dictionary.py`) writes the xlsx workbook (PDD-D-22)
