@@ -1058,11 +1058,11 @@ def _key_rows(
         ["Age topcode", "Variables", "From docs/age_variables.csv (variable, reason). Hard fail if file missing or empty."],
         ["Age topcode", "Tie-break", "Multiple LEVEL rows >89 all merged to '90+'. n summed. pct recomputed. small_cell_flag recomputed."],
         # VARIABLES columns
-        ["Column", "VARIABLES.n_nonmiss", "LOW/HIGH_CARD: total_rows - MISSING n. CONT_NUM/DATE/SUPPRESSED: N stat n. NUM_TEXT: N + N_UNPARSED. If MISSING row primary-suppressed: '<11 missing'. If N primary-suppressed: '<11'. If N complementary-suppressed: 'suppressed'. Blank if not derivable."],
+        ["Column", "VARIABLES.n_nonmiss", "LOW/HIGH_CARD: total_rows - MISSING n. CONT_NUM/DATE/SUPPRESSED: N stat n. NUM_TEXT: N + N_UNPARSED when both are visible; N only when N_UNPARSED is suppressed. If MISSING row primary-suppressed: '<11 missing'. If N primary-suppressed: '<11'. If N complementary-suppressed: 'suppressed'. Blank if not derivable."],
         ["Column", "VARIABLES.pct_missing", "Derived: (total_rows - n_nonmiss) / total_rows * 100. Blank if any suppression involved."],
         ["Column", "VARIABLES.n_distinct", "LOW_CARD: count of LEVEL rows. HIGH_CARD/NUM_TEXT/SUPPRESSED: N_DISTINCT stat n. CONT_NUM/DATE: blank."],
         ["Column", "VARIABLES.all_missing", "Y if n_nonmiss==0, N otherwise."],
-        ["Column", "VARIABLES.summary", "Rule-generated text. 'fewer than 11 values' if N is primary-suppressed. 'No values (100% missing)' if all-missing."],
+        ["Column", "VARIABLES.summary", "Rule-generated text. 'fewer than 11 values' if N is primary-suppressed. 'No values (100% missing)' if all-missing. NUM_TEXT appends '; <n> non-numeric entries', or '; <11 non-numeric entries' when that count is suppressed."],
         # DISTRIBUTIONS columns (mirrors profile_PCNR.csv schema)
         ["Column", "DISTRIBUTIONS.family", "Variable family group."],
         ["Column", "DISTRIBUTIONS.variable", "PCNR variable name."],

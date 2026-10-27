@@ -21,6 +21,7 @@ import pytest
 from pdd.dictionary_workbook import (
     DEFAULT_DISPLAY_CONFIG,
     SHEET_ORDER,
+    _key_rows,
     apply_age_topcode,
     apply_suppression,
     build_qc_sheet,
@@ -1157,3 +1158,22 @@ def test_num_text_no_cell_equals_n_plus_n_unparsed_when_unparsed_suppressed():
             raise AssertionError(
                 f"Cell value {cell} equals N + N_UNPARSED, revealing suppressed N_UNPARSED"
             )
+
+
+# ---------------------------------------------------------------------------
+# KEY sheet descriptions
+# ---------------------------------------------------------------------------
+
+def test_key_rows_contain_num_text_descriptions():
+    """KEY rows must describe the current NUM_TEXT n_nonmiss and summary behaviour."""
+    rows = _key_rows()
+    all_text = " ".join(
+        str(cell) for row in rows for cell in row if cell
+    )
+
+    assert "N + N_UNPARSED when both are visible; N only when N_UNPARSED is suppressed" in all_text, (
+        "VARIABLES.n_nonmiss KEY description missing NUM_TEXT suppression rule"
+    )
+    assert "; <11 non-numeric entries' when that count is suppressed" in all_text, (
+        "VARIABLES.summary KEY description missing NUM_TEXT non-numeric entries note"
+    )
