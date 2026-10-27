@@ -1,4 +1,4 @@
-# Phase 7: Dictionary Workbook Writer — Research
+﻿# Phase 7: Dictionary Workbook Writer — Research
 
 **Researched:** 2026-10-27
 **Domain:** Python / openpyxl workbook generation from SAS exchange CSVs

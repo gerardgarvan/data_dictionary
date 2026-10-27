@@ -1,0 +1,7 @@
+variable,reason
+PCNR_Age_at_Encounter,Age at encounter date — CONT_NUM max 100 — multi-source merge (s03/s07/s09/s10/s12/s15/s17) — pending Price confirmation
+PCNR_age,Age from s06 — CONT_NUM max 100 — survives as own variable (not PCNR_ron_age) — pending Price confirmation
+PCNR_age_categ_organize,Named categ but values are actual ages — CONT_NUM max 100 — pending Price confirmation
+PCNR_nacc_lbd_first_symp_age,Age at first LBD symptom — all-missing in current data — included so topcode applies if later populated — pending Price confirmation
+PCNR_nacc_lbd_sleepdis_age,Age at sleep disorder onset — all-missing in current data — included so topcode applies if later populated — pending Price confirmation
+PCNR_nacc_lbd_smellimpair_age,Age at smell impairment onset — all-missing in current data — included so topcode applies if later populated — pending Price confirmation

@@ -23,6 +23,9 @@
 # Exception: Phase 6 suppression and categorical override lists, no PHI -- D-09 D-11
 !docs/profile_suppress.csv
 !docs/profile_categorical.csv
+# Exception: Phase 7 age topcode list and source notes, no PHI -- D-C (age topcode)
+!docs/age_variables.csv
+!docs/source_notes.csv
 
 # SAS logs and output
 *.log
