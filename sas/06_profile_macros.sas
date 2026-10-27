@@ -369,13 +369,15 @@
   %local _p6_nbatches;
   %let _p6_nbatches = %eval((&_p6_total_vars + &_p6_batch_size - 1) / &_p6_batch_size);
 
+  /* Keep only the three columns needed; excludes TableVarLabel (which varies in     */
+  /* declared length across batches and causes "Multiple lengths" WARNING).           */
   data work._p6_nl_all;
-    length TableVar $32 NNonMissLevels 8;
+    length TableVar $32 NLevels 8 NNonMissLevels 8;
     %local _p6_sb;
     %let _p6_sb = 1;
     set
     %do %while (&_p6_sb <= &_p6_nbatches);
-      work._p6_nl_b&_p6_sb
+      work._p6_nl_b&_p6_sb (keep=TableVar NLevels NNonMissLevels)
       %let _p6_sb = %eval(&_p6_sb + 1);
     %end;
     ;

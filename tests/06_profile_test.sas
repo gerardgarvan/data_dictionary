@@ -121,6 +121,12 @@ ods listing close;
 %let p6_fail     = 0;
 %let p6_fail_msg = ;
 
+/* Capture the entire test-run log for TC-23 whole-log hygiene scan. */
+/* TC-21 captures only its own %pdd_profile segment; TC-23 sees everything. */
+/* _tc23_whole_log defined at open-code level: visible globally without %global (C18). */
+%let _tc23_whole_log = %sysfunc(pathname(work))\tc23_whole.log;
+proc printto log="&_tc23_whole_log"; run;
+
 /*==========================================================================
   SECTION 1 -- Synthetic fixture: work._t_ds + work.name_map
   DATA steps in open code (C22: no datalines inside macros)
@@ -848,7 +854,9 @@ run;
   /* Build a _p6_rows that has a LOW_CARD variable with n sum != 50 */
   data work._p6_rows;
     %_p6_attrib;
+    call missing(of _all_);
     variable = 'T_BAD_LC'; var_class = 'LOW_CARD'; family = 'BAD';
+    value = .; pct_total = .; pct_nonmiss = .; date_kind = ''; display_format = '';
     stat = 'LEVEL'; level = 'A'; n = 20; sort_order = 1; small_cell_flag = 'N'; output;
     stat = 'MISSING'; level = ''; n = 5; sort_order = 99; small_cell_flag = 'N'; output;
     /* Total = 25, not 50 -- reconciliation must fail */
@@ -858,7 +866,10 @@ run;
   data work._p6_vars;
     length name $200 type $8 length 8 format $32 n_distinct 8
            var_class $12 date_kind $8 display_format $32;
-    name = 'T_BAD_LC'; type = 'char'; var_class = 'LOW_CARD'; output;
+    call missing(of _all_);
+    name = 'T_BAD_LC'; type = 'char'; var_class = 'LOW_CARD';
+    length = 8; format = ''; n_distinct = 0; date_kind = ''; display_format = '';
+    output;
     stop;
   run;
 
@@ -882,7 +893,10 @@ run;
 
   data work._p6_rows;
     %_p6_attrib;
+    call missing(of _all_);
     variable = 'T_BAD_HC'; var_class = 'HIGH_CARD'; family = 'BAD';
+    value = .; pct_total = .; pct_nonmiss = .; date_kind = ''; display_format = '';
+    small_cell_flag = ''; level = '';
     /* N_DISTINCT row */
     stat = 'N_DISTINCT'; n = 22; sort_order = 0; output;
     /* Only 5 LEVEL rows instead of 10 -- HC level count fails */
@@ -898,7 +912,10 @@ run;
   data work._p6_vars;
     length name $200 type $8 length 8 format $32 n_distinct 8
            var_class $12 date_kind $8 display_format $32;
-    name = 'T_BAD_HC'; type = 'char'; var_class = 'HIGH_CARD'; n_distinct = 22; output;
+    call missing(of _all_);
+    name = 'T_BAD_HC'; type = 'char'; var_class = 'HIGH_CARD'; n_distinct = 22;
+    length = 8; format = ''; date_kind = ''; display_format = '';
+    output;
     stop;
   run;
 
@@ -918,24 +935,30 @@ run;
 
   data work._p6_rows;
     %_p6_attrib;
+    call missing(of _all_);
     variable = 'T_BAD_CN'; var_class = 'CONT_NUM'; family = 'BAD';
-    stat = 'N';         n = 40; sort_order = 1; output;
-    stat = 'N_MISSING'; n = 5;  sort_order = 2; output;
+    level = ''; pct_total = .; pct_nonmiss = .; small_cell_flag = '';
+    date_kind = ''; display_format = '';
+    stat = 'N';         n = 40; value = .; sort_order = 1; output;
+    stat = 'N_MISSING'; n = 5;  value = .; sort_order = 2; output;
     /* N + N_MISSING = 45, not 50 */
-    stat = 'MEAN';   value = 10.5; sort_order = 3; output;
-    stat = 'SD';     value = 2.1;  sort_order = 4; output;
-    stat = 'MEDIAN'; value = 10.0; sort_order = 5; output;
-    stat = 'Q1';     value = 9.0;  sort_order = 6; output;
-    stat = 'Q3';     value = 12.0; sort_order = 7; output;
-    stat = 'MIN';    value = 5.0;  sort_order = 8; output;
-    stat = 'MAX';    value = 20.0; sort_order = 9; output;
+    stat = 'MEAN';   n = .; value = 10.5; sort_order = 3; output;
+    stat = 'SD';     n = .; value = 2.1;  sort_order = 4; output;
+    stat = 'MEDIAN'; n = .; value = 10.0; sort_order = 5; output;
+    stat = 'Q1';     n = .; value = 9.0;  sort_order = 6; output;
+    stat = 'Q3';     n = .; value = 12.0; sort_order = 7; output;
+    stat = 'MIN';    n = .; value = 5.0;  sort_order = 8; output;
+    stat = 'MAX';    n = .; value = 20.0; sort_order = 9; output;
   run;
 
   /* Minimal work._p6_vars for variable-set check in %p6_write_output */
   data work._p6_vars;
     length name $200 type $8 length 8 format $32 n_distinct 8
            var_class $12 date_kind $8 display_format $32;
-    name = 'T_BAD_CN'; type = 'num'; var_class = 'CONT_NUM'; n_distinct = 50; output;
+    call missing(of _all_);
+    name = 'T_BAD_CN'; type = 'num'; var_class = 'CONT_NUM'; n_distinct = 50;
+    length = 8; format = ''; date_kind = ''; display_format = '';
+    output;
     stop;
   run;
 
@@ -1484,7 +1507,8 @@ run;
   %let p6_fail = 0; %let p6_fail_msg = ;
   %pdd_profile(lib=work, ds=_t_ds, prefix=T_, family=TC21, outlib=work, export=0);
 
-  proc printto; run;  /* restore log */
+  proc printto; run;  /* restore to default -- TC-23 global capture below resumes */
+  proc printto log="&_tc23_whole_log"; run;  /* resume whole-test capture for TC-23 */
 
   /* Read captured log and count bad lines */
   %local _warn_cnt _badarg_cnt _uninit_cnt _errlim_cnt;
@@ -1889,5 +1913,90 @@ run;
 /*==========================================================================
   SUMMARY
 ==========================================================================*/
+
+/* Restore log before SUMMARY so the SUMMARY line itself goes to the SAS log.
+   TC-23 whole-log scan reads the captured file (which already has everything
+   up to this restore point). */
+proc printto; run;
+
+/*==========================================================================
+  TC-23 -- Whole-test-log hygiene scan
+  Reads the log captured from the start of the test run (after %include).
+  Checks for any NOTE/WARNING that indicates a latent code defect:
+    (a) "is uninitialized"
+    (b) "Invalid ... argument"           (e.g. SUBSTR bad argument)
+    (c) "Limit set by ERRORS="
+    (d) "Multiple lengths were specified"
+    (e) "has never been referenced"
+  Lines containing "TESTRESULT:", "[TC-21]", "[TC-23]", or
+  "is uninitialized. (Uninitialized" (informational from call missing) are
+  excluded to avoid counting the test harness own output.
+==========================================================================*/
+
+%macro _tc23;
+  %_tc_start(n=23, desc=whole-test-log-hygiene);
+
+  %local _uninit_cnt _badarg_cnt _errlim_cnt _multlen_cnt _nref_cnt;
+  %let _uninit_cnt = 0;
+  %let _badarg_cnt = 0;
+  %let _errlim_cnt = 0;
+  %let _multlen_cnt = 0;
+  %let _nref_cnt   = 0;
+
+  data _null_;
+    infile "&_tc23_whole_log" truncover lrecl=32767;
+    input _line $32767.;
+    _up = upcase(_line);
+    /* Exclude test harness echo lines */
+    if index(_up, 'TESTRESULT:') > 0 then return;
+    if index(_up, '[TC-21]')      > 0 then return;
+    if index(_up, '[TC-23]')      > 0 then return;
+
+    if index(_up, 'IS UNINITIALIZED') > 0 then do;
+      call symputx('_uninit_cnt',
+        strip(put(input(symget('_uninit_cnt'), best32.) + 1, best32.)));
+      put "NOTE: [TC-23] UNINITIALIZED: " _line;
+    end;
+    if index(_up, 'INVALID') > 0 and index(_up, 'ARGUMENT') > 0 then do;
+      call symputx('_badarg_cnt',
+        strip(put(input(symget('_badarg_cnt'), best32.) + 1, best32.)));
+      put "NOTE: [TC-23] INVALID ARGUMENT: " _line;
+    end;
+    if index(_up, 'LIMIT SET BY ERRORS=') > 0 then do;
+      call symputx('_errlim_cnt',
+        strip(put(input(symget('_errlim_cnt'), best32.) + 1, best32.)));
+      put "NOTE: [TC-23] ERRORS= LIMIT: " _line;
+    end;
+    if index(_up, 'MULTIPLE LENGTHS WERE SPECIFIED') > 0 then do;
+      call symputx('_multlen_cnt',
+        strip(put(input(symget('_multlen_cnt'), best32.) + 1, best32.)));
+      put "NOTE: [TC-23] MULTIPLE LENGTHS: " _line;
+    end;
+    if index(_up, 'HAS NEVER BEEN REFERENCED') > 0 then do;
+      call symputx('_nref_cnt',
+        strip(put(input(symget('_nref_cnt'), best32.) + 1, best32.)));
+      put "NOTE: [TC-23] NEVER REFERENCED: " _line;
+    end;
+    drop _up;
+  run;
+
+  %local _f;
+  %let _f = 0; %if %eval(&_uninit_cnt  = 0) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC23-no-uninitialized-in-whole-log);
+
+  %let _f = 0; %if %eval(&_badarg_cnt  = 0) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC23-no-invalid-argument-in-whole-log);
+
+  %let _f = 0; %if %eval(&_errlim_cnt  = 0) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC23-no-errors-limit-in-whole-log);
+
+  %let _f = 0; %if %eval(&_multlen_cnt = 0) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC23-no-multiple-lengths-in-whole-log);
+
+  %let _f = 0; %if %eval(&_nref_cnt    = 0) %then %let _f = 1;
+  %_assert(flag=&_f, label=TC23-no-never-referenced-in-whole-log);
+
+%mend _tc23;
+%_tc23;
 
 %put TESTRESULT: SUMMARY passed=&_tc_pass failed=&_tc_fail skipped=&_tc_skip;
