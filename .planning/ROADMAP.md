@@ -108,7 +108,7 @@ Plans:
  (completed 2026-10-27)
 
 ## Milestone v2.0: PCNR_ 2018-2025, PECAN_ID, PCNR_Master_Data_Nov_2026
-Two deliverables covering surgical cases 2018-2025: (A) a data dictionary with `PECAN_ID` first and `PCNR_` variables alphabetical with distributions, (B) `PCNR_Master_Data_Nov_2026.xlsx`. Source brief: `.planning/MILESTONE_BRIEF_2018_2025.md` (revised 52f6ad9). Requirements: `.planning/REQUIREMENTS.md`. Phases M1-M6 are numbered 14-19 (continuing after Phase 13). **M1 must finish (first probe committed) before Phases 15-19 can be planned.** Decisions PDD-D-25..29 are in `docs/DECISIONS.md` (PDD-D-26 and PDD-D-28 DECIDED; others OPEN).
+Two deliverables covering surgical cases 2018-2025: (A) a data dictionary with `PECAN_ID` first and `PCNR_` variables alphabetical with distributions, (B) `PCNR_Master_Data_Nov_2026.xlsx`. Source brief: `.planning/MILESTONE_BRIEF_2018_2025.md` (revised 52f6ad9). Requirements: `.planning/REQUIREMENTS.md`. Phases M1-M6 are numbered 14-19 (continuing after Phase 13). The first probe is committed (`.planning/schemas/probe_master_data_20261116.md`, strip-fix rerun, 2026-11-16), so Phase 15 is unblocked. Decisions PDD-D-25..29 are in `docs/DECISIONS.md` (PDD-D-26, PDD-D-28, PDD-D-29 DECIDED; PDD-D-25 CLOSED - NOT NEEDED; PDD-D-27 OPEN).
 
 Phases 8-13 (v1.x) stay gated and independent; v2.0 depends only on the completed v1.0 (Phases 1-7).
 
@@ -116,7 +116,7 @@ Phases 8-13 (v1.x) stay gated and independent; v2.0 depends only on the complete
 - **Goal:** Make facts about the old and new source files available to the Claude Code machine, and make headless runs safe.
 - **Depends on:** Phase 7 (v1.0 complete)
 - **Requirements:** PRB-01, PRB-02, PRB-03, RUN-01
-- **Status:** `sas/probe_inputs.sas` (fixed in 27aeb9d), `pdd_sdk_run.py` and the CLAUDE.md rules are in the repo. No `.planning/schemas/probe_*.md` is committed. **PENDING SAS RUN.**
+- **Status:** IN PROGRESS (probe in, 1 item left). Probe committed: `.planning/schemas/probe_master_data_20261116.md` (strip-fix rerun, 2026-11-16; PRB-02, success criterion 3 met; PDD-D-28 and PDD-D-29 decided from it). PRB-03 done (CLAUDE.md rules). RUN-01: `pdd_sdk_run.py` in repo; `logs/api_runs/ledger.csv` shows `sdk_test` runs. **Remaining:** success criterion 1 - `python tools\sas_lint.py sas\probe_inputs.sas` reports 13 errors (C18 x1, C11b x7, C8 x2, C27 x2, C2 x1) and `sasjs lint` reports warnings; the program ran correctly on the SAS machine, so this is lint cleanup, not a data blocker. Phase 15 does not wait on it.
 - **Success criteria:**
   1. `sas/probe_inputs.sas` passes `python tools\sas_lint.py` and `sasjs lint` with zero errors.
   2. Gerard's run writes `.planning/schemas/probe_master_data_<yyyymmdd>.md` listing every file and sheet (the 20 existing and every new 2023-2025 file) with the PRB-01 fields, counts 1-10 shown as `<11`, no data values; it is committed.
@@ -132,10 +132,10 @@ Phases 8-13 (v1.x) stay gated and independent; v2.0 depends only on the complete
 - **Success criteria:**
   1. The existing 20-file SHA-256 baseline matches unchanged; new files get their own baseline entries by an explicit approved step, not a silent re-baseline.
   2. Header inventory covers the same file x header matrix for the new files.
-  3. New files import with explicit informats/lengths, IDs/codes as character, `encoding='wlatin1'` for the files the probe flags (brief: 2024 and 2025; 2023 is UTF-8) per D-23; 5-digit case ID handling follows PDD-D-29 (OPEN); row counts reconcile to the probe.
+  3. New files import with explicit informats/lengths, IDs/codes as character, `encoding='wlatin1'` for the files the probe flags (brief: 2024 and 2025; 2023 is UTF-8) per D-23; 5-digit case IDs use the PDD-D-19 rule unchanged (PDD-D-29, DECIDED); row counts reconcile to the probe.
   4. Header variants (Braden columns by year, `Fraility_Score`, `SleepApnea_YN`, `Preop_Edu_Years`) are mapped, not renamed at source; type changes (`Death_Days_After_Surgery`, five frailty components) go to the map review.
   5. Each new file is checked 1:1 per case; any non-1:1 file stops at a decision gate.
-  6. Era-overlap counts and conflicting shared-column values are reported to QC; precedence follows PDD-D-25 (OPEN, default earlier-spine-wins) and is not applied until Gerard decides.
+  6. Era-overlap counts and conflicting shared-column values are reported to QC; the probe found 0 overlap with the spine, so PDD-D-25 (precedence) is CLOSED - NOT NEEDED. **Gate (PDD-D-29 item 3):** also count normalized case IDs shared between each pair of the 2023, 2024 and 2025 files; if any are shared, stop at a decision gate (do not stack) and list the counts per pair.
 - **Plans:** TBD
 
 ### Phase 16 (M3): Name map extension
@@ -165,7 +165,7 @@ Phases 8-13 (v1.x) stay gated and independent; v2.0 depends only on the complete
 
 ### Phase 18 (M5): Combined dataset and dictionary 2018-2025
 - **Goal:** One combined case-level PCNR_ dataset and the regenerated dictionary workbook.
-- **Depends on:** Phases 15, 16, 17 (and PDD-D-25 decided)
+- **Depends on:** Phases 15, 16, 17 (PDD-D-25 closed, not needed)
 - **Requirements:** DD-01, DD-02, DD-03, DD-04
 - **Success criteria:**
   1. Combined dataset in the `pdd` library on P: (not in git) has PECAN_ID and PRECEDE_STUDY_ID first.
@@ -200,7 +200,7 @@ Each phase repeats Phases 2–7 for its family: source guard, import, name map, 
 Phases 8–13 have no fixed order. Whichever gate clears first runs first, except PCND_, which depends on its inputs.
 
 ## Open decisions (phase gates)
-v2.0 decisions PDD-D-25..29 (PDD-D-26 DECIDED) and Price's naming sign-off are in `docs/DECISIONS.md`.
+v2.0 decisions PDD-D-25..29 (PDD-D-26, PDD-D-28, PDD-D-29 DECIDED; PDD-D-25 CLOSED - NOT NEEDED) and Price's naming sign-off are in `docs/DECISIONS.md`.
 
 | ID | Blocks | Description |
 |----|--------|-------------|

@@ -2,7 +2,7 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: PCNR_ 2018-2025, PECAN_ID, PCNR_Master_Data_Nov_2026
-status: Phase 14 (M1) - PENDING SAS RUN (probe)
+status: Phase 14 (M1) - probe committed; lint cleanup of probe_inputs.sas left. Phase 15 unblocked
 last_updated: "2026-11-16T00:00:00.000Z"
 progress:
   total_phases: 6
@@ -15,23 +15,23 @@ progress:
 
 ## Current milestone: v2.0 - PCNR_ 2018-2025, PECAN_ID, PCNR_Master_Data_Nov_2026 (started 2026-11-16)
 
-**Next step:** Gerard runs `sas/probe_inputs.sas` on the SAS machine and commits the probe (**PENDING SAS RUN**). Output: `.planning/schemas/probe_master_data_<yyyymmdd>.md`. Phases 15-19 cannot be planned until it is committed.
+**Next step:** Phase 15 (M2) can be planned: the Phase 14 probe is committed (`.planning/schemas/probe_master_data_20261116.md`, strip-fix rerun, 2026-11-16). Phase 14 is not yet marked complete: `sas/probe_inputs.sas` still has 13 `sas_lint` errors (success criterion 1; C18, C11b, C8, C27, C2) plus `sasjs lint` warnings. Phase 15 gate: count normalized case IDs shared between each pair of the 2023, 2024 and 2025 files (PDD-D-29 item 3).
 
 | Phase | Milestone label | Title | Status |
 |-------|-----------------|-------|--------|
-| 14 | M1 | Probe and headless setup | PENDING SAS RUN |
-| 15 | M2 | New-source intake | Blocked on 14 |
+| 14 | M1 | Probe and headless setup | Probe committed; lint cleanup left (PRB-03, RUN-01 satisfied) |
+| 15 | M2 | New-source intake | Unblocked (probe in) |
 | 16 | M3 | Name map extension | Blocked on 15 |
 | 17 | M4 | PECAN_ID | Blocked on 15-16 (PDD-D-28 DECIDED) |
 | 18 | M5 | Combined dataset and dictionary 2018-2025 | Blocked on 15-17 |
 | 19 | M6 | Master Excel export | Blocked on 18 |
 
-Decisions (`docs/DECISIONS.md`): PDD-D-26 DECIDED (separate K2 PECAN_IDs via append-only registry, linkage deferred). PDD-D-28 DECIDED 2026-11-16 (PECAN_ID = master-merge `pecan_ID`; K1 seed from `g.pecan_id_xwalk`; K2 = 1000000 + rank). PENDING DECISION, defaults not applied: PDD-D-25 era precedence; PDD-D-27 dictionary sheet in master xlsx; PDD-D-29 5-digit case-ID rule for 2023-2025. Price naming sign-off still pending.
+Decisions (`docs/DECISIONS.md`): PDD-D-26 DECIDED (separate K2 PECAN_IDs via append-only registry, linkage deferred). PDD-D-28 DECIDED 2026-11-16 (PECAN_ID = master-merge `pecan_ID`; K1 seed from `g.pecan_id_xwalk`; K2 = 1000000 + rank). PDD-D-29 DECIDED 2026-11-16 (D-19 rule applies to 2023-2025; no cross-era overlap; Phase 15 must check overlap between the three new files). PDD-D-25 CLOSED - NOT NEEDED (per PDD-D-29 item 2). PENDING DECISION, default not applied: PDD-D-27 dictionary sheet in master xlsx. Price naming sign-off still pending.
 
 ### Assumptions (headless run)
 - Milestone re-registered 2026-11-16 against the revised brief (52f6ad9); the first registration (73881aa) used the older brief. PDD numbers 25-28 were kept; PDD-D-26 changed to DECIDED; PDD-D-29 added for new-4.
 - v1.0 treated as closed: audit PASSED 2026-10-27, all 7 phases complete, Gerard reviewed pdd_v1_0.xlsx. REQUIREMENTS.md was already archived to `milestones/v1.0-REQUIREMENTS.md` (not re-archived). The v1.0 sections below are stale (Phase 7 shows "Not started"; 07-01..07-03 are complete) and `/gsd:complete-milestone` was never run.
-- No `.planning/schemas/probe_*.md` is committed. Probe findings quoted in the brief (0 K2 MRNs in the K1 spine, K2 values 5 characters longer, wlatin1 for 2024/2025, 0 overlap for 2022 5-digit IDs) are recorded as brief-asserted, unverified.
+- Probe committed 2026-11-16 (`.planning/schemas/probe_master_data_20261116.md`, strip-fix rerun). The brief's "0 overlap for 2022 5-digit IDs" was a probe bug (padded value vs `^\d{1,5}$`) and is superseded; other brief-quoted findings should be read from the probe file, not the brief.
 - `CLAUDE_md_addition.md` no longer exists: its content was merged into CLAUDE.md in 73881aa. CLAUDE.md already contains the probe-first, headless and SAS-pitfall sections, so it was not changed.
 
 ---

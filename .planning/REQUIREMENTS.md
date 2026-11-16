@@ -25,8 +25,7 @@ headless steps via `pdd_sdk_run.py`; SAS runs and human gates are marked `PENDIN
 
 **Brief-vs-repo conflicts that affect these requirements** (details in STATE.md and `docs/DECISIONS.md`):
 - ~~`PCNR_ID` does not exist in the repo~~ Resolved 2026-11-16 (PDD-D-28, DECIDED): "PCNR_ID" is the master-merge `pecan_ID`; PID-01/03/04/08 are planned on that basis.
-- NEW-03/PDD-D-29: the brief says the probe shows 0 overlap under the plain `Precede` + 5-digit rule for the
-  2022 files; PDD-D-19 (LOCKED) records 100% matches for 2022 files under that same rule.
+- ~~NEW-03/PDD-D-29: the brief said 0 overlap for the 2022 files under the plain rule~~ Resolved 2026-11-16 (PDD-D-29, DECIDED): that was a probe bug (padded value vs `^\d{1,5}$`); after the strip fix the 2022 files match 100% under the PDD-D-19 rule, and the same rule applies to 2023-2025.
 - The brief says locked decisions are PDD-D-01..23; the repo locks through D-24.
 
 ### Probe and headless setup (Phase 14, M1)
@@ -38,10 +37,10 @@ headless steps via `pdd_sdk_run.py`; SAS runs and human gates are marked `PENDIN
 ### New-source intake (Phase 15, M2)
 - **NEW-01** The source guard is extended: the existing 20-file SHA-256 baseline still has to match unchanged, and the new files get their own baseline entries. Adding the new baseline is an explicit, approved step, not a silent re-baseline.
 - **NEW-02** The header inventory (Phase 2 output) is extended to the new files and covers the same file × header matrix.
-- **NEW-03** The new files are imported with the Phase 3 conventions: explicit informats and lengths, IDs and codes read as character, `encoding='wlatin1'` for the 2024 and 2025 files (the 2026-11-16 probe flags them; 2023 is UTF-8) per PDD-D-23. All three use 5-digit case IDs; how they are normalized follows decision new-4.
+- **NEW-03** The new files are imported with the Phase 3 conventions: explicit informats and lengths, IDs and codes read as character, `encoding='wlatin1'` for the 2024 and 2025 files (the 2026-11-16 probe flags them; 2023 is UTF-8) per PDD-D-23. All three use 5-digit case IDs, normalized with the PDD-D-19 rule unchanged (`cats('Precede', put(input(strip(id), ?? 8.), z5.))`) per PDD-D-29 (DECIDED 2026-11-16).
 - **NEW-03a** Header variants found by the probe are mapped, not renamed at source: the Braden columns differ by year (`Braden Activity` in 2023, `Braden_2024_OUT_Braden Activity` and `Braden_2025_OUT_…` later), and several names differ from the older files (`Fraility_Score` in 2023–2025 vs `Frailty_Score`, `SleepApnea_YN` vs `Sleep_Apnea_YN`, `Preop_Edu_Years` vs `Education`). Type changes go to the map review: `Death_Days_After_Surgery` is character in 2023–2025, and the five frailty components are numeric where the 2022 master has character.
 - **NEW-04** 1:1-per-case check on each new file (PDD-D-17 extended). Any file that is not 1:1 stops at a decision gate.
-- **NEW-05** Era overlap check: count case IDs that appear in both the 2018–2022 sources and the 2023–2025 sources, and conflicting values for shared columns. The precedence rule for overlapping cases is a decision gate (**PDD-D-new-1**).
+- **NEW-05** Era overlap check: count case IDs that appear in both the 2018–2022 sources and the 2023–2025 sources, and conflicting values for shared columns. The probe (strip-fix rerun, 2026-11-16) found 0 of the 2023-2025 normalized case IDs in the 2018-2022 spine, so PDD-D-25 (precedence) is CLOSED - NOT NEEDED (PDD-D-29 item 2); the check is still run and reported to QC. **Within-new-files gate (PDD-D-29 item 3):** the probe compares each file only to the spine, so Phase 15 must also count normalized case IDs shared between each pair of the 2023, 2024 and 2025 files (2023-2024, 2023-2025, 2024-2025). If any are shared, stop at a decision gate (do not stack) and list the counts per pair.
 
 ### Name map extension (Phase 16, M3)
 - **MAP-01** New headers are mapped to the existing PCNR_ names (1,297 PCNR_ variables after D-24; the brief's 1,299 still counts the two LINKAGE_ONLY columns) with the Phase 4 cleaning, abbreviation and collision rules. Exact matches reuse the existing name.
