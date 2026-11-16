@@ -28,6 +28,8 @@ progress:
 
 Decisions (`docs/DECISIONS.md`): PDD-D-26 DECIDED (separate K2 PECAN_IDs via append-only registry, linkage deferred). PDD-D-28 DECIDED 2026-11-16 (PECAN_ID = master-merge `pecan_ID`; K1 seed from `g.pecan_id_xwalk`; K2 = 1000000 + rank). PDD-D-29 DECIDED 2026-11-16 (D-19 rule applies to 2023-2025; no cross-era overlap; Phase 15 must check overlap between the three new files). PDD-D-25 CLOSED - NOT NEEDED (per PDD-D-29 item 2). PENDING DECISION, default not applied: PDD-D-27 dictionary sheet in master xlsx. Price naming sign-off still pending.
 
+**Phase 15 progress:** 15-04 complete 2026-11-16 (QC writer `python/scripts/write_new_source_qc.py`, exchange schema rows for 8 Phase 15 CSVs; 170 pytest pass). Run it after 15a-15c SAS runs (`--allow-partial` if stopped at the gate).
+
 ### Assumptions (headless run)
 - Milestone re-registered 2026-11-16 against the revised brief (52f6ad9); the first registration (73881aa) used the older brief. PDD numbers 25-28 were kept; PDD-D-26 changed to DECIDED; PDD-D-29 added for new-4.
 - v1.0 treated as closed: audit PASSED 2026-10-27, all 7 phases complete, Gerard reviewed pdd_v1_0.xlsx. REQUIREMENTS.md was already archived to `milestones/v1.0-REQUIREMENTS.md` (not re-archived). The v1.0 sections below are stale (Phase 7 shows "Not started"; 07-01..07-03 are complete) and `/gsd:complete-milestone` was never run.
