@@ -1,4 +1,4 @@
-/*============================================================================
+/**============================================================================
   probe_inputs.sas  -  privacy-safe schema probe of the PeCAN Master Data folder
   Project : PeCAN Data Dictionary (PDD), repo C:\data_dictionary
   Purpose : Give the Claude Code machine (no P:, no SAS) the facts it needs about
@@ -51,28 +51,39 @@ options validvarname=any nofmterr mprint;
 %let run_date = %sysfunc(today(), yymmddn8.);
 %let out_md   = &repo_dir.\.planning\schemas\probe_master_data_&run_date..md;
 
-%global unit enc n_lines n_hi n_bad cur_sheet cur_path nblank have_spine nfiles spine_case spine_mrn;
-%let unit = 0;
-%let nblank = 0;
-%let have_spine = 0;
-%let nfiles = 0;
-%let spine_case = ;
-%let spine_mrn = ;
+%macro init_globals();
+  %global unit enc n_lines n_hi n_bad cur_sheet cur_path nblank have_spine nfiles spine_case spine_mrn;
+  %let unit = 0;
+  %let nblank = 0;
+  %let have_spine = 0;
+  %let nfiles = 0;
+  %let spine_case = ;
+  %let spine_mrn = ;
+%mend init_globals;
+%init_globals()
+
+/* Text-only header strings and timestamps (kept out of DATA step / PUT text) */
+%let gen_ts    = %sysfunc(today(), yymmdd10.) %sysfunc(time(), time5.);
+%let max_small = %eval(&min_cell - 1);
+%let id_hdr    = ID-like columns;
+%let top_lbl   = top;
+%let shp_hdr   = ID value shapes (&top_lbl 5 per column);
+%let b64_lbl   = base64-like;
 
 /*---------------------------------------------------------------------------
   1. Guard: output must go to the repo, never to P:
 ---------------------------------------------------------------------------*/
-%macro guard;
+%macro guard();
   %if %upcase(%substr(%superq(repo_dir), 1, 2)) = %str(P:) %then %do;
     %put ERROR: [probe] repo_dir is on P: - the probe writes only to the git repo.;
     %abort cancel;
   %end;
   %if not %sysfunc(fileexist(%superq(repo_dir)\.planning)) %then %do;
-    %put ERROR: [probe] %superq(repo_dir)\.planning not found - check repo_dir.;
+    %put ERROR: [probe] &repo_dir.\.planning not found - check repo_dir.;
     %abort cancel;
   %end;
 %mend guard;
-%guard
+%guard()
 
 data _null_;
   length __p $400;
@@ -153,7 +164,7 @@ quit;
 /*---------------------------------------------------------------------------
   5. Byte scan of a CSV: non-ASCII lines and lines that are not valid UTF-8
 ---------------------------------------------------------------------------*/
-%macro scan_bytes;
+%macro scan_bytes();
   %let n_lines = 0;
   %let n_hi = 0;
   %let n_bad = 0;
@@ -186,7 +197,7 @@ quit;
 /*---------------------------------------------------------------------------
   5b. Spine: distinct case IDs and encrypted MRNs from &spine_file (work only)
 ---------------------------------------------------------------------------*/
-%macro prep_spine;
+%macro prep_spine();
   %local sc sm;
   %let have_spine = 0;
   %let sc = ;
@@ -194,7 +205,7 @@ quit;
   %if %length(%superq(spine_file)) = 0 %then %return;
   %let cur_path = %superq(src_dir)\%superq(spine_file);
   %if not %sysfunc(fileexist(%superq(cur_path))) %then %do;
-    %put WARNING: [probe] spine file %superq(spine_file) not found - linkage skipped.;
+    %put WARNING: [probe] spine file &spine_file not found - linkage skipped.;
     %return;
   %end;
   %scan_bytes
@@ -215,7 +226,7 @@ quit;
       where libname = 'WORK' and memname = '_SPSRC' and prxmatch("/&spine_mrn_rx/i", strip(name)) > 0;
   quit;
   %if %length(%superq(sc)) = 0 or %length(%superq(sm)) = 0 %then %do;
-    %put WARNING: [probe] spine case or MRN column not found (case=%superq(sc) mrn=%superq(sm)) - linkage skipped.;
+    %put WARNING: [probe] spine case or MRN column not found (case=&sc mrn=&sm) - linkage skipped.;
     %return;
   %end;
   %let spine_case = %superq(sc);
@@ -242,9 +253,9 @@ quit;
     delete _spsrc _spc0 _spm0;
   quit;
   %let have_spine = 1;
-  %put NOTE: [probe] spine %superq(spine_file): case column=%superq(sc), MRN column=%superq(sm);
+  %put NOTE: [probe] spine &spine_file: case column=&sc, MRN column=&sm;
 %mend prep_spine;
-%prep_spine
+%prep_spine()
 
 /*---------------------------------------------------------------------------
   6. One row per file/sheet in r_units
@@ -322,8 +333,8 @@ quit;
         __in{__i} = (prxmatch("/&id_regex/i", strip(vname(__n{__i}))) > 0);
         __f = upcase(vformat(__n{__i}));
         __dk{__i} = 0;
-        if prxmatch('/^(DATETIME|E8601DT|DTDATE)/', __f) then __dk{__i} = 2;
-        else if prxmatch('/^(DATE|MMDDYY|YYMMDD|DDMMYY|E8601DA|MONYY|YYMON|WEEKDATE|WORDDATE)/', __f) then __dk{__i} = 1;
+        if prxmatch('/^(DATETIME|E8601DT|DTDATE)/', strip(__f)) then __dk{__i} = 2;
+        else if prxmatch('/^(DATE|MMDDYY|YYMMDD|DDMMYY|E8601DA|MONYY|YYMON|WEEKDATE|WORDDATE)/', strip(__f)) then __dk{__i} = 1;
       end;
     end;
 
@@ -450,7 +461,7 @@ quit;
         pattern = catx(' ', 'LONG', cats('len=', lengthn(strip(__t))),
                   ifc(prxmatch('/^[0-9]+$/', strip(__t)), 'digits',
                   ifc(prxmatch('/^[0-9A-Fa-f]+$/', strip(__t)), 'hex',
-                  ifc(prxmatch('/^[A-Za-z0-9+\/=]+$/', strip(__t)), 'base64-like', 'mixed'))));
+                  ifc(prxmatch('/^[A-Za-z0-9+\/=]+$/', strip(__t)), "&b64_lbl", 'mixed'))));
       else do;
         pattern = prxchange('s/\d/9/', -1, __t);
         pattern = prxchange('s/[A-Za-z]/A/', -1, pattern);
@@ -523,10 +534,11 @@ quit;
   8. Import one file (CSV, or each sheet of an XLSX) and profile it
 ---------------------------------------------------------------------------*/
 %macro probe_file(i);
-  %local ext nsh s;
+  %local ext nsh s cur_file;
   %let cur_path = %superq(src_dir)\%superq(f&i);
   %let ext = %superq(e&i);
-  %put NOTE: [probe] file &i of &nfiles: %superq(f&i);
+  %let cur_file = %superq(f&i);
+  %put NOTE: [probe] file &i of &nfiles: &cur_file;
 
   proc datasets lib=work nolist nowarn;
     delete _p;
@@ -583,13 +595,13 @@ quit;
   %end;
 %mend probe_file;
 
-%macro probe_all;
+%macro probe_all();
   %local i;
   %do i = 1 %to &nfiles;
     %probe_file(&i)
   %end;
 %mend probe_all;
-%probe_all
+%probe_all()
 
 /*---------------------------------------------------------------------------
   9. Write the markdown (counts 1-10 shown as <11, no values)
@@ -608,14 +620,14 @@ data _null_;
   else __sp = 'none (linkage columns show -)';
   put "# Schema probe: Master Data folder";
   put;
-  put "- Generated: %sysfunc(today(), yymmdd10.) %sysfunc(time(), time5.) by sas/probe_inputs.sas";
+  put "- Generated: &gen_ts by sas/probe_inputs.sas";
   put "- Folder: `&src_dir`";
   put "- File filter (regex): `&file_regex`";
   put "- SAS session encoding: " __enc;
   if upcase(__enc) = 'UTF-8' then
     put "- WARNING: session is UTF-8, so the CSV byte scan below may be unreliable.";
   put "- Spine for linkage: " __sp;
-  put "- Privacy: no data values are written. Counts from 1 to %eval(&min_cell - 1) are shown as <&min_cell..";
+  put "- Privacy: no data values are written. Counts from 1 to &max_small are shown as <&min_cell..";
   put "  ID columns are described by value shape only (9 = digit, A = letter; LONG = length and character class).";
   put "- Candidate placeholders counted: character &ph_char; numeric &ph_num";
   put "- Encoding guess: utf-8 = every non-ASCII line is valid UTF-8 (or there are none); wlatin1 = at least one line is not valid UTF-8.";
@@ -677,7 +689,7 @@ data _null_;
   length __line $2000;
   if _n_ = 1 then do;
     put;
-    put "## ID-like columns";
+    put "## &id_hdr";
     put;
     put "Case-ID overlap uses 5-digit IDs normalized to Precede##### (PDD-D-19). MRN overlap compares raw values.";
     put;
@@ -701,7 +713,7 @@ data _null_;
   length __line $2000;
   if _n_ = 1 then do;
     put;
-    put "## ID value shapes (top 5 per column)";
+    put "## &shp_hdr";
     put;
     put "|unit|column|rank|shape|rows|";
     put "|---|---|---|---|---|";

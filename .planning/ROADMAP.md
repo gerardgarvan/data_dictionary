@@ -116,7 +116,7 @@ Phases 8-13 (v1.x) stay gated and independent; v2.0 depends only on the complete
 - **Goal:** Make facts about the old and new source files available to the Claude Code machine, and make headless runs safe.
 - **Depends on:** Phase 7 (v1.0 complete)
 - **Requirements:** PRB-01, PRB-02, PRB-03, RUN-01
-- **Status:** IN PROGRESS (probe in, 1 item left). Probe committed: `.planning/schemas/probe_master_data_20261116.md` (strip-fix rerun, 2026-11-16; PRB-02, success criterion 3 met; PDD-D-28 and PDD-D-29 decided from it). PRB-03 done (CLAUDE.md rules). RUN-01: `pdd_sdk_run.py` in repo; `logs/api_runs/ledger.csv` shows `sdk_test` runs. **Remaining:** success criterion 1 - `python tools\sas_lint.py sas\probe_inputs.sas` reports 13 errors (C18 x1, C11b x7, C8 x2, C27 x2, C2 x1) and `sasjs lint` reports warnings; the program ran correctly on the SAS machine, so this is lint cleanup, not a data blocker. Phase 15 does not wait on it.
+- **Status:** COMPLETE. Probe committed: `.planning/schemas/probe_master_data_20261116.md` (strip-fix rerun, 2026-11-16; PRB-02, success criterion 3 met; PDD-D-28 and PDD-D-29 decided from it). PRB-03 done (CLAUDE.md rules). RUN-01: `pdd_sdk_run.py` in repo; `logs/api_runs/ledger.csv` shows `sdk_test` runs. Success criterion 1 met: `sas_lint` reports 0 errors on `sas/probe_inputs.sas`; `sasjs lint` reports style warnings only (line length, indentation), no errors.
 - **Success criteria:**
   1. `sas/probe_inputs.sas` passes `python tools\sas_lint.py` and `sasjs lint` with zero errors.
   2. Gerard's run writes `.planning/schemas/probe_master_data_<yyyymmdd>.md` listing every file and sheet (the 20 existing and every new 2023-2025 file) with the PRB-01 fields, counts 1-10 shown as `<11`, no data values; it is committed.

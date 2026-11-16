@@ -2,7 +2,7 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: PCNR_ 2018-2025, PECAN_ID, PCNR_Master_Data_Nov_2026
-status: Phase 14 (M1) - probe committed; lint cleanup of probe_inputs.sas left. Phase 15 unblocked
+status: Phase 14 (M1) complete - probe committed, probe_inputs.sas lint-clean (0 errors). Phase 15 unblocked
 last_updated: "2026-11-16T00:00:00.000Z"
 progress:
   total_phases: 6
@@ -15,11 +15,11 @@ progress:
 
 ## Current milestone: v2.0 - PCNR_ 2018-2025, PECAN_ID, PCNR_Master_Data_Nov_2026 (started 2026-11-16)
 
-**Next step:** Phase 15 (M2) can be planned: the Phase 14 probe is committed (`.planning/schemas/probe_master_data_20261116.md`, strip-fix rerun, 2026-11-16). Phase 14 is not yet marked complete: `sas/probe_inputs.sas` still has 13 `sas_lint` errors (success criterion 1; C18, C11b, C8, C27, C2) plus `sasjs lint` warnings. Phase 15 gate: count normalized case IDs shared between each pair of the 2023, 2024 and 2025 files (PDD-D-29 item 3).
+**Next step:** Phase 15 (M2) can be planned: the Phase 14 probe is committed (`.planning/schemas/probe_master_data_20261116.md`, strip-fix rerun, 2026-11-16). Phase 14 is complete: `sas/probe_inputs.sas` now has 0 `sas_lint` errors and 0 `sasjs lint` errors (style warnings only: line length and indentation). Phase 15 gate: count normalized case IDs shared between each pair of the 2023, 2024 and 2025 files (PDD-D-29 item 3).
 
 | Phase | Milestone label | Title | Status |
 |-------|-----------------|-------|--------|
-| 14 | M1 | Probe and headless setup | Probe committed; lint cleanup left (PRB-03, RUN-01 satisfied) |
+| 14 | M1 | Probe and headless setup | Complete (PRB-01..03, RUN-01 satisfied) |
 | 15 | M2 | New-source intake | Unblocked (probe in) |
 | 16 | M3 | Name map extension | Blocked on 15 |
 | 17 | M4 | PECAN_ID | Blocked on 15-16 (PDD-D-28 DECIDED) |
