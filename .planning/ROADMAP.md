@@ -108,7 +108,7 @@ Plans:
  (completed 2026-10-27)
 
 ## Milestone v2.0: PCNR_ 2018-2025, PECAN_ID, PCNR_Master_Data_Nov_2026
-Two deliverables covering surgical cases 2018-2025: (A) a data dictionary with `PECAN_ID` first and `PCNR_` variables alphabetical with distributions, (B) `PCNR_Master_Data_Nov_2026.xlsx`. Source brief: `.planning/MILESTONE_BRIEF_2018_2025.md` (revised 52f6ad9). Requirements: `.planning/REQUIREMENTS.md`. Phases M1-M6 are numbered 14-19 (continuing after Phase 13). **M1 must finish (first probe committed) before Phases 15-19 can be planned.** Decisions PDD-D-25..29 are in `docs/DECISIONS.md` (PDD-D-26 DECIDED; others OPEN).
+Two deliverables covering surgical cases 2018-2025: (A) a data dictionary with `PECAN_ID` first and `PCNR_` variables alphabetical with distributions, (B) `PCNR_Master_Data_Nov_2026.xlsx`. Source brief: `.planning/MILESTONE_BRIEF_2018_2025.md` (revised 52f6ad9). Requirements: `.planning/REQUIREMENTS.md`. Phases M1-M6 are numbered 14-19 (continuing after Phase 13). **M1 must finish (first probe committed) before Phases 15-19 can be planned.** Decisions PDD-D-25..29 are in `docs/DECISIONS.md` (PDD-D-26 and PDD-D-28 DECIDED; others OPEN).
 
 Phases 8-13 (v1.x) stay gated and independent; v2.0 depends only on the completed v1.0 (Phases 1-7).
 
@@ -152,12 +152,12 @@ Phases 8-13 (v1.x) stay gated and independent; v2.0 depends only on the complete
 
 ### Phase 17 (M4): PECAN_ID
 - **Goal:** Give every 2018-2025 case a `PECAN_ID` through an append-only, key-era-aware registry, and ship a tested linkage program for later.
-- **Depends on:** Phase 15, and PDD-D-28 (what PECAN_ID is; there is no `PCNR_ID` in the repo) settled. PDD-D-26 is already DECIDED.
-- **Requirements:** PID-01, PID-02, PID-03, PID-04, PID-05, PID-06, PID-07
+- **Depends on:** Phases 15-16. PDD-D-28 (PECAN_ID = master-merge `pecan_ID`) and PDD-D-26 are DECIDED, so Phase 17 is no longer blocked on a decision.
+- **Requirements:** PID-01, PID-02, PID-03, PID-04, PID-05, PID-06, PID-07, PID-08
 - **Success criteria:**
-  1. PDD-D-28 is decided and recorded; the ID format for K2 (PID-04) is recorded in `docs/DECISIONS.md` and cannot collide with K1 IDs.
-  2. Rename to `PECAN_ID` (PID-01) has identical before/after checksums; dictionary row reads "formerly PCNR_ID; derived from encrypted MRN" (wording adjusted to the PDD-D-28 outcome).
-  3. Every encrypted MRN is tagged K1 or K2 and never compared across eras; `pdd.pecan_id_registry` (on P:, not in git) is append-only, seeded with the existing K1 IDs unchanged; reruns keep known IDs and no ID is renumbered or reused; K2 assignment is deterministic.
+  1. PDD-D-28 is DECIDED and recorded; K2 IDs are `1000000 + rank` (PID-04) and cannot collide with K1 IDs.
+  2. `PECAN_ID` carries master-merge `pecan_ID` values unchanged (PID-01); the K1 seed passes the PDD-D-28 seed checks; `g.pecan_id_xwalk` is read-only via a `00_config.sas` libname (PID-08); the dictionary row uses the PDD-D-28 wording.
+  3. Every encrypted MRN is tagged K1 or K2 and never compared across eras; `pdd.pecan_id_registry` (on P:, not in git) is append-only, seeded from `g.pecan_id_xwalk` unchanged; reruns keep known IDs and no ID is renumbered or reused; K2 assignment is deterministic.
   4. Combined dataset carries `PECAN_ID` and `PECAN_ID_KEY_ERA`; dictionary and master KEY sheet state that patients in both eras have two PECAN_IDs until linked.
   5. `sas/pecan_id_link.sas` is written and tested but not run; a QC report lists every ID that would change.
   6. Cases-per-patient summary (PECAN_ID vs PRECEDE_STUDY_ID) exists per era and combined with the caveat.

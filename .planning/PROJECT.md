@@ -17,7 +17,7 @@ Started 2026-11-16 (brief: `.planning/MILESTONE_BRIEF_2018_2025.md`, revised in 
 - Any write to the shared source folder
 - Running the linkage program (written and tested only)
 
-**v2.0 decisions** (`docs/DECISIONS.md`): PDD-D-26 DECIDED (separate K2 IDs, deferred linkage). OPEN: PDD-D-25 (era precedence), PDD-D-27 (dictionary sheet in master xlsx), PDD-D-28 (PECAN_ID vs the missing `PCNR_ID`), PDD-D-29 (5-digit ID rule for 2023-2025). Price's naming sign-off is still required before release.
+**v2.0 decisions** (`docs/DECISIONS.md`): PDD-D-26 DECIDED (separate K2 IDs, deferred linkage). PDD-D-28 DECIDED (PECAN_ID = master-merge `pecan_ID`, K2 = 1000000 + rank). OPEN: PDD-D-25 (era precedence), PDD-D-27 (dictionary sheet in master xlsx), PDD-D-29 (5-digit ID rule for 2023-2025). Price's naming sign-off is still required before release.
 
 Note: the sections below describe v1.0 as built (20 sources, 41,150-row spine). Its Open decisions table is partly stale (PDD-D-15, 16, 18 are closed per STATE.md).
 
