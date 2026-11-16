@@ -1,0 +1,283 @@
+﻿file_code,col_order,src_name,orig_col_name,sas_name,sas_type,length,informat,format,notes,src_encoding
+s21,1,"PRECEDE Study ID","PRECEDE Study ID","PRECEDE_Study_ID",C,22,"$22.","","forced to char -- ID column",utf-8
+s21,2,"YEAR","YEAR","YEAR",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,3,"ENCRYPTED_MRN","ENCRYPTED_MRN","ENCRYPTED_MRN",C,45,"$45.","","forced to char -- ENCRYPTED col",utf-8
+s21,4,"ENCRYPTED_ENCOUNTER","ENCRYPTED_ENCOUNTER","ENCRYPTED_ENCOUNTER",C,55,"$55.","","forced to char -- ENCRYPTED col",utf-8
+s21,5,"rt_ANCHOR_to_ADMIT_days","rt_ANCHOR_to_ADMIT_days","rt_ANCHOR_to_ADMIT_days",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,6,"rt_ANCHOR_to_SURGERY_days","rt_ANCHOR_to_SURGERY_days","rt_ANCHOR_to_SURGERY_days",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,7,"rt_ANCHOR_to_DISCHG_days","rt_ANCHOR_to_DISCHG_days","rt_ANCHOR_to_DISCHG_days",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,8,"rt_ADMIT_to_AN_START_mins","rt_ADMIT_to_AN_START_mins","rt_ADMIT_to_AN_START_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,9,"rt_ADMIT_to_AN_END_mins","rt_ADMIT_to_AN_END_mins","rt_ADMIT_to_AN_END_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,10,"rt_ADMIT_to_BLOCK_START_mins","rt_ADMIT_to_BLOCK_START_mins","rt_ADMIT_to_BLOCK_START_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,11,"rt_ADMIT_to_BLOCK_END_mins","rt_ADMIT_to_BLOCK_END_mins","rt_ADMIT_to_BLOCK_END_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,12,"rt_ADMIT_to_RM_START_mins","rt_ADMIT_to_RM_START_mins","rt_ADMIT_to_RM_START_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,13,"rt_ADMIT_to_RM_END_mins","rt_ADMIT_to_RM_END_mins","rt_ADMIT_to_RM_END_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,14,"rt_ADMIT_to_INCISION_mins","rt_ADMIT_to_INCISION_mins","rt_ADMIT_to_INCISION_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,15,"rt_ADMIT_to_DRESS_mins","rt_ADMIT_to_DRESS_mins","rt_ADMIT_to_DRESS_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,16,"rt_INCISE_to_DRESS_mins","rt_INCISE_to_DRESS_mins","rt_INCISE_to_DRESS_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,17,"rt_RM_START_to_RM_END_mins","rt_RM_START_to_RM_END_mins","rt_RM_START_to_RM_END_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,18,"rt_RM_START_to_DRESS_mins","rt_RM_START_to_DRESS_mins","rt_RM_START_to_DRESS_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,19,"rt_RM_START_to_AN_START_mins","rt_RM_START_to_AN_START_mins","rt_RM_START_to_AN_START_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,20,"rt_RM_START_to_INCISION_mins","rt_RM_START_to_INCISION_mins","rt_RM_START_to_INCISION_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,21,"rt_AN_START_to_AN_END_mins","rt_AN_START_to_AN_END_mins","rt_AN_START_to_AN_END_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,22,"rt_BLOCK_START_TO_BLOCK_END_mins","rt_BLOCK_START_TO_BLOCK_END_mins","rt_BLOCK_START_TO_BLOCK_END_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,23,"rt_RM_START_to_INDUCTION_mins","rt_RM_START_to_INDUCTION_mins","rt_RM_START_to_INDUCTION_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,24,"rt_RM_START_to_EMERGENCE_mins","rt_RM_START_to_EMERGENCE_mins","rt_RM_START_to_EMERGENCE_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,25,"Day of Week (CHAR)","Day of Week (CHAR)","Day_of_Week__CHAR_",C,3,"$3.","","",utf-8
+s21,26,"Day of Week (NUM)","Day of Week (NUM)","Day_of_Week__NUM_",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,27,"Holidays","Holidays","Holidays",C,1,"$1.","","",utf-8
+s21,28,"Weekend_Indicator","Weekend_Indicator","Weekend_Indicator",C,1,"$1.","","",utf-8
+s21,29,"Age at Encounter","Age at Encounter","Age_at_Encounter",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,30,"EmployeeCode","EmployeeCode","EmployeeCode",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,31,"EmployeeStatus","EmployeeStatus","EmployeeStatus",C,19,"$19.","","",utf-8
+s21,32,"preop_edu_years","preop_edu_years","preop_edu_years",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,33,"Race","Race","Race",C,31,"$31.","","",utf-8
+s21,34,"Ethnicity","Ethnicity","Ethnicity",C,15,"$15.","","",utf-8
+s21,35,"Sex","Sex","Sex",C,6,"$6.","","",utf-8
+s21,36,"Marital Status","Marital Status","Marital_Status",C,22,"$22.","","",utf-8
+s21,37,"Admit BMI","Admit BMI","Admit_BMI",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,38,"Service","Service","Service",C,49,"$49.","","",utf-8
+s21,39,"Room Type","Room Type","Room_Type",C,22,"$22.","","",utf-8
+s21,40,"ASA (Anesth Record)","ASA (Anesth Record)","ASA__Anesth_Record_",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,41,"Emergent Y/N (Anesth Record)","Emergent Y/N (Anesth Record)","Emergent_Y_N__Anesth_Record_",C,1,"$1.","","",utf-8
+s21,42,"Base Procedure 1","Base Procedure 1","Base_Procedure_1",C,199,"$199.","","",utf-8
+s21,43,"Base Procedure Code 1","Base Procedure Code 1","Base_Procedure_Code_1",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,44,"CPT 1","CPT 1","CPT_1",C,6,"$6.","","",utf-8
+s21,45,"CPT 1 Description","CPT 1 Description","CPT_1_Description",C,70,"$70.","","",utf-8
+s21,46,"CPT1 Class","CPT1 Class","CPT1_Class",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,47,"CPT1 Label","CPT1 Label","CPT1_Label",C,96,"$96.","","",utf-8
+s21,48,"Patient Type","Patient Type","Patient_Type",C,18,"$18.","","",utf-8
+s21,49,"LOS","LOS","LOS",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,50,"LOS in Hours","LOS in Hours","LOS_in_Hours",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,51,"Payer","Payer","Payer",C,12,"$12.","","",utf-8
+s21,52,"Charges","Charges","Charges",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,53,"ICD10 Principal Diagnosis","ICD10 Principal Diagnosis","ICD10_Principal_Diagnosis",C,7,"$7.","","",utf-8
+s21,54,"ICD10 Principal Diagnosis POA","ICD10 Principal Diagnosis POA","ICD10_Principal_Diagnosis_POA",C,6,"$6.","","",utf-8
+s21,55,"Charlson_Comorbidity_Index","Charlson_Comorbidity_Index","Charlson_Comorbidity_Index",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,56,"COMP10_T80","COMP10_T80","COMP10_T80",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,57,"COMP10_T81","COMP10_T81","COMP10_T81",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,58,"COMP10_T82","COMP10_T82","COMP10_T82",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,59,"COMP10_T83","COMP10_T83","COMP10_T83",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,60,"COMP10_T84","COMP10_T84","COMP10_T84",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,61,"COMP10_T85","COMP10_T85","COMP10_T85",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,62,"COMP10_T86","COMP10_T86","COMP10_T86",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,63,"COMP10_T87","COMP10_T87","COMP10_T87",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,64,"COMP10_T88","COMP10_T88","COMP10_T88",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,65,"complication_sum","complication_sum","complication_sum",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,66,"Intraop_Ketamine","Intraop_Ketamine","Intraop_Ketamine",C,1,"$1.","","",utf-8
+s21,67,"Preop_block","Preop_block","Preop_block",C,1,"$1.","","",utf-8
+s21,68,"Admit Source","Admit Source","Admit_Source",C,28,"$28.","","",utf-8
+s21,69,"Dischg Disposition","Dischg Disposition","Dischg_Disposition",C,28,"$28.","","",utf-8
+s21,70,"Death_Days_After_Surgery","Death_Days_After_Surgery","Death_Days_After_Surgery",C,6,"$6.","","",utf-8
+s21,71,"Death_Date Y/N","Death_Date Y/N","Death_Date_Y_N",C,1,"$1.","","",utf-8
+s21,72,"SSDI Death Date Y/N","SSDI Death Date Y/N","SSDI_Death_Date_Y_N",C,1,"$1.","","",utf-8
+s21,73,"Anesthesia Type","Anesthesia Type","Anesthesia_Type",C,33,"$33.","","",utf-8
+s21,74,"SleepApnea_YN","SleepApnea_YN","SleepApnea_YN",C,1,"$1.","","",utf-8
+s21,75,"Diabetes_YN","Diabetes_YN","Diabetes_YN",C,1,"$1.","","",utf-8
+s21,76,"Hyperlipidemia_YN","Hyperlipidemia_YN","Hyperlipidemia_YN",C,1,"$1.","","",utf-8
+s21,77,"Hypertension_YN","Hypertension_YN","Hypertension_YN",C,1,"$1.","","",utf-8
+s21,78,"MovementDisorder_YN","MovementDisorder_YN","MovementDisorder_YN",C,1,"$1.","","",utf-8
+s21,79,"CognitiveDisorder_YN","CognitiveDisorder_YN","CognitiveDisorder_YN",C,1,"$1.","","",utf-8
+s21,80,"Cognitive_Category","Cognitive_Category","Cognitive_Category",C,22,"$22.","","",utf-8
+s21,81,"Cognitive_Score","Cognitive_Score","Cognitive_Score",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,82,"Fraility_Category","Fraility_Category","Fraility_Category",C,24,"$24.","","",utf-8
+s21,83,"Fraility_Score","Fraility_Score","Fraility_Score",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,84,"Feels_Exausted","Feels_Exausted","Feels_Exausted",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,85,"Low_Physical_Activity","Low_Physical_Activity","Low_Physical_Activity",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,86,"Slow_Walking_Speed","Slow_Walking_Speed","Slow_Walking_Speed",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,87,"Unintended_Weight_Loss","Unintended_Weight_Loss","Unintended_Weight_Loss",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,88,"Week_Grip_Strength","Week_Grip_Strength","Week_Grip_Strength",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,89,"Braden Activity","Braden Activity","Braden_Activity",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,90,"Braden Mobility","Braden Mobility","Braden_Mobility",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,91,"Braden Sensory Perception","Braden Sensory Perception","Braden_Sensory_Perception",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,92,"Latitude","Latitude","Latitude",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,93,"Longitude","Longitude","Longitude",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s21,94,"ICU_LOS_TOTAL_TIME_HOURS","ICU_LOS_TOTAL_TIME_HOURS","ICU_LOS_TOTAL_TIME_HOURS",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",utf-8
+s22,1,"PRECEDE Study ID","PRECEDE Study ID","PRECEDE_Study_ID",C,22,"$22.","","forced to char -- ID column",wlatin1
+s22,2,"YEAR","YEAR","YEAR",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,3,"ENCRYPTED_MRN","ENCRYPTED_MRN","ENCRYPTED_MRN",C,45,"$45.","","forced to char -- ENCRYPTED col",wlatin1
+s22,4,"ENCRYPTED_ENCOUNTER","ENCRYPTED_ENCOUNTER","ENCRYPTED_ENCOUNTER",C,54,"$54.","","forced to char -- ENCRYPTED col",wlatin1
+s22,5,"rt_ANCHOR_to_ADMIT_days","rt_ANCHOR_to_ADMIT_days","rt_ANCHOR_to_ADMIT_days",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,6,"rt_ANCHOR_to_SURGERY_days","rt_ANCHOR_to_SURGERY_days","rt_ANCHOR_to_SURGERY_days",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,7,"rt_ANCHOR_to_DISCHG_days","rt_ANCHOR_to_DISCHG_days","rt_ANCHOR_to_DISCHG_days",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,8,"rt_ADMIT_to_AN_START_mins","rt_ADMIT_to_AN_START_mins","rt_ADMIT_to_AN_START_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,9,"rt_ADMIT_to_AN_END_mins","rt_ADMIT_to_AN_END_mins","rt_ADMIT_to_AN_END_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,10,"rt_ADMIT_to_BLOCK_START_mins","rt_ADMIT_to_BLOCK_START_mins","rt_ADMIT_to_BLOCK_START_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,11,"rt_ADMIT_to_BLOCK_END_mins","rt_ADMIT_to_BLOCK_END_mins","rt_ADMIT_to_BLOCK_END_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,12,"rt_ADMIT_to_RM_START_mins","rt_ADMIT_to_RM_START_mins","rt_ADMIT_to_RM_START_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,13,"rt_ADMIT_to_RM_END_mins","rt_ADMIT_to_RM_END_mins","rt_ADMIT_to_RM_END_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,14,"rt_ADMIT_to_INCISION_mins","rt_ADMIT_to_INCISION_mins","rt_ADMIT_to_INCISION_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,15,"rt_ADMIT_to_DRESS_mins","rt_ADMIT_to_DRESS_mins","rt_ADMIT_to_DRESS_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,16,"rt_INCISE_to_DRESS_mins","rt_INCISE_to_DRESS_mins","rt_INCISE_to_DRESS_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,17,"rt_RM_START_to_RM_END_mins","rt_RM_START_to_RM_END_mins","rt_RM_START_to_RM_END_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,18,"rt_RM_START_to_DRESS_mins","rt_RM_START_to_DRESS_mins","rt_RM_START_to_DRESS_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,19,"rt_RM_START_to_AN_START_mins","rt_RM_START_to_AN_START_mins","rt_RM_START_to_AN_START_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,20,"rt_RM_START_to_INCISION_mins","rt_RM_START_to_INCISION_mins","rt_RM_START_to_INCISION_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,21,"rt_AN_START_to_AN_END_mins","rt_AN_START_to_AN_END_mins","rt_AN_START_to_AN_END_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,22,"rt_BLOCK_START_TO_BLOCK_END_mins","rt_BLOCK_START_TO_BLOCK_END_mins","rt_BLOCK_START_TO_BLOCK_END_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,23,"rt_RM_START_to_INDUCTION_mins","rt_RM_START_to_INDUCTION_mins","rt_RM_START_to_INDUCTION_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,24,"rt_RM_START_to_EMERGENCE_mins","rt_RM_START_to_EMERGENCE_mins","rt_RM_START_to_EMERGENCE_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,25,"Day of Week (CHAR)","Day of Week (CHAR)","Day_of_Week__CHAR_",C,3,"$3.","","",wlatin1
+s22,26,"Day of Week (NUM)","Day of Week (NUM)","Day_of_Week__NUM_",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,27,"Holidays","Holidays","Holidays",C,1,"$1.","","",wlatin1
+s22,28,"Weekend_Indicator","Weekend_Indicator","Weekend_Indicator",C,1,"$1.","","",wlatin1
+s22,29,"Age at Encounter","Age at Encounter","Age_at_Encounter",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,30,"EmployeeCode","EmployeeCode","EmployeeCode",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,31,"EmployeeStatus","EmployeeStatus","EmployeeStatus",C,19,"$19.","","",wlatin1
+s22,32,"preop_edu_years","preop_edu_years","preop_edu_years",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,33,"Race","Race","Race",C,31,"$31.","","",wlatin1
+s22,34,"Ethnicity","Ethnicity","Ethnicity",C,15,"$15.","","",wlatin1
+s22,35,"Sex","Sex","Sex",C,6,"$6.","","",wlatin1
+s22,36,"Marital Status","Marital Status","Marital_Status",C,22,"$22.","","",wlatin1
+s22,37,"Admit BMI","Admit BMI","Admit_BMI",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,38,"Service","Service","Service",C,49,"$49.","","",wlatin1
+s22,39,"Room Type","Room Type","Room_Type",C,22,"$22.","","",wlatin1
+s22,40,"ASA (Anesth Record)","ASA (Anesth Record)","ASA__Anesth_Record_",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,41,"Emergent Y/N (Anesth Record)","Emergent Y/N (Anesth Record)","Emergent_Y_N__Anesth_Record_",C,1,"$1.","","",wlatin1
+s22,42,"Base Procedure 1","Base Procedure 1","Base_Procedure_1",C,198,"$198.","","",wlatin1
+s22,43,"Base Procedure Code 1","Base Procedure Code 1","Base_Procedure_Code_1",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,44,"CPT 1","CPT 1","CPT_1",C,6,"$6.","","",wlatin1
+s22,45,"CPT 1 Description","CPT 1 Description","CPT_1_Description",C,70,"$70.","","",wlatin1
+s22,46,"CPT1 Class","CPT1 Class","CPT1_Class",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,47,"CPT1 Label","CPT1 Label","CPT1_Label",C,96,"$96.","","",wlatin1
+s22,48,"Patient Type","Patient Type","Patient_Type",C,18,"$18.","","",wlatin1
+s22,49,"LOS","LOS","LOS",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,50,"LOS in Hours","LOS in Hours","LOS_in_Hours",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,51,"Payer","Payer","Payer",C,12,"$12.","","",wlatin1
+s22,52,"Charges","Charges","Charges",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,53,"ICD10 Principal Diagnosis","ICD10 Principal Diagnosis","ICD10_Principal_Diagnosis",C,7,"$7.","","",wlatin1
+s22,54,"ICD10 Principal Diagnosis POA","ICD10 Principal Diagnosis POA","ICD10_Principal_Diagnosis_POA",C,6,"$6.","","",wlatin1
+s22,55,"Charlson_Comorbidity_Index","Charlson_Comorbidity_Index","Charlson_Comorbidity_Index",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,56,"COMP10_T80","COMP10_T80","COMP10_T80",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,57,"COMP10_T81","COMP10_T81","COMP10_T81",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,58,"COMP10_T82","COMP10_T82","COMP10_T82",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,59,"COMP10_T83","COMP10_T83","COMP10_T83",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,60,"COMP10_T84","COMP10_T84","COMP10_T84",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,61,"COMP10_T85","COMP10_T85","COMP10_T85",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,62,"COMP10_T86","COMP10_T86","COMP10_T86",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,63,"COMP10_T87","COMP10_T87","COMP10_T87",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,64,"COMP10_T88","COMP10_T88","COMP10_T88",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,65,"complication_sum","complication_sum","complication_sum",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,66,"Intraop_Ketamine","Intraop_Ketamine","Intraop_Ketamine",C,1,"$1.","","",wlatin1
+s22,67,"Preop_block","Preop_block","Preop_block",C,1,"$1.","","",wlatin1
+s22,68,"Admit Source","Admit Source","Admit_Source",C,40,"$40.","","",wlatin1
+s22,69,"Dischg Disposition","Dischg Disposition","Dischg_Disposition",C,38,"$38.","","",wlatin1
+s22,70,"Death_Days_After_Surgery","Death_Days_After_Surgery","Death_Days_After_Surgery",C,6,"$6.","","",wlatin1
+s22,71,"Death_Date Y/N","Death_Date Y/N","Death_Date_Y_N",C,1,"$1.","","",wlatin1
+s22,72,"SSDI Death Date Y/N","SSDI Death Date Y/N","SSDI_Death_Date_Y_N",C,1,"$1.","","",wlatin1
+s22,73,"Anesthesia Type","Anesthesia Type","Anesthesia_Type",C,33,"$33.","","",wlatin1
+s22,74,"SleepApnea_YN","SleepApnea_YN","SleepApnea_YN",C,1,"$1.","","",wlatin1
+s22,75,"Diabetes_YN","Diabetes_YN","Diabetes_YN",C,1,"$1.","","",wlatin1
+s22,76,"Hyperlipidemia_YN","Hyperlipidemia_YN","Hyperlipidemia_YN",C,1,"$1.","","",wlatin1
+s22,77,"Hypertension_YN","Hypertension_YN","Hypertension_YN",C,1,"$1.","","",wlatin1
+s22,78,"MovementDisorder_YN","MovementDisorder_YN","MovementDisorder_YN",C,1,"$1.","","",wlatin1
+s22,79,"CognitiveDisorder_YN","CognitiveDisorder_YN","CognitiveDisorder_YN",C,1,"$1.","","",wlatin1
+s22,80,"Cognitive_Category","Cognitive_Category","Cognitive_Category",C,22,"$22.","","",wlatin1
+s22,81,"Cognitive_Score","Cognitive_Score","Cognitive_Score",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,82,"Fraility_Category","Fraility_Category","Fraility_Category",C,24,"$24.","","",wlatin1
+s22,83,"Fraility_Score","Fraility_Score","Fraility_Score",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,84,"Feels_Exausted","Feels_Exausted","Feels_Exausted",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,85,"Low_Physical_Activity","Low_Physical_Activity","Low_Physical_Activity",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,86,"Slow_Walking_Speed","Slow_Walking_Speed","Slow_Walking_Speed",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,87,"Unintended_Weight_Loss","Unintended_Weight_Loss","Unintended_Weight_Loss",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,88,"Week_Grip_Strength","Week_Grip_Strength","Week_Grip_Strength",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,89,"BRADEN_2024_OUT_Braden Activity","BRADEN_2024_OUT_Braden Activity","BRADEN_2024_OUT_Braden_Activity",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,90,"BRADEN_2024_OUT_Braden Mobility","BRADEN_2024_OUT_Braden Mobility","BRADEN_2024_OUT_Braden_Mobility",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,91,"BRADEN_2024_OUT_Braden Sensory Perception","BRADEN_2024_OUT_Braden Sensory Perception","BRADEN_2024_OUT_Braden_Sensory_P",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,92,"Latitude","Latitude","Latitude",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,93,"Longitude","Longitude","Longitude",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s22,94,"ICU_LOS_TOTAL_TIME_HOURS","ICU_LOS_TOTAL_TIME_HOURS","ICU_LOS_TOTAL_TIME_HOURS",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,1,"PRECEDE Study ID","PRECEDE Study ID","PRECEDE_Study_ID",C,22,"$22.","","forced to char -- ID column",wlatin1
+s23,2,"YEAR","YEAR","YEAR",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,3,"ENCRYPTED_MRN","ENCRYPTED_MRN","ENCRYPTED_MRN",C,45,"$45.","","forced to char -- ENCRYPTED col",wlatin1
+s23,4,"ENCRYPTED_ENCOUNTER","ENCRYPTED_ENCOUNTER","ENCRYPTED_ENCOUNTER",C,54,"$54.","","forced to char -- ENCRYPTED col",wlatin1
+s23,5,"rt_ANCHOR_to_ADMIT_days","rt_ANCHOR_to_ADMIT_days","rt_ANCHOR_to_ADMIT_days",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,6,"rt_ANCHOR_to_SURGERY_days","rt_ANCHOR_to_SURGERY_days","rt_ANCHOR_to_SURGERY_days",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,7,"rt_ANCHOR_to_DISCHG_days","rt_ANCHOR_to_DISCHG_days","rt_ANCHOR_to_DISCHG_days",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,8,"rt_ADMIT_to_AN_START_mins","rt_ADMIT_to_AN_START_mins","rt_ADMIT_to_AN_START_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,9,"rt_ADMIT_to_AN_END_mins","rt_ADMIT_to_AN_END_mins","rt_ADMIT_to_AN_END_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,10,"rt_ADMIT_to_BLOCK_START_mins","rt_ADMIT_to_BLOCK_START_mins","rt_ADMIT_to_BLOCK_START_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,11,"rt_ADMIT_to_BLOCK_END_mins","rt_ADMIT_to_BLOCK_END_mins","rt_ADMIT_to_BLOCK_END_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,12,"rt_ADMIT_to_RM_START_mins","rt_ADMIT_to_RM_START_mins","rt_ADMIT_to_RM_START_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,13,"rt_ADMIT_to_RM_END_mins","rt_ADMIT_to_RM_END_mins","rt_ADMIT_to_RM_END_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,14,"rt_ADMIT_to_INCISION_mins","rt_ADMIT_to_INCISION_mins","rt_ADMIT_to_INCISION_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,15,"rt_ADMIT_to_DRESS_mins","rt_ADMIT_to_DRESS_mins","rt_ADMIT_to_DRESS_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,16,"rt_INCISE_to_DRESS_mins","rt_INCISE_to_DRESS_mins","rt_INCISE_to_DRESS_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,17,"rt_RM_START_to_RM_END_mins","rt_RM_START_to_RM_END_mins","rt_RM_START_to_RM_END_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,18,"rt_RM_START_to_DRESS_mins","rt_RM_START_to_DRESS_mins","rt_RM_START_to_DRESS_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,19,"rt_RM_START_to_AN_START_mins","rt_RM_START_to_AN_START_mins","rt_RM_START_to_AN_START_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,20,"rt_RM_START_to_INCISION_mins","rt_RM_START_to_INCISION_mins","rt_RM_START_to_INCISION_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,21,"rt_AN_START_to_AN_END_mins","rt_AN_START_to_AN_END_mins","rt_AN_START_to_AN_END_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,22,"rt_BLOCK_START_TO_BLOCK_END_mins","rt_BLOCK_START_TO_BLOCK_END_mins","rt_BLOCK_START_TO_BLOCK_END_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,23,"rt_RM_START_to_INDUCTION_mins","rt_RM_START_to_INDUCTION_mins","rt_RM_START_to_INDUCTION_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,24,"rt_RM_START_to_EMERGENCE_mins","rt_RM_START_to_EMERGENCE_mins","rt_RM_START_to_EMERGENCE_mins",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,25,"Day of Week (CHAR)","Day of Week (CHAR)","Day_of_Week__CHAR_",C,3,"$3.","","",wlatin1
+s23,26,"Day of Week (NUM)","Day of Week (NUM)","Day_of_Week__NUM_",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,27,"Holidays","Holidays","Holidays",C,1,"$1.","","",wlatin1
+s23,28,"Weekend_Indicator","Weekend_Indicator","Weekend_Indicator",C,1,"$1.","","",wlatin1
+s23,29,"Age at Encounter","Age at Encounter","Age_at_Encounter",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,30,"EmployeeCode","EmployeeCode","EmployeeCode",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,31,"EmployeeStatus","EmployeeStatus","EmployeeStatus",C,19,"$19.","","",wlatin1
+s23,32,"preop_edu_years","preop_edu_years","preop_edu_years",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,33,"Race","Race","Race",C,31,"$31.","","",wlatin1
+s23,34,"Ethnicity","Ethnicity","Ethnicity",C,15,"$15.","","",wlatin1
+s23,35,"Sex","Sex","Sex",C,6,"$6.","","",wlatin1
+s23,36,"Marital Status","Marital Status","Marital_Status",C,22,"$22.","","",wlatin1
+s23,37,"Admit BMI","Admit BMI","Admit_BMI",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,38,"Service","Service","Service",C,32,"$32.","","",wlatin1
+s23,39,"Room Type","Room Type","Room_Type",C,22,"$22.","","",wlatin1
+s23,40,"ASA (Anesth Record)","ASA (Anesth Record)","ASA__Anesth_Record_",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,41,"Emergent Y/N (Anesth Record)","Emergent Y/N (Anesth Record)","Emergent_Y_N__Anesth_Record_",C,1,"$1.","","",wlatin1
+s23,42,"Base Procedure 1","Base Procedure 1","Base_Procedure_1",C,199,"$199.","","",wlatin1
+s23,43,"Base Procedure Code 1","Base Procedure Code 1","Base_Procedure_Code_1",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,44,"CPT 1","CPT 1","CPT_1",C,6,"$6.","","",wlatin1
+s23,45,"CPT 1 Description","CPT 1 Description","CPT_1_Description",C,70,"$70.","","",wlatin1
+s23,46,"CPT1 Class","CPT1 Class","CPT1_Class",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,47,"CPT1 Label","CPT1 Label","CPT1_Label",C,96,"$96.","","",wlatin1
+s23,48,"Patient Type","Patient Type","Patient_Type",C,18,"$18.","","",wlatin1
+s23,49,"LOS","LOS","LOS",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,50,"LOS in Hours","LOS in Hours","LOS_in_Hours",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,51,"Payer","Payer","Payer",C,12,"$12.","","",wlatin1
+s23,52,"Charges","Charges","Charges",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,53,"ICD10 Principal Diagnosis","ICD10 Principal Diagnosis","ICD10_Principal_Diagnosis",C,7,"$7.","","",wlatin1
+s23,54,"ICD10 Principal Diagnosis POA","ICD10 Principal Diagnosis POA","ICD10_Principal_Diagnosis_POA",C,6,"$6.","","",wlatin1
+s23,55,"Charlson_Comorbidity_Index","Charlson_Comorbidity_Index","Charlson_Comorbidity_Index",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,56,"COMP10_T80","COMP10_T80","COMP10_T80",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,57,"COMP10_T81","COMP10_T81","COMP10_T81",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,58,"COMP10_T82","COMP10_T82","COMP10_T82",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,59,"COMP10_T83","COMP10_T83","COMP10_T83",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,60,"COMP10_T84","COMP10_T84","COMP10_T84",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,61,"COMP10_T85","COMP10_T85","COMP10_T85",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,62,"COMP10_T86","COMP10_T86","COMP10_T86",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,63,"COMP10_T87","COMP10_T87","COMP10_T87",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,64,"COMP10_T88","COMP10_T88","COMP10_T88",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,65,"complication_sum","complication_sum","complication_sum",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,66,"Intraop_Ketamine","Intraop_Ketamine","Intraop_Ketamine",C,1,"$1.","","",wlatin1
+s23,67,"Preop_block","Preop_block","Preop_block",C,1,"$1.","","",wlatin1
+s23,68,"Admit Source","Admit Source","Admit_Source",C,40,"$40.","","",wlatin1
+s23,69,"Dischg Disposition","Dischg Disposition","Dischg_Disposition",C,29,"$29.","","",wlatin1
+s23,70,"Death_Days_After_Surgery","Death_Days_After_Surgery","Death_Days_After_Surgery",C,6,"$6.","","",wlatin1
+s23,71,"Death_Date Y/N","Death_Date Y/N","Death_Date_Y_N",C,1,"$1.","","",wlatin1
+s23,72,"SSDI Death Date Y/N","SSDI Death Date Y/N","SSDI_Death_Date_Y_N",C,1,"$1.","","",wlatin1
+s23,73,"Anesthesia Type","Anesthesia Type","Anesthesia_Type",C,33,"$33.","","",wlatin1
+s23,74,"SleepApnea_YN","SleepApnea_YN","SleepApnea_YN",C,1,"$1.","","",wlatin1
+s23,75,"Diabetes_YN","Diabetes_YN","Diabetes_YN",C,1,"$1.","","",wlatin1
+s23,76,"Hyperlipidemia_YN","Hyperlipidemia_YN","Hyperlipidemia_YN",C,1,"$1.","","",wlatin1
+s23,77,"Hypertension_YN","Hypertension_YN","Hypertension_YN",C,1,"$1.","","",wlatin1
+s23,78,"MovementDisorder_YN","MovementDisorder_YN","MovementDisorder_YN",C,1,"$1.","","",wlatin1
+s23,79,"CognitiveDisorder_YN","CognitiveDisorder_YN","CognitiveDisorder_YN",C,1,"$1.","","",wlatin1
+s23,80,"Cognitive_Category","Cognitive_Category","Cognitive_Category",C,22,"$22.","","",wlatin1
+s23,81,"Cognitive_Score","Cognitive_Score","Cognitive_Score",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,82,"Fraility_Category","Fraility_Category","Fraility_Category",C,24,"$24.","","",wlatin1
+s23,83,"Fraility_Score","Fraility_Score","Fraility_Score",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,84,"Feels_Exausted","Feels_Exausted","Feels_Exausted",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,85,"Low_Physical_Activity","Low_Physical_Activity","Low_Physical_Activity",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,86,"Slow_Walking_Speed","Slow_Walking_Speed","Slow_Walking_Speed",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,87,"Unintended_Weight_Loss","Unintended_Weight_Loss","Unintended_Weight_Loss",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,88,"Week_Grip_Strength","Week_Grip_Strength","Week_Grip_Strength",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,89,"BRADEN_2025_OUT_Braden Activity","BRADEN_2025_OUT_Braden Activity","BRADEN_2025_OUT_Braden_Activity",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,90,"BRADEN_2025_OUT_Braden Mobility","BRADEN_2025_OUT_Braden Mobility","BRADEN_2025_OUT_Braden_Mobility",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,91,"BRADEN_2025_OUT_Braden Sensory Perception","BRADEN_2025_OUT_Braden Sensory Perception","BRADEN_2025_OUT_Braden_Sensory_P",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,92,"Latitude","Latitude","Latitude",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,93,"Longitude","Longitude","Longitude",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
+s23,94,"ICU_LOS_TOTAL_TIME_HOURS","ICU_LOS_TOTAL_TIME_HOURS","ICU_LOS_TOTAL_TIME_HOURS",N,8,"best32.","","parse_fail_best32=0chosen_informat=best32.",wlatin1
