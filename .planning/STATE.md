@@ -154,3 +154,6 @@ These are QC findings from the Phase 5 live run that require Price's input befor
 
 ### Phase 15 progress (15-02, 2026-11-16)
 - 15-02 complete: `sas/15b_new_inventory_spec.sas` lint-clean (0 errors), 182 pytest pass. **PENDING SAS RUN** (15b, Gerard, after 15a approval); `docs/import_spec_new_generated.csv` is produced by that run and committed by Gerard. NEW-02, NEW-03 spec half written. State commands not used (v2.0 frontmatter kept).
+
+### Phase 15 progress (15-03, 2026-11-16)
+- 15-03 complete: `sas/15c_new_import.sas` lint-clean (0 errors), 192 pytest pass. **PENDING SAS RUN** (15c, Gerard, after 15b spec is committed). Gates (NEW-04 1:1, PDD-D-29 item 3 pairwise, old-source overlap) write QC first and stop at **PENDING DECISION** if triggered; no choice applied. Datasets named `pdd.nsrc_s21..s23` (A11). State commands not used (v2.0 frontmatter kept).

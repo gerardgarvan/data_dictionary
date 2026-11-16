@@ -141,7 +141,7 @@ Phases 8-13 (v1.x) stay gated and independent; v2.0 depends only on the complete
 Plans:
 - [x] 15-01-PLAN.md — docs/new_source_files.csv, header-variant seed (NEW-03a), sas/15a_new_source_guard.sas: 20-file check unchanged + approval-gated 3-file baseline (wave 1)
 - [x] 15-02-PLAN.md — sas/15b_new_inventory_spec.sas: header inventory + matrix (NEW-02), per-encoding pre-pass and docs/import_spec_new_generated.csv (NEW-03) (wave 2)
-- [ ] 15-03-PLAN.md — sas/15c_new_import.sas: import to pdd.nsrc_s21..s23 + norm_psid, reconcile, type changes, 1:1 gate (NEW-04), overlap + PDD-D-29 item 3 gate (NEW-05) (wave 3)
+- [x] 15-03-PLAN.md — sas/15c_new_import.sas: import to pdd.nsrc_s21..s23 + norm_psid, reconcile, type changes, 1:1 gate (NEW-04), overlap + PDD-D-29 item 3 gate (NEW-05) (wave 3) (written, PENDING SAS RUN)
 - [x] 15-04-PLAN.md — Python QC writer qc\new_source_intake.xlsx + exchange_schema rows + <11-masked summary (wave 1)
 - [ ] 15-05-PLAN.md — wire phase 15 into 99_run_all.sas and run_pipeline.cmd, run sheet 15-SAS-RUN.md, STATE markers, SAS-run checkpoint (wave 4)
 
