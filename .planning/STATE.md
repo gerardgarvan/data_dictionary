@@ -148,3 +148,6 @@ These are QC findings from the Phase 5 live run that require Price's input befor
 - Older copies exist at `P:\PeCAN Master Data\Gerard\raw\master` for hash comparison only.
 - Phase 2 finding: 148 distinct CSV headers (not 168); spine 41,150 rows confirmed.
 - `_bridge_analysis_2022` fix committed (a99c259): `work.src_s08_s1` resolved via sheet_map in `_diag_unmatched_ids`; hardcoded override retained in `_bridge_analysis_2022`.
+
+### Phase 15 progress (15-01, 2026-11-16)
+- 15-01 complete: `sas/15a_new_source_guard.sas` lint-clean, docs seeds committed. **PENDING SAS RUN** (15a, Gerard) and **PENDING DECISION** (approve new baseline via `PDD_APPROVE_NEW_BASELINE=1`). `gsd-tools state advance-plan` could not parse the v2.0 STATE format, so position was not auto-advanced.
