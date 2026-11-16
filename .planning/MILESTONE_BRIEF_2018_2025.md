@@ -11,9 +11,9 @@ Two deliverables, both covering surgical cases from 2018 through 2025:
 - **A. Data dictionary 2018–2025.** One row per variable. `PECAN_ID` is the patient-level key derived from the encrypted MRN. Every other source variable is named with the `PCNR_` prefix, listed alphabetically with distributions over all 2018–2025 cases.
 - **B. `PCNR_Master_Data_Nov_2026.xlsx`.** All of the 2018–2025 PCNR_ data in one Excel workbook.
 
-`PECAN_ID` is a rename of the existing `PCNR_ID`. Values, derivation and type stay the same. Only the name changes, and the name carries no `PCNR_` prefix.
+`PECAN_ID` is the existing master-merge `pecan_ID` (PDD-D-28), carried unchanged. The name carries no `PCNR_` prefix.
 
-**Encryption key change (confirmed by Gerard, 2026-11-16).** The 2023–2025 files encrypt MRNs with a different key from 2018–2022. The 2026-11-16 probe found 0 of the 2023–2025 encrypted MRNs in the 2018–2022 spine, and every new value is 5 characters longer. PECAN_IDs for 2023–2025 are therefore assigned separately per key, and stored in a registry built so that a later crosswalk or re-encryption can merge them without renumbering anything (see PID-01..07).
+**Encryption key change (confirmed by Gerard, 2026-11-16).** The 2023–2025 files encrypt MRNs with a different key from 2018–2022. The 2026-11-16 probe found 0 of the 2023–2025 encrypted MRNs in the 2018–2022 spine, and every new value is 5 characters longer. PECAN_IDs for 2023–2025 are therefore assigned separately per key, and stored in a registry built so that a later crosswalk or re-encryption can merge them without renumbering anything (see PID-01..08).
 
 New source files for 2023–2025 are in the same shared folder as the current 20 sources:
 `P:\PeCAN Master Data\00 Shared Data\DSS Received Data\1 Data Files\Master Data`
@@ -46,13 +46,14 @@ New source files for 2023–2025 are in the same shared folder as the current 20
 - **MAP-04** Year coverage per variable is recorded (first and last surgical year with any non-missing value, and which source files contribute).
 
 ### PECAN_ID (M4)
-- **PID-01** `PCNR_ID` is renamed to `PECAN_ID` in every dataset, program, label, dictionary row and doc. Values are unchanged (checksum before and after must match). The dictionary row notes "formerly PCNR_ID; derived from encrypted MRN".
+- **PID-01** PECAN_ID = master-merge `pecan_ID`, carried unchanged (PDD-D-28). No value changes; the dictionary row uses the PDD-D-28 wording.
 - **PID-02** Key eras: `K1` = 2018–2022 MRN encryption, `K2` = 2023–2025 MRN encryption. Every encrypted MRN is tagged with its key era. MRNs from different eras are never compared directly.
-- **PID-03** Persistent registry `pdd.pecan_id_registry` (on P:, never in git), append-only: `PECAN_ID`, `ENCRYPTED_MRN`, `KEY_ERA`, `ASSIGNED_RUN` (date), `LINKED_TO_PECAN_ID` (blank for now), `LINK_SOURCE` (blank), `STATUS` (ACTIVE / SUPERSEDED). It is seeded with the existing K1 IDs exactly as they are. Reruns look up the registry first: a known MRN keeps its ID, and only unseen MRNs get a new one. No ID is ever renumbered or reused.
-- **PID-04** K2 IDs come from a range or format that cannot collide with K1 IDs, chosen after reading how `PCNR_ID` is currently built (format recorded in docs/DECISIONS.md). Within K2, the assignment is deterministic, so the same inputs always produce the same IDs.
+- **PID-03** Persistent registry `pdd.pecan_id_registry` (on P:, never in git), append-only: `PECAN_ID` (num 8), `ENCRYPTED_MRN $64`, `KEY_ERA $2`, `ASSIGNED_RUN` (date), `SOURCE $32`, `LINKED_TO_PECAN_ID` (blank for now), `LINK_SOURCE $64` (blank), `STATUS $10` (ACTIVE / SUPERSEDED). Seeded once from `g.pecan_id_xwalk`, every row copied unchanged with `KEY_ERA='K1'`, `SOURCE='master_merge_xwalk'`. Seed checks: row count and sum of pecan_ID match the source; pecan_ID unique; ENCRYPTED_MRN unique; seeded MRN set equals the distinct non-blank, non-NULL MRNs of the 2018-2022 spine (abort with counts on any difference). Reruns look up the registry on (ENCRYPTED_MRN, KEY_ERA) first: a known MRN keeps its ID, only unseen MRNs get a new one. No ID is ever renumbered or reused. Every registry change writes a dated backup under the PDD output root on P:; abort if the registry differs from its latest backup before an append.
+- **PID-04** K2 IDs: numeric `PECAN_ID = 1000000 + rank`, rank by smallest numeric PRECEDE study number per MRN with MRN as tie-breaker (same rule as K1) over the 2023-2025 files. Append-only: re-runs keep existing IDs; new K2 MRNs get `max(K2 PECAN_ID) + n`. Deterministic for the same inputs (PDD-D-28).
 - **PID-05** The combined dataset carries `PECAN_ID` and `PECAN_ID_KEY_ERA`. The dictionary and the master workbook's KEY sheet state plainly that patients with surgeries in both eras currently have two PECAN_IDs, so patient counts across 2018–2025 are overestimates until the IDs are linked.
 - **PID-06** A linkage program (`sas/pecan_id_link.sas`) is written and tested but not run. Given a crosswalk (K2 encrypted MRN → K1 encrypted MRN, or both eras re-encrypted under one key), it fills `LINKED_TO_PECAN_ID` and `LINK_SOURCE`, marks matched K2 IDs as SUPERSEDED, and rebuilds the dataset so linked patients carry their K1 PECAN_ID. A QC report lists every ID that changes. Running it later is the whole "revisit".
 - **PID-07** Cases-per-patient summary (PECAN_ID vs PRECEDE_STUDY_ID) for each era, plus the same summary combined with the caveat from PID-05.
+- **PID-08** Phase 17 reads `g.pecan_id_xwalk` read-only through a libname defined in `sas/00_config.sas` (new macro variable for the master-merge g path); no PDD program writes to that library.
 
 ### Combined dataset and dictionary 2018–2025 (M5)
 - **DD-01** One combined case-level PCNR_ dataset for 2018–2025 in the `pdd` library on P: (never in git), with PECAN_ID and PRECEDE_STUDY_ID first.
