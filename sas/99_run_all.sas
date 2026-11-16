@@ -12,6 +12,7 @@
     Phase 5  05_build_pcnr.sas      -- assemble PCNR_ on the spine
     Phase 6  06_profile.sas         -- %pdd_profile distribution engine
     Phase 7  07_dictionary_xlsx.sas -- workbook writer
+    Phase 15 15a/15b/15c            -- new-source intake 2023-2025 (v2.0)
 
   Usage (batch -- canonical):
     run_pipeline.cmd  (at repo root)
@@ -242,7 +243,7 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
 
 %macro _validate_phases;
   %local _valid _i _tok;
-  %let _valid = 2 3 4 5 6 7;
+  %let _valid = 2 3 4 5 6 7 15;
   %if %length(%superq(pdd_phases_run)) = 0 %then %do;
     %put ERROR: [99_run_all] PDD_PHASES is empty -- cannot run pipeline;
     %abort cancel;
@@ -396,6 +397,27 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
   %end;
   %else
     %put NOTE: [99_run_all] Phase 7 skipped (not in PDD_PHASES=&pdd_phases_run);
+
+  /* =========================================================================
+     PHASE 15 -- New-source intake 2023-2025 (v2.0 M2)
+     ========================================================================= */
+  %_check_pipeline_ok(phase=15);
+  %if %_phase_in(15) %then %do;
+    %let _ts = %sysfunc(datetime(), datetime20.);
+    %put NOTE: [timing] phase 15 start &_ts;
+    %put NOTE: ---- Phase 15: New-source intake 2023-2025 --------------------;
+    %include "&sas_path.\15a_new_source_guard.sas";
+    %_check_pipeline_ok(phase=15);
+    %include "&sas_path.\15b_new_inventory_spec.sas";
+    %_check_pipeline_ok(phase=15);
+    %include "&sas_path.\15c_new_import.sas";
+    %put NOTE: ---- Phase 15 SAS orchestrator complete -------------------;
+    %let pdd_phases_done = &pdd_phases_done 15;
+    %let _ts = %sysfunc(datetime(), datetime20.);
+    %put NOTE: [timing] phase 15 end &_ts;
+  %end;
+  %else
+    %put NOTE: [99_run_all] Phase 15 skipped (not in PDD_PHASES=&pdd_phases_run);
 
 %mend _run_phases;
 %_run_phases;

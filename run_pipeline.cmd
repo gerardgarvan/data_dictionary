@@ -13,6 +13,7 @@ REM
 REM  Usage: run_pipeline.cmd           (full run, phases 2 3)
 REM         run_pipeline.cmd 3         (dev: phase 3 only, requires prior full run)
 REM         run_pipeline.cmd 2 3       (explicit: space-separated, no quotes needed)
+REM         run_pipeline.cmd 15        (v2.0 new-source intake; needs a prior v1.0 run)
 REM  Log:   %LOGS_PATH%\99_run_all.log  (master log with per-program summary)
 REM
 REM  Machine override: create config.local.cmd at repo root to set SAS_EXE.
@@ -151,6 +152,24 @@ if !ERRORLEVEL! EQU 0 (
   echo Phase 7 Python complete.
 ) else (
   echo Phase 7 Python skipped -- phase 7 not in PDD_PHASES
+)
+
+REM ---- Phase 15 Python: write new_source_intake.xlsx (only when phase 15 requested) ----
+echo %PDD_PHASES% | findstr /i "\<15\>" >nul 2>&1
+if !ERRORLEVEL! EQU 0 (
+  echo Phase 15 Python: writing new_source_intake.xlsx
+  set _P15_EXCHANGE=P:\PeCAN Master Data\Gerard\data_dictionary\exchange
+  set _P15_QC=P:\PeCAN Master Data\Gerard\data_dictionary\qc
+  echo === run %DATE% %TIME% === > "%LOGS_PATH%\write_new_source_qc_console.txt"
+  "%PDD_PYTHON%" "%~dp0python\scripts\write_new_source_qc.py" --exchange "!_P15_EXCHANGE!" --qc "!_P15_QC!" --logs "%LOGS_PATH%" --docs "%~dp0docs" >> "%LOGS_PATH%\write_new_source_qc_console.txt" 2>&1
+  if !ERRORLEVEL! NEQ 0 (
+    echo Phase 15 Python FAILED -- see logs\write_new_source_qc_console.txt
+    echo Phase 15 Python FAILED >> "%MASTER_LOG%"
+    goto :fail
+  )
+  echo Phase 15 Python complete.
+) else (
+  echo Phase 15 Python skipped -- phase 15 not in PDD_PHASES
 )
 
 REM ---- Scan master log for ERROR lines ----
