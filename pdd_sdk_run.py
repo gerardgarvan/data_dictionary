@@ -7,7 +7,7 @@ Usage (PowerShell, repo root C:\\data_dictionary, branch other than main/master)
     $env:ANTHROPIC_API_KEY = "sk-ant-..."
     python pdd_sdk_run.py sdk_test "Reply with the single word OK" --max-turns 1
     python pdd_sdk_run.py M_new "/gsd:new-milestone" --prompt-file .planning/prompts/new_milestone_headless.md
-    python pdd_sdk_run.py plan_M1 "/gsd:plan-phase 14"
+    python pdd_sdk_run.py plan_M1 "/gsd:plan-phase 12"
     python pdd_sdk_run.py ledger            # show spend so far
 
 Safety:
@@ -60,6 +60,8 @@ RULES = """HEADLESS RUN RULES (PeCAN Data Dictionary, milestone PCNR_ 2018-2025 
 - Follow the SAS pitfalls list in CLAUDE.md for every program you write.
 - Commit to the current branch with clear messages. NEVER git push, never switch branches,
   never rewrite history.
+- Run every subagent (Agent/Task tool) in the FOREGROUND (run_in_background: false) and wait
+  for its result before ending your turn. Never end the step while a subagent is still running.
 """
 
 
@@ -117,6 +119,8 @@ async def run(name: str, prompt: str, max_turns: int, step_budget: float, model:
         system_prompt={"type": "preset", "preset": "claude_code", "append": RULES},
         setting_sources=["user", "project", "local"],  # loads CLAUDE.md and the GSD commands
         model=model,
+        # Headless runs otherwise stop background subagents 10 minutes after the last turn.
+        env={"CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS": "0"},
     )
     result: ResultMessage | None = None
     print(f"=== {name} started {dt.datetime.now():%H:%M} (step budget ${step_budget:.2f}) ===")
@@ -147,7 +151,7 @@ async def run(name: str, prompt: str, max_turns: int, step_budget: float, model:
         return 1
     print(f"{name}: is_error={result.is_error} subtype={result.subtype} turns={result.num_turns} "
           f"cost=${(result.total_cost_usd or 0):.2f}  total logged=${ledger_total():.2f}")
-    print((result.result or "")[:2000])
+    print(result.result or "")
     return 1 if result.is_error else 0
 
 
