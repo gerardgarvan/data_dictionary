@@ -96,3 +96,55 @@ def test_new_baseline_if_present():
     assert [r["s_code"] for r in rows] == ["s21", "s22", "s23"]
     assert [r["filename"] for r in rows] == [r["filename"] for r in files]
     assert all(re.fullmatch(r"[0-9a-f]{64}", r["sha256"]) for r in rows)
+
+
+# ---------------------------------------------------------------------------
+# sas/15a_new_source_guard.sas (static; SAS cannot run here)
+# ---------------------------------------------------------------------------
+SAS15A = ROOT / "sas" / "15a_new_source_guard.sas"
+
+
+def _sas():
+    return SAS15A.read_text(encoding="utf-8")
+
+
+def test_15a_lint_clean():
+    import subprocess
+    import sys
+    r = subprocess.run([sys.executable, "tools/sas_lint.py", "sas/15a_new_source_guard.sas"],
+                       cwd=ROOT, capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "no errors" in r.stdout + r.stderr
+
+
+def test_15a_approval_gate():
+    t = _sas()
+    for s in ("envlen(PDD_APPROVE_NEW_BASELINE)", "source_guard_baseline_new.csv",
+              "new_source_hashes_proposed.csv", "new_source_guard.csv",
+              "PENDING DECISION"):
+        assert s in t, s
+
+
+def test_15a_never_writes_old_baseline():
+    t = _sas()
+    assert not re.search(r'file\s+"[^"]*source_guard_baseline\.csv"', t, re.I)
+    assert not re.search(r"fdelete", t, re.I)
+
+
+def test_15a_no_write_to_shared_folder():
+    for line in _sas().splitlines():
+        if line.strip().lower().startswith("file "):
+            assert "&raw_master" not in line
+
+
+def test_15a_forbidden_patterns():
+    t = _sas()
+    assert not re.search(r"%let\s+syscc\s*=\s*0", t, re.I)
+    assert not re.search(r"call\s+execute", t, re.I)
+    assert not re.search(r"proc\s+print", t, re.I)
+
+
+def test_15a_counts():
+    t = _sas()
+    assert "ne 20" in t
+    assert "ne 3" in t
