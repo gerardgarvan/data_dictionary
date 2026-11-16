@@ -62,3 +62,9 @@ exchange/
 
 # Headless Agent SDK runs (pdd_sdk_run.py): step transcripts and cost ledger, local only
 logs/
+
+# Phase 15 new-source metadata, no PHI -- plan 15-01
+!docs/new_source_files.csv
+!docs/new_source_header_variants.csv
+!docs/source_guard_baseline_new.csv
+!docs/import_spec_new_generated.csv

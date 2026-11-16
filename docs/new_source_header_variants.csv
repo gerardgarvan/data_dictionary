@@ -1,0 +1,17 @@
+file_codes,new_header,new_type,older_header,older_source_codes,older_type,variant_kind,note,status
+s22,BRADEN_2024_OUT_Braden Activity,Num,Braden Activity,s09;s15;s21,Num,year_prefix,s17 header is Braden_Activity form (underscore),PENDING DECISION
+s22,BRADEN_2024_OUT_Braden Mobility,Num,Braden Mobility,s09;s15;s21,Num,year_prefix,s17 header is Braden_Mobility form (underscore),PENDING DECISION
+s22,BRADEN_2024_OUT_Braden Sensory P,Num,Braden Sensory Perception,s09;s15;s21,Num,year_prefix,s17 header is Braden_Sensory_Perception form (underscore); probe cuts header at 32 chars; full header from 15b header_inventory_new (PENDING SAS RUN),PENDING DECISION
+s23,BRADEN_2025_OUT_Braden Activity,Num,Braden Activity,s09;s15;s21,Num,year_prefix,s17 header is Braden_Activity form (underscore),PENDING DECISION
+s23,BRADEN_2025_OUT_Braden Mobility,Num,Braden Mobility,s09;s15;s21,Num,year_prefix,s17 header is Braden_Mobility form (underscore),PENDING DECISION
+s23,BRADEN_2025_OUT_Braden Sensory P,Num,Braden Sensory Perception,s09;s15;s21,Num,year_prefix,s17 header is Braden_Sensory_Perception form (underscore); probe cuts header at 32 chars; full header from 15b header_inventory_new (PENDING SAS RUN),PENDING DECISION
+s21;s22;s23,Fraility_Score,Num,Frailty_Score,s06;s09;s10;s12;s15;s17;s19,Num (s19 Char 4),spelling,,PENDING DECISION
+s21;s22;s23,Fraility_Category,Char,Frailty_Category,s09;s10;s12;s15;s17;s19,Char,spelling,,PENDING DECISION
+s21;s22;s23,SleepApnea_YN,Char,Sleep_Apnea_YN,s03;s06;s07;s09,Char,underscore,s10;s12 use Sleep_Apnea,PENDING DECISION
+s21;s22;s23,preop_edu_years,Num,Education,s03;s06;s07;s09;s10;s12;s13;s16;s19,Char,rename_and_type,type change Num vs Char 19; goes to map review,PENDING DECISION
+s21;s22;s23,Feels_Exausted,Num,Feels_Exausted_Value,s09;s12,Num,suffix_and_type,same name is Char in s14;s15 (len 1) and s17 (len 3); type change goes to map review,PENDING DECISION
+s21;s22;s23,Low_Physical_Activity,Num,Low_Physical_Activity_Value,s09;s12,Num,suffix_and_type,same name is Char in s14;s15 (len 1) and s17 (len 3); type change goes to map review,PENDING DECISION
+s21;s22;s23,Slow_Walking_Speed,Num,Slow_Walking_Speed_Value,s09;s12,Num,suffix_and_type,same name is Char in s14;s15 (len 1) and s17 (len 3); type change goes to map review,PENDING DECISION
+s21;s22;s23,Unintended_Weight_Loss,Num,Unintended_Weight_Loss_Value,s09;s12,Num,suffix_and_type,same name is Char in s14;s15 (len 1) and s17 (len 3); type change goes to map review,PENDING DECISION
+s21;s22;s23,Week_Grip_Strength,Num,Week_Grip_Strength_Value,s09;s12,Num,suffix_and_type,same name is Char in s14;s15 (len 1) and s17 (len 3); type change goes to map review,PENDING DECISION
+s21;s22;s23,Death_Days_After_Surgery,Char,Death_Days_After_Surgery,s06;s09;s10;s12;s15;s17,Num,type_change,,PENDING DECISION

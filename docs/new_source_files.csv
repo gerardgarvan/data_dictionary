@@ -1,0 +1,4 @@
+s_code,filename,ftype,src_encoding,expected_rows,expected_cols,expected_distinct_psid
+s21,2023_X_MASTER_DATASET_20261016.csv,csv,utf-8,10772,94,10772
+s22,2024_X_MASTER_DATASET_20261016.csv,csv,wlatin1,13029,94,13029
+s23,2025_X_MASTER_DATASET_20261016.csv,csv,wlatin1,12689,94,12689
