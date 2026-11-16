@@ -136,7 +136,14 @@ Phases 8-13 (v1.x) stay gated and independent; v2.0 depends only on the complete
   4. Header variants (Braden columns by year, `Fraility_Score`, `SleepApnea_YN`, `Preop_Edu_Years`) are mapped, not renamed at source; type changes (`Death_Days_After_Surgery`, five frailty components) go to the map review.
   5. Each new file is checked 1:1 per case; any non-1:1 file stops at a decision gate.
   6. Era-overlap counts and conflicting shared-column values are reported to QC; the probe found 0 overlap with the spine, so PDD-D-25 (precedence) is CLOSED - NOT NEEDED. **Gate (PDD-D-29 item 3):** also count normalized case IDs shared between each pair of the 2023, 2024 and 2025 files; if any are shared, stop at a decision gate (do not stack) and list the counts per pair.
-- **Plans:** TBD
+- **Plans:** 5 plans (written headless 2026-11-16; execution ends PENDING SAS RUN, baseline approval PENDING DECISION)
+
+Plans:
+- [ ] 15-01-PLAN.md — docs/new_source_files.csv, header-variant seed (NEW-03a), sas/15a_new_source_guard.sas: 20-file check unchanged + approval-gated 3-file baseline (wave 1)
+- [ ] 15-02-PLAN.md — sas/15b_new_inventory_spec.sas: header inventory + matrix (NEW-02), per-encoding pre-pass and docs/import_spec_new_generated.csv (NEW-03) (wave 2)
+- [ ] 15-03-PLAN.md — sas/15c_new_import.sas: import to pdd.nsrc_s21..s23 + norm_psid, reconcile, type changes, 1:1 gate (NEW-04), overlap + PDD-D-29 item 3 gate (NEW-05) (wave 3)
+- [ ] 15-04-PLAN.md — Python QC writer qc\new_source_intake.xlsx + exchange_schema rows + <11-masked summary (wave 1)
+- [ ] 15-05-PLAN.md — wire phase 15 into 99_run_all.sas and run_pipeline.cmd, run sheet 15-SAS-RUN.md, STATE markers, SAS-run checkpoint (wave 4)
 
 ### Phase 16 (M3): Name map extension
 - **Goal:** Map new headers to PCNR_ names under the Phase 4 rules and record year coverage per variable.
