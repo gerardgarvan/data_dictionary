@@ -1,21 +1,23 @@
 # PeCAN Data Dictionary (PDD)
 
 ## Current milestone: v2.0 PCNR_ 2018-2025, PECAN_ID, PCNR_Master_Data_Nov_2026
-Started 2026-11-16 (brief: `.planning/MILESTONE_BRIEF_2018_2025.md`; phases 14-19). v1.0 (Phases 1-7) is complete; its requirements are archived in `.planning/milestones/v1.0-REQUIREMENTS.md`.
+Started 2026-11-16 (brief: `.planning/MILESTONE_BRIEF_2018_2025.md`, revised in 52f6ad9; phases 14-19 = M1-M6). v1.0 (Phases 1-7) is complete; its requirements are archived in `.planning/milestones/v1.0-REQUIREMENTS.md`.
 
 **Scope**
 - A. Data dictionary for surgical cases 2018-2025: `PECAN_ID` first, then `PCNR_` variables alphabetical, distributions over all 2018-2025 cases, year coverage and source columns per variable.
 - B. `PCNR_Master_Data_Nov_2026.xlsx`: all 2018-2025 PCNR_ data in one workbook (KEY leftmost, DATA).
-- New 2023-2025 source files from the same shared Master Data folder (read-only), mapped onto the existing PCNR_ names; `PECAN_ID` as the patient-level key (see PDD-D-28: the brief calls it a rename of `PCNR_ID`, which does not exist in this repo).
-- Method: probe first (`sas/probe_inputs.sas` -> `.planning/schemas/probe_*.md`), headless steps via `pdd_sdk_run.py`, SAS runs and decisions marked PENDING for Gerard.
+- New 2023-2025 source files from the same shared Master Data folder (read-only), mapped onto the existing PCNR_ names.
+- `PECAN_ID`: patient-level key derived from the encrypted MRN. The 2023-2025 files use a different MRN encryption key (K2) than 2018-2022 (K1), so IDs are assigned per key era through an append-only registry (`pdd.pecan_id_registry`, on P:), with linkage deferred to `sas/pecan_id_link.sas` (PDD-D-26, DECIDED). Until linked, patients with surgeries in both eras have two PECAN_IDs and cross-era patient counts are overestimates.
+- Method: probe first (`sas/probe_inputs.sas` -> `.planning/schemas/probe_*.md`; none committed yet), headless steps via `pdd_sdk_run.py`, SAS runs and decisions marked PENDING for Gerard.
 
 **Out of scope**
 - PCNC_, PCND_, CLK_, LAB_, MED_, INTRA_ families (v1.x Phases 8-13, still gated)
 - Recoding placeholders to missing (PCNR_ keeps source values, PDD-D-02)
-- Changing locked decisions PDD-D-01..24
+- Changing locked decisions (brief: PDD-D-01..23; repo locks through D-24)
 - Any write to the shared source folder
+- Running the linkage program (written and tested only)
 
-**Open v2.0 decisions:** PDD-D-25 (era precedence), PDD-D-26 (MRN linkage failure), PDD-D-27 (dictionary sheet in master xlsx), PDD-D-28 (PECAN_ID definition), all in `docs/DECISIONS.md`. Price's naming sign-off is still required before release.
+**v2.0 decisions** (`docs/DECISIONS.md`): PDD-D-26 DECIDED (separate K2 IDs, deferred linkage). OPEN: PDD-D-25 (era precedence), PDD-D-27 (dictionary sheet in master xlsx), PDD-D-28 (PECAN_ID vs the missing `PCNR_ID`), PDD-D-29 (5-digit ID rule for 2023-2025). Price's naming sign-off is still required before release.
 
 Note: the sections below describe v1.0 as built (20 sources, 41,150-row spine). Its Open decisions table is partly stale (PDD-D-15, 16, 18 are closed per STATE.md).
 

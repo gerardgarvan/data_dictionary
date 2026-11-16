@@ -26,12 +26,13 @@ progress:
 | 18 | M5 | Combined dataset and dictionary 2018-2025 | Blocked on 15-17 |
 | 19 | M6 | Master Excel export | Blocked on 18 |
 
-Open v2.0 decisions (PENDING DECISION, defaults not applied; see `docs/DECISIONS.md`): PDD-D-25 era precedence; PDD-D-26 MRN linkage failure; PDD-D-27 dictionary sheet in master xlsx; PDD-D-28 what PECAN_ID is (no `PCNR_ID` exists in the repo). Price naming sign-off still pending.
+Decisions (`docs/DECISIONS.md`): PDD-D-26 DECIDED (separate K2 PECAN_IDs via append-only registry, linkage deferred). PENDING DECISION, defaults not applied: PDD-D-25 era precedence; PDD-D-27 dictionary sheet in master xlsx; PDD-D-28 what PECAN_ID is (no `PCNR_ID` exists in the repo); PDD-D-29 5-digit case-ID rule for 2023-2025. Price naming sign-off still pending.
 
 ### Assumptions (headless run)
-- v1.0 treated as closed: audit PASSED 2026-10-27, all 7 phases complete, Gerard reviewed pdd_v1_0.xlsx. The v1.0 sections below are stale (Phase 7 shows "Not started"; 07-01..07-03 are complete), and `/gsd:complete-milestone` was never run. Only REQUIREMENTS.md was archived.
-- No `.planning/schemas/probe_*.md` exists yet, so no fact about new files was used.
-- `docs/DECISIONS.md` did not exist and was created; D-24 was already used, so new decisions start at PDD-D-25.
+- Milestone re-registered 2026-11-16 against the revised brief (52f6ad9); the first registration (73881aa) used the older brief. PDD numbers 25-28 were kept; PDD-D-26 changed to DECIDED; PDD-D-29 added for new-4.
+- v1.0 treated as closed: audit PASSED 2026-10-27, all 7 phases complete, Gerard reviewed pdd_v1_0.xlsx. REQUIREMENTS.md was already archived to `milestones/v1.0-REQUIREMENTS.md` (not re-archived). The v1.0 sections below are stale (Phase 7 shows "Not started"; 07-01..07-03 are complete) and `/gsd:complete-milestone` was never run.
+- No `.planning/schemas/probe_*.md` is committed. Probe findings quoted in the brief (0 K2 MRNs in the K1 spine, K2 values 5 characters longer, wlatin1 for 2024/2025, 0 overlap for 2022 5-digit IDs) are recorded as brief-asserted, unverified.
+- `CLAUDE_md_addition.md` no longer exists: its content was merged into CLAUDE.md in 73881aa. CLAUDE.md already contains the probe-first, headless and SAS-pitfall sections, so it was not changed.
 
 ---
 

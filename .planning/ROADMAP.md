@@ -108,7 +108,7 @@ Plans:
  (completed 2026-10-27)
 
 ## Milestone v2.0: PCNR_ 2018-2025, PECAN_ID, PCNR_Master_Data_Nov_2026
-Two deliverables covering surgical cases 2018-2025: (A) a data dictionary with `PECAN_ID` first and `PCNR_` variables alphabetical with distributions, (B) `PCNR_Master_Data_Nov_2026.xlsx`. Source brief: `.planning/MILESTONE_BRIEF_2018_2025.md`. Requirements: `.planning/REQUIREMENTS.md`. Phases M1-M6 are numbered 14-19 (continuing after Phase 13). **M1 must finish (first probe committed) before Phases 15-19 can be planned.** Open decisions PDD-D-25..28 are in `docs/DECISIONS.md`.
+Two deliverables covering surgical cases 2018-2025: (A) a data dictionary with `PECAN_ID` first and `PCNR_` variables alphabetical with distributions, (B) `PCNR_Master_Data_Nov_2026.xlsx`. Source brief: `.planning/MILESTONE_BRIEF_2018_2025.md` (revised 52f6ad9). Requirements: `.planning/REQUIREMENTS.md`. Phases M1-M6 are numbered 14-19 (continuing after Phase 13). **M1 must finish (first probe committed) before Phases 15-19 can be planned.** Decisions PDD-D-25..29 are in `docs/DECISIONS.md` (PDD-D-26 DECIDED; others OPEN).
 
 Phases 8-13 (v1.x) stay gated and independent; v2.0 depends only on the completed v1.0 (Phases 1-7).
 
@@ -116,25 +116,26 @@ Phases 8-13 (v1.x) stay gated and independent; v2.0 depends only on the complete
 - **Goal:** Make facts about the old and new source files available to the Claude Code machine, and make headless runs safe.
 - **Depends on:** Phase 7 (v1.0 complete)
 - **Requirements:** PRB-01, PRB-02, PRB-03, RUN-01
-- **Status:** `sas/probe_inputs.sas`, `pdd_sdk_run.py` and the CLAUDE.md headless rules are already in the repo (commit 7e79d79 and the v2.0 milestone commit); the probe has not been run. **PENDING SAS RUN.**
+- **Status:** `sas/probe_inputs.sas` (fixed in 27aeb9d), `pdd_sdk_run.py` and the CLAUDE.md rules are in the repo. No `.planning/schemas/probe_*.md` is committed. **PENDING SAS RUN.**
 - **Success criteria:**
   1. `sas/probe_inputs.sas` passes `python tools\sas_lint.py` and `sasjs lint` with zero errors.
-  2. Gerard's first run writes `.planning/schemas/probe_master_data_<yyyymmdd>.md` listing every file and sheet (the 20 existing and all new 2023-2025 files) with the PRB-01 fields, counts 1-10 shown as `<11`, no data values; it is committed.
-  3. The probe reports ID-like columns (shapes, 1:1 check, spine overlap) so PDD-D-28 can be decided; it shows whether any PCNR_ID column exists.
+  2. Gerard's run writes `.planning/schemas/probe_master_data_<yyyymmdd>.md` listing every file and sheet (the 20 existing and every new 2023-2025 file) with the PRB-01 fields, counts 1-10 shown as `<11`, no data values; it is committed.
+  3. The probe reports ID-like columns (shapes, 1:1 check, overlap with spine case IDs and encrypted MRNs), so the brief's key-change findings (0 K2 MRNs in the K1 spine, K2 values 5 characters longer) are confirmed from a committed file, and PDD-D-28 and PDD-D-29 can be decided.
   4. `pdd_sdk_run.py` refuses main/master and dirty trees, logs cost per step to `logs/api_runs/`, and refuses new steps at the cap (verified by `sdk_test`).
-  5. CLAUDE.md contains the probe-first and headless rules and the SAS pitfalls list.
+  5. CLAUDE.md contains the probe-first and headless rules and the SAS pitfalls list (already true).
 - **Plans:** TBD (plan-phase may run now; it ends in PENDING SAS RUN)
 
 ### Phase 15 (M2): New-source intake
 - **Goal:** Guard, inventory, import and check the new 2023-2025 files without disturbing the 20 existing ones.
 - **Depends on:** Phase 14 (probe committed)
-- **Requirements:** NEW-01, NEW-02, NEW-03, NEW-04, NEW-05
+- **Requirements:** NEW-01, NEW-02, NEW-03, NEW-03a, NEW-04, NEW-05
 - **Success criteria:**
-  1. The existing 20-file SHA-256 baseline matches unchanged; new files have their own baseline entries added by an explicit approved step (not a silent re-baseline).
+  1. The existing 20-file SHA-256 baseline matches unchanged; new files get their own baseline entries by an explicit approved step, not a silent re-baseline.
   2. Header inventory covers the same file x header matrix for the new files.
-  3. New files import with explicit informats/lengths, IDs/codes as character, `encoding='wlatin1'` where the probe flags non-UTF-8 (D-23), and `Precede#####` normalization where the probe shows 5-digit IDs (D-19); row counts reconcile to the probe.
-  4. Each new file is checked 1:1 per case; any non-1:1 file stops at a decision gate.
-  5. Era-overlap counts and conflicting shared-column values are reported to QC; precedence follows PDD-D-25 (OPEN, default earlier-spine-wins) and is not applied until Gerard decides.
+  3. New files import with explicit informats/lengths, IDs/codes as character, `encoding='wlatin1'` for the files the probe flags (brief: 2024 and 2025; 2023 is UTF-8) per D-23; 5-digit case ID handling follows PDD-D-29 (OPEN); row counts reconcile to the probe.
+  4. Header variants (Braden columns by year, `Fraility_Score`, `SleepApnea_YN`, `Preop_Edu_Years`) are mapped, not renamed at source; type changes (`Death_Days_After_Surgery`, five frailty components) go to the map review.
+  5. Each new file is checked 1:1 per case; any non-1:1 file stops at a decision gate.
+  6. Era-overlap counts and conflicting shared-column values are reported to QC; precedence follows PDD-D-25 (OPEN, default earlier-spine-wins) and is not applied until Gerard decides.
 - **Plans:** TBD
 
 ### Phase 16 (M3): Name map extension
@@ -150,15 +151,16 @@ Phases 8-13 (v1.x) stay gated and independent; v2.0 depends only on the complete
 - **Plans:** TBD
 
 ### Phase 17 (M4): PECAN_ID
-- **Goal:** Provide `PECAN_ID` for all 2018-2025 cases and show it links patients across eras.
-- **Depends on:** Phase 15, and PDD-D-28 (what PECAN_ID is) settled
-- **Requirements:** PID-01, PID-02, PID-03, PID-04
+- **Goal:** Give every 2018-2025 case a `PECAN_ID` through an append-only, key-era-aware registry, and ship a tested linkage program for later.
+- **Depends on:** Phase 15, and PDD-D-28 (what PECAN_ID is; there is no `PCNR_ID` in the repo) settled. PDD-D-26 is already DECIDED.
+- **Requirements:** PID-01, PID-02, PID-03, PID-04, PID-05, PID-06, PID-07
 - **Success criteria:**
-  1. PDD-D-28 is decided and recorded; PID-01 is then implemented as stated (name only, values checksum-identical before and after) or as the decided alternative.
-  2. The dictionary row for PECAN_ID reads "formerly PCNR_ID; derived from encrypted MRN" (wording adjusted to the PDD-D-28 outcome).
-  3. PECAN_ID is derived for 2023-2025 with the same rule as 2018-2022.
-  4. Cross-era linkage share of 2023-2025 encrypted MRNs found in 2018-2022 is reported; zero or near-zero overlap stops the milestone at PDD-D-26.
-  5. Cases-per-patient summary (PECAN_ID vs PRECEDE_STUDY_ID) exists for each era and combined.
+  1. PDD-D-28 is decided and recorded; the ID format for K2 (PID-04) is recorded in `docs/DECISIONS.md` and cannot collide with K1 IDs.
+  2. Rename to `PECAN_ID` (PID-01) has identical before/after checksums; dictionary row reads "formerly PCNR_ID; derived from encrypted MRN" (wording adjusted to the PDD-D-28 outcome).
+  3. Every encrypted MRN is tagged K1 or K2 and never compared across eras; `pdd.pecan_id_registry` (on P:, not in git) is append-only, seeded with the existing K1 IDs unchanged; reruns keep known IDs and no ID is renumbered or reused; K2 assignment is deterministic.
+  4. Combined dataset carries `PECAN_ID` and `PECAN_ID_KEY_ERA`; dictionary and master KEY sheet state that patients in both eras have two PECAN_IDs until linked.
+  5. `sas/pecan_id_link.sas` is written and tested but not run; a QC report lists every ID that would change.
+  6. Cases-per-patient summary (PECAN_ID vs PRECEDE_STUDY_ID) exists per era and combined with the caveat.
 - **Plans:** TBD
 
 ### Phase 18 (M5): Combined dataset and dictionary 2018-2025
@@ -198,7 +200,7 @@ Each phase repeats Phases 2–7 for its family: source guard, import, name map, 
 Phases 8–13 have no fixed order. Whichever gate clears first runs first, except PCND_, which depends on its inputs.
 
 ## Open decisions (phase gates)
-v2.0 decisions PDD-D-25..28 and Price's naming sign-off are in `docs/DECISIONS.md`.
+v2.0 decisions PDD-D-25..29 (PDD-D-26 DECIDED) and Price's naming sign-off are in `docs/DECISIONS.md`.
 
 | ID | Blocks | Description |
 |----|--------|-------------|
