@@ -1,6 +1,6 @@
 ﻿# Schema probe: Master Data folder
 
-- Generated: 2026-11-16 11:05 by sas/probe_inputs.sas
+- Generated: 2026-11-16 12:08 by sas/probe_inputs.sas
 - Folder: `P:\PeCAN Master Data\00 Shared Data\DSS Received Data\1 Data Files\Master Data`
 - File filter (regex): `.`
 - SAS session encoding: UTF-8
@@ -5235,90 +5235,90 @@ Case-ID overlap uses 5-digit IDs normalized to Precede##### (PDD-D-19). MRN over
 
 |unit|column|non-missing rows|distinct|1 row per value|in spine case IDs|not in spine case IDs|in spine MRNs|not in spine MRNs|
 |---|---|---|---|---|---|---|---|---|
-|1|PRECEDE Study ID|41,423|41,423|yes|31,438|9,985|0|41,423|
-|1|PRECEDE_ID_NUM|41,423|41,422|no|0|41,422|0|41,422|
+|1|PRECEDE Study ID|41,423|41,423|yes|41,149|274|0|41,423|
+|1|PRECEDE_ID_NUM|41,423|41,422|no|41,149|273|0|41,422|
 |2|PRECEDE Study ID|22,476|22,476|yes|22,472|<11|0|22,476|
-|3|Age at Encounter|13,608|35|no|0|35|0|35|
+|3|Age at Encounter|13,608|35|no|33|<11|0|35|
 |3|ENCRYPTED_ENCOUNTER|14,559|14,347|no|0|14,347|0|14,347|
 |3|ENCRYPTED_MRN|14,777|13,044|no|0|13,044|13,044|0|
-|3|ID|14,778|14,778|yes|0|14,778|0|14,778|
+|3|ID|14,778|14,778|yes|14,749|29|0|14,778|
 |3|PRECEDE Study ID|14,778|14,778|yes|14,778|0|0|14,778|
 |4|ENCRYPTED_ENCOUNTER|14,781|14,352|no|0|14,352|<11|14,351|
 |4|PRECEDE Study ID|14,781|14,781|yes|14,777|<11|0|14,781|
 |5|ENCRYPTED_MRN|14,781|13,047|no|0|13,047|13,045|<11|
 |5|PRECEDE Study ID|14,781|14,781|yes|14,777|<11|0|14,781|
-|6|Age_at_Encounter|13,607|35|no|0|35|0|35|
+|6|Age_at_Encounter|13,607|35|no|33|<11|0|35|
 |6|ENCRYPTED_ENCOUNTER|14,560|14,348|no|0|14,348|0|14,348|
 |6|ENCRYPTED_MRN|14,778|13,044|no|0|13,044|0|13,044|
-|6|Precede_aim1_2_month|14,790|24|no|0|24|0|24|
+|6|Precede_aim1_2_month|14,790|24|no|24|0|0|24|
 |6|aim3_enroll_id|122|122|yes|0|122|0|122|
 |6|pecan_attending|1,490|<11|no|0|<11|0|<11|
-|6|pecan_clock_flag|2,919|<11|no|0|<11|0|<11|
-|6|pecan_flag|3,213|<11|no|0|<11|0|<11|
-|6|pecan_tested|1,655|<11|no|0|<11|0|<11|
-|6|pecan_testing|8,927|<11|no|0|<11|0|<11|
+|6|pecan_clock_flag|2,919|<11|no|<11|0|0|<11|
+|6|pecan_flag|3,213|<11|no|<11|0|0|<11|
+|6|pecan_tested|1,655|<11|no|<11|0|0|<11|
+|6|pecan_testing|8,927|<11|no|<11|0|0|<11|
 |6|pecan_trainee|720|24|no|0|24|0|24|
-|6|pecaner|14,807|<11|no|0|<11|0|<11|
-|6|precede_aim1_2_Week|14,786|106|no|0|106|0|106|
-|6|precede_aim1_2_clock_file_notes|684|<11|no|0|<11|0|<11|
-|6|precede_aim1_2_clock_missing|14,790|<11|no|0|<11|0|<11|
+|6|pecaner|14,807|<11|no|<11|<11|0|<11|
+|6|precede_aim1_2_Week|14,786|106|no|100|<11|0|106|
+|6|precede_aim1_2_clock_file_notes|684|<11|no|<11|<11|0|<11|
+|6|precede_aim1_2_clock_missing|14,790|<11|no|<11|0|0|<11|
 |6|precede_aim1_2_location|13,973|<11|no|0|<11|0|<11|
 |6|precede_aim1_2_notes|47|32|no|0|32|0|32|
 |6|precede_aim1_2_nurse_notes|261|240|no|0|240|0|240|
 |6|precede_aim1_2_physical_limitati|146|114|no|0|114|0|114|
 |6|precede_aim1_2_scoring_issues|<11|<11|no|0|<11|0|<11|
-|6|precede_aim1_2_year|14,790|<11|no|0|<11|0|<11|
+|6|precede_aim1_2_year|14,790|<11|no|<11|0|0|<11|
 |6|studyid|14,807|14,807|yes|14,778|29|0|14,807|
-|7|Age at Encounter|13,608|26|no|0|26|0|26|
+|7|Age at Encounter|13,608|26|no|24|<11|0|26|
 |7|ENCRYPTED_ENCOUNTER|14,559|14,347|no|0|14,347|0|14,347|
 |7|ENCRYPTED_MRN|14,777|13,044|no|0|13,044|13,044|0|
 |7|PRECEDE Study ID|14,778|14,778|yes|14,778|0|0|14,778|
-|8|PRECEDE Study ID|3,456|3,456|yes|2,688|768|0|3,456|
-|9|Age at Encounter|38,755|36|no|0|36|0|36|
+|8|PRECEDE Study ID|3,456|3,456|yes|3,456|0|0|3,456|
+|9|Age at Encounter|38,755|36|no|34|<11|0|36|
 |9|ENCRYPTED_ENCOUNTER|40,229|39,752|no|0|39,752|<11|39,751|
 |9|ENCRYPTED_MRN|41,149|31,136|no|0|31,136|31,136|0|
 |9|PRECEDE_Study_ID|41,150|41,150|yes|41,150|0|0|41,150|
-|10|Age at Encounter|7,072|33|no|0|33|0|33|
+|10|Age at Encounter|7,072|33|no|31|<11|0|33|
 |10|ENCRYPTED_ENCOUNTER|7,381|7,381|yes|0|7,381|0|7,381|
 |10|ENCRYPTED_MRN|7,695|6,679|no|0|6,679|6,679|0|
-|10|ID|7,695|7,695|yes|0|7,695|0|7,695|
+|10|ID|7,695|7,695|yes|7,668|27|0|7,695|
 |10|PRECEDE Study ID|7,695|7,695|yes|7,695|0|0|7,695|
-|10|SORT_ID|7,695|7,695|yes|0|7,695|0|7,695|
+|10|SORT_ID|7,695|7,695|yes|7,668|27|0|7,695|
 |11|studyid|7,696|7,696|yes|7,695|<11|0|7,696|
-|12|Age at Encounter|7,072|25|no|0|25|0|25|
+|12|Age at Encounter|7,072|25|no|23|<11|0|25|
 |12|ENCRYPTED_ENCOUNTER|7,381|7,381|yes|0|7,381|0|7,381|
 |12|ENCRYPTED_MRN|7,695|6,679|no|0|6,679|6,679|0|
 |12|PRECEDE Study ID|7,695|7,695|yes|7,695|0|0|7,695|
-|12|SORT_ID|7,695|7,695|yes|0|7,695|0|7,695|
+|12|SORT_ID|7,695|7,695|yes|7,668|27|0|7,695|
 |13|PRECEDE Study ID|9,462|9,462|yes|9,462|0|0|9,462|
 |14|PRECEDE Study ID|9,462|9,462|yes|9,462|0|0|9,462|
-|15|Age at Encounter|9,017|25|no|0|25|0|25|
+|15|Age at Encounter|9,017|25|no|23|<11|0|25|
 |15|ENCRYPTED_ENCOUNTER|9,074|9,071|no|0|9,071|0|9,071|
 |15|ENCRYPTED_MRN|9,462|7,982|no|0|7,982|7,982|0|
 |15|PRECEDE Study ID|9,462|9,462|yes|9,462|0|0|9,462|
-|16|PRECEDE Study ID|9,215|9,215|yes|0|9,215|0|9,215|
-|17|Age at Encounter|9,058|25|no|0|25|0|25|
+|16|PRECEDE Study ID|9,215|9,215|yes|9,215|0|0|9,215|
+|17|Age at Encounter|9,058|25|no|23|<11|0|25|
 |17|ENCRYPTED_ENCOUNTER|9,215|9,054|no|0|9,054|<11|9,053|
 |17|ENCRYPTED_MRN|9,215|8,172|no|0|8,172|8,172|0|
-|17|PRECEDE Study ID|9,215|9,215|yes|0|9,215|0|9,215|
-|18|PRECEDE Study ID|9,485|9,484|no|0|9,484|0|9,484|
-|19|Age at Encounter|9,990|36|no|0|36|0|36|
+|17|PRECEDE Study ID|9,215|9,215|yes|9,215|0|0|9,215|
+|18|PRECEDE Study ID|9,485|9,484|no|9,215|269|0|9,484|
+|19|Age at Encounter|9,990|36|no|34|<11|0|36|
 |19|ENCRYPTED_ENCOUNTER|10,772|10,045|no|0|10,045|<11|10,044|
 |19|ENCRYPTED_MRN|10,772|8,984|no|0|8,984|0|8,984|
 |19|PRECEDE Study ID|10,772|10,772|yes|0|10,772|0|10,772|
-|20|Age at Encounter|12,093|38|no|0|38|0|38|
+|20|Age at Encounter|12,093|38|no|36|<11|0|38|
 |20|ENCRYPTED_ENCOUNTER|13,029|12,251|no|0|12,251|<11|12,250|
 |20|ENCRYPTED_MRN|13,029|10,645|no|0|10,645|0|10,645|
 |20|PRECEDE Study ID|13,029|13,029|yes|0|13,029|0|13,029|
-|21|Age at Encounter|11,813|36|no|0|36|0|36|
+|21|Age at Encounter|11,813|36|no|34|<11|0|36|
 |21|ENCRYPTED_ENCOUNTER|12,689|12,302|no|0|12,302|<11|12,301|
 |21|ENCRYPTED_MRN|12,689|11,124|no|0|11,124|0|11,124|
 |21|PRECEDE Study ID|12,689|12,689|yes|0|12,689|0|12,689|
-|22|Age at Encounter|22,473|37|no|0|37|0|37|
+|22|Age at Encounter|22,473|37|no|34|<11|0|37|
 |22|ENCRYPTED_ENCOUNTER|22,254|21,696|no|0|21,696|0|21,696|
 |22|ENCRYPTED_MRN|22,472|18,801|no|0|18,801|18,801|0|
 |22|PRECEDE Study ID|22,473|22,473|yes|22,473|0|0|22,473|
-|23|PRECEDE Study ID|41,150|41,150|yes|31,935|9,215|0|41,150|
+|23|PRECEDE Study ID|41,150|41,150|yes|41,150|0|0|41,150|
 
 ## ID value shapes (top 5 per column)
 
@@ -5326,14 +5326,14 @@ Case-ID overlap uses 5-digit IDs normalized to Precede##### (PDD-D-19). MRN over
 |---|---|---|---|---|
 |1|PRECEDE Study ID|1|AAAAAAA99999|31,442|
 |1|PRECEDE Study ID|2|99999|9,980|
-|1|PRECEDE Study ID|3|LONG len=18 mixed|<11|
+|1|PRECEDE Study ID|3|LONG len=18 base64-like|<11|
 |1|PRECEDE_ID_NUM|1|99999|31,451|
 |1|PRECEDE_ID_NUM|2|9999|8,989|
 |1|PRECEDE_ID_NUM|3|999|890|
 |1|PRECEDE_ID_NUM|4|99|84|
 |1|PRECEDE_ID_NUM|5|9|<11|
 |2|PRECEDE Study ID|1|AAAAAAA99999|22,475|
-|2|PRECEDE Study ID|2|LONG len=18 mixed|<11|
+|2|PRECEDE Study ID|2|LONG len=18 base64-like|<11|
 |3|Age at Encounter|1|99|13,607|
 |3|Age at Encounter|2|999|<11|
 |3|ENCRYPTED_ENCOUNTER|1|LONG len=34 mixed|3,634|
@@ -5358,14 +5358,14 @@ Case-ID overlap uses 5-digit IDs normalized to Precede##### (PDD-D-19). MRN over
 |4|ENCRYPTED_ENCOUNTER|4|LONG len=40 mixed|1,838|
 |4|ENCRYPTED_ENCOUNTER|5|LONG len=28 mixed|1,013|
 |4|PRECEDE Study ID|1|AAAAAAA99999|14,780|
-|4|PRECEDE Study ID|2|LONG len=18 mixed|<11|
+|4|PRECEDE Study ID|2|LONG len=18 base64-like|<11|
 |5|ENCRYPTED_MRN|1|LONG len=30 mixed|2,271|
 |5|ENCRYPTED_MRN|2|LONG len=27 mixed|2,098|
 |5|ENCRYPTED_MRN|3|LONG len=33 mixed|1,482|
 |5|ENCRYPTED_MRN|4|LONG len=31 mixed|1,377|
 |5|ENCRYPTED_MRN|5|LONG len=24 mixed|1,219|
 |5|PRECEDE Study ID|1|AAAAAAA99999|14,780|
-|5|PRECEDE Study ID|2|LONG len=18 mixed|<11|
+|5|PRECEDE Study ID|2|LONG len=18 base64-like|<11|
 |6|Age_at_Encounter|1|99|13,606|
 |6|Age_at_Encounter|2|999|<11|
 |6|ENCRYPTED_ENCOUNTER|1|LONG len=43 mixed|3,601|
