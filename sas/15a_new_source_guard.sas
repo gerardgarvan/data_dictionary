@@ -42,8 +42,12 @@
   %end;
 %mend restore_log;
 
+/* ERROR line first, while the log is still routed to the program log file,
+   then restore the log and echo it once more to the SAS Log window. */
 %macro fail_out(msg=);
   %put ERROR: [15a_new_source_guard] &msg;
+  %restore_log;
+  %if &in_pipeline = 0 %then %put ERROR: [15a_new_source_guard] &msg;
   %abort cancel;
 %mend fail_out;
 

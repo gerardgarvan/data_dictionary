@@ -104,3 +104,12 @@ def test_15c_pdd_d30_gate_inputs():
     for token in ("expected_n_shared", "id_min", "id_max", "ENCRYPTED_MRN", "ENCRYPTED_ENCOUNTER",
                   "DECIDED", "COMPARED"):
         assert token in t, token
+
+
+def test_fail_out_prints_error_before_restore_log():
+    for name in ("15a_new_source_guard", "15b_new_inventory_spec", "15c_new_import"):
+        text = (ROOT / "sas" / f"{name}.sas").read_text(encoding="utf-8")
+        m = re.search(r"%macro fail_out\(msg=\);(.*?)%mend fail_out;", text, re.S)
+        assert m, name
+        body = m.group(1)
+        assert body.index("%put ERROR:") < body.index("%restore_log") < body.index("%abort cancel"), name
