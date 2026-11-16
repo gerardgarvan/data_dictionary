@@ -1,0 +1,2 @@
+pair,expected_n_shared,id_min,id_max,rule,decision
+s22_s23,142,65370,65511,EARLIER_WINS_GAPFILL,PDD-D-30

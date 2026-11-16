@@ -68,3 +68,5 @@ logs/
 !docs/new_source_header_variants.csv
 !docs/source_guard_baseline_new.csv
 !docs/import_spec_new_generated.csv
+# Exception: PDD-D-30 overlap decision (pair, counts, ID range, rule), metadata only
+!docs/new_overlap_decisions.csv

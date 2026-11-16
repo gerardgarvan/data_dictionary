@@ -176,6 +176,7 @@ Plans:
 - **Requirements:** DD-01, DD-02, DD-03, DD-04
 - **Success criteria:**
   1. Combined dataset in the `pdd` library on P: (not in git) has PECAN_ID and PRECEDE_STUDY_ID first.
+  1a. PDD-D-30 applied: for the 142 shared s22 x s23 cases s22 wins and s23 only fills blanks (YEAR = 2024); conflicts counted in QC.
   2. Values equal source values (no recoding).
   3. Dictionary workbook: KEY sheet leftmost, PECAN_ID first, PCNR_ variables alphabetical, distributions over all 2018-2025 cases, plus year coverage and source columns (MAP-04); UF colors.
   4. Reconciliation: dictionary rows = dataset columns; per-variable non-missing counts match; 2018-2022 distributions match the v1.0 dictionary except where new cases add rows.

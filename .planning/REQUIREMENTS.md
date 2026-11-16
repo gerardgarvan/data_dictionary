@@ -59,7 +59,7 @@ headless steps via `pdd_sdk_run.py`; SAS runs and human gates are marked `PENDIN
 - **PID-08** Phase 17 reads `g.pecan_id_xwalk` read-only through a libname defined in `sas/00_config.sas` (new macro variable for the master-merge g path); no PDD program writes to that library.
 
 ### Combined dataset and dictionary 2018–2025 (Phase 18, M5)
-- **DD-01** One combined case-level PCNR_ dataset for 2018–2025 in the `pdd` library on P: (never in git), with PECAN_ID and PRECEDE_STUDY_ID first.
+- **DD-01** One combined case-level PCNR_ dataset for 2018–2025 in the `pdd` library on P: (never in git), with PECAN_ID and PRECEDE_STUDY_ID first. Apply PDD-D-30: s22 wins, s23 gap-fills for the 142 shared cases (YEAR = 2024); QC the conflicts.
 - **DD-02** Values are kept exactly as in source (no recoding), as in the existing PCNR_ layer.
 - **DD-03** The data dictionary workbook is regenerated for 2018–2025: KEY sheet leftmost, PECAN_ID first, then PCNR_ variables alphabetically, with distributions over all 2018–2025 cases plus the year coverage and source columns from MAP-04.
 - **DD-04** Reconciliation: dictionary row count equals combined dataset column count; per-variable non-missing counts match the dataset; 2018–2022 distributions match the previous dictionary except where new data adds cases.

@@ -15,6 +15,8 @@ progress:
 
 ## Current milestone: v2.0 - PCNR_ 2018-2025, PECAN_ID, PCNR_Master_Data_Nov_2026 (started 2026-11-16)
 
+**Phase 15 status (2026-11-16):** 15a done (new baseline approved and committed). 15b done (spec committed). 15c run 1 stopped at PDD-D-29 item 3 (s22-s23 = 142 shared cases); now resolved by PDD-D-30 (s22 wins, s23 gap-fills). **Next step:** rerun 15c, then `run_pipeline.cmd 15` (see `15-SAS-RUN.md`).
+
 **Next step:** Gerard follows `.planning/phases/15-new-source-intake/15-SAS-RUN.md` (Steps 1-5; baseline approval decision at Step 2). Earlier note: Phase 15 (M2) could be planned: the Phase 14 probe is committed (`.planning/schemas/probe_master_data_20261116.md`, strip-fix rerun, 2026-11-16). Phase 14 is complete: `sas/probe_inputs.sas` now has 0 `sas_lint` errors and 0 `sasjs lint` errors (style warnings only: line length and indentation). Phase 15 gate: count normalized case IDs shared between each pair of the 2023, 2024 and 2025 files (PDD-D-29 item 3).
 
 | Phase | Milestone label | Title | Status |
@@ -26,7 +28,7 @@ progress:
 | 18 | M5 | Combined dataset and dictionary 2018-2025 | Blocked on 15-17 |
 | 19 | M6 | Master Excel export | Blocked on 18 |
 
-Decisions (`docs/DECISIONS.md`): PDD-D-26 DECIDED (separate K2 PECAN_IDs via append-only registry, linkage deferred). PDD-D-28 DECIDED 2026-11-16 (PECAN_ID = master-merge `pecan_ID`; K1 seed from `g.pecan_id_xwalk`; K2 = 1000000 + rank). PDD-D-29 DECIDED 2026-11-16 (D-19 rule applies to 2023-2025; no cross-era overlap; Phase 15 must check overlap between the three new files). PDD-D-25 CLOSED - NOT NEEDED (per PDD-D-29 item 2). PENDING DECISION, default not applied: PDD-D-27 dictionary sheet in master xlsx. Price naming sign-off still pending.
+Decisions (`docs/DECISIONS.md`): PDD-D-26 DECIDED (separate K2 PECAN_IDs via append-only registry, linkage deferred). PDD-D-28 DECIDED 2026-11-16 (PECAN_ID = master-merge `pecan_ID`; K1 seed from `g.pecan_id_xwalk`; K2 = 1000000 + rank). PDD-D-29 DECIDED 2026-11-16 (D-19 rule applies to 2023-2025; no cross-era overlap; Phase 15 must check overlap between the three new files). PDD-D-30 DECIDED 2026-11-16 (142 shared s22 x s23 cases are the same surgeries: s22 wins, s23 gap-fills, applied in Phase 18). PDD-D-25 CLOSED - NOT NEEDED (per PDD-D-29 item 2). PENDING DECISION, default not applied: PDD-D-27 dictionary sheet in master xlsx. Price naming sign-off still pending.
 
 **Phase 15 progress:** 15-04 complete 2026-11-16 (QC writer `python/scripts/write_new_source_qc.py`, exchange schema rows for 8 Phase 15 CSVs; 170 pytest pass). Run it after 15a-15c SAS runs (`--allow-partial` if stopped at the gate).
 
