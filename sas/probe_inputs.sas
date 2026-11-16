@@ -13,7 +13,7 @@
       (?, Unknown, NULL, -999 ...), first-last year for date-formatted columns.
     - Per ID-like column (name matches &id_regex): non-missing rows, distinct
       values, whether it is 1 row per value, overlap with the current spine's
-      case IDs and encrypted MRNs (optional), and value SHAPES only
+      case IDs and encrypted MRNs (from &spine_file), and value SHAPES only
       (9 = digit, A = letter; long tokens as length + character class).
     - Counts from 1 to 10 are shown as <11. No data values are ever written.
 
@@ -36,12 +36,12 @@ options validvarname=any nofmterr mprint;
 /* Example to probe only the new deliveries: 2023|2024|2025                   */
 %let file_regex = .;
 
-/* Optional spine for linkage overlap (leave spine_path blank to skip).       */
-/* Point at the current combined PCNR_ dataset for 2018-2022.                 */
-%let spine_path   = ;
-%let spine_member = ;
-%let spine_case   = PRECEDE_STUDY_ID;
-%let spine_mrn    = ENCRYPTED_MRN;
+/* Spine for linkage overlap: a CSV in the same folder (blank = skip).        */
+/* The 2018-2022 spine is the reference for 2023-2025 overlap.                */
+/* Spine columns are found by regex on the imported column names.             */
+%let spine_file    = 2018_2022_X_MASTER_DATASET_20240402.csv;
+%let spine_case_rx = ^PRECEDE.?STUDY.?ID$;
+%let spine_mrn_rx  = ENCRYPTED.?MRN;
 
 %let min_cell = 11;
 %let id_regex = PRECEDE|MRN|ENCOUNTER|STUDY_?ID|PCNR_ID|PECAN|(^|_| )ID$;
@@ -51,11 +51,13 @@ options validvarname=any nofmterr mprint;
 %let run_date = %sysfunc(today(), yymmddn8.);
 %let out_md   = &repo_dir.\.planning\schemas\probe_master_data_&run_date..md;
 
-%global unit enc n_lines n_hi n_bad cur_sheet cur_path nblank have_spine nfiles;
+%global unit enc n_lines n_hi n_bad cur_sheet cur_path nblank have_spine nfiles spine_case spine_mrn;
 %let unit = 0;
 %let nblank = 0;
 %let have_spine = 0;
 %let nfiles = 0;
+%let spine_case = ;
+%let spine_mrn = ;
 
 /*---------------------------------------------------------------------------
   1. Guard: output must go to the repo, never to P:
@@ -99,30 +101,6 @@ data r_pat;
   stop;
 run;
 
-/*---------------------------------------------------------------------------
-  3. Optional spine (distinct case IDs and encrypted MRNs, kept in work only)
----------------------------------------------------------------------------*/
-%macro prep_spine;
-  %let have_spine = 0;
-  %if %length(%superq(spine_path)) > 0 and %length(%superq(spine_member)) > 0 %then %do;
-    libname _spl "&spine_path" access=readonly;
-    %if %sysfunc(exist(_spl.&spine_member)) %then %do;
-      proc sql;
-        create table _spc as
-          select distinct strip(cats("&spine_case"n)) as v length=200
-          from _spl.&spine_member
-          where not missing("&spine_case"n);
-        create table _spm as
-          select distinct strip(cats("&spine_mrn"n)) as v length=200
-          from _spl.&spine_member
-          where not missing("&spine_mrn"n);
-      quit;
-      %if &sqlrc = 0 %then %let have_spine = 1;
-    %end;
-    %else %put WARNING: [probe] &spine_member not found in &spine_path - linkage skipped.;
-  %end;
-%mend prep_spine;
-%prep_spine
 
 /*---------------------------------------------------------------------------
   4. List files in the source folder (read-only)
@@ -180,7 +158,7 @@ quit;
   %let n_hi = 0;
   %let n_bad = 0;
   %let enc = utf-8;
-  filename _raw "&cur_path" encoding='any' lrecl=1000000;
+  filename _raw "&cur_path" encoding='any' lrecl=32767;
   data _null_;
     infile _raw end=__eof;
     input;
@@ -204,6 +182,69 @@ quit;
   run;
   filename _raw clear;
 %mend scan_bytes;
+
+/*---------------------------------------------------------------------------
+  5b. Spine: distinct case IDs and encrypted MRNs from &spine_file (work only)
+---------------------------------------------------------------------------*/
+%macro prep_spine;
+  %local sc sm;
+  %let have_spine = 0;
+  %let sc = ;
+  %let sm = ;
+  %if %length(%superq(spine_file)) = 0 %then %return;
+  %let cur_path = %superq(src_dir)\%superq(spine_file);
+  %if not %sysfunc(fileexist(%superq(cur_path))) %then %do;
+    %put WARNING: [probe] spine file %superq(spine_file) not found - linkage skipped.;
+    %return;
+  %end;
+  %scan_bytes
+  filename _spf "&cur_path" encoding="&enc";
+  proc import datafile=_spf out=work._spsrc dbms=csv replace;
+    guessingrows=max;
+    getnames=yes;
+  run;
+  filename _spf clear;
+  %if not %sysfunc(exist(work._spsrc)) %then %do;
+    %put WARNING: [probe] spine file did not import - linkage skipped.;
+    %return;
+  %end;
+  proc sql noprint;
+    select name into :sc trimmed from dictionary.columns
+      where libname = 'WORK' and memname = '_SPSRC' and prxmatch("/&spine_case_rx/i", strip(name)) > 0;
+    select name into :sm trimmed from dictionary.columns
+      where libname = 'WORK' and memname = '_SPSRC' and prxmatch("/&spine_mrn_rx/i", strip(name)) > 0;
+  quit;
+  %if %length(%superq(sc)) = 0 or %length(%superq(sm)) = 0 %then %do;
+    %put WARNING: [probe] spine case or MRN column not found (case=%superq(sc) mrn=%superq(sm)) - linkage skipped.;
+    %return;
+  %end;
+  %let spine_case = %superq(sc);
+  %let spine_mrn = %superq(sm);
+  data _spc0(keep=v);
+    set _spsrc(keep="&sc"n);
+    length v $200 __t $200;
+    __t = strip(cats("&sc"n));
+    if missing(__t) then delete;
+    if prxmatch('/^\d{1,5}$/', __t) then v = cats('Precede', put(input(__t, 8.), z5.));
+    else v = __t;
+  run;
+  data _spm0(keep=v);
+    set _spsrc(keep="&sm"n);
+    length v $200;
+    v = strip(cats("&sm"n));
+    if missing(v) then delete;
+  run;
+  proc sql;
+    create table _spc as select distinct v from _spc0;
+    create table _spm as select distinct v from _spm0;
+  quit;
+  proc datasets lib=work nolist nowarn;
+    delete _spsrc _spc0 _spm0;
+  quit;
+  %let have_spine = 1;
+  %put NOTE: [probe] spine %superq(spine_file): case column=%superq(sc), MRN column=%superq(sm);
+%mend prep_spine;
+%prep_spine
 
 /*---------------------------------------------------------------------------
   6. One row per file/sheet in r_units
@@ -237,7 +278,7 @@ quit;
   7. Profile work._p (one file or sheet)
 ---------------------------------------------------------------------------*/
 %macro profile(i);
-  %local nc nidv;
+  %local nc nidv asz;
   %let unit = %eval(&unit + 1);
   %let nblank = 0;
 
@@ -251,10 +292,7 @@ quit;
   proc sql noprint;
     select count(*) into :nc trimmed from _ct;
   quit;
-  %if &nc > 3000 %then %do;
-    %unit_row(SKIPPED - more than 3000 columns)
-    %return;
-  %end;
+  %let asz = %eval(&nc + 2);
 
   /* Counts per column, ID values to work only, blank rows */
   data _cnt(keep=__name __nn __np __y0 __y1 __isid)
@@ -266,15 +304,15 @@ quit;
     array __c{*} _character_;
     array __n{*} _numeric_;
     length __name $64 __v $200 __u $200 __f $32;
-    array __kc{3000} _temporary_;
-    array __pc{3000} _temporary_;
-    array __ic{3000} _temporary_;
-    array __kn{3000} _temporary_;
-    array __pn{3000} _temporary_;
-    array __in{3000} _temporary_;
-    array __dk{3000} _temporary_;
-    array __ya{3000} _temporary_;
-    array __yb{3000} _temporary_;
+    array __kc{&asz} _temporary_;
+    array __pc{&asz} _temporary_;
+    array __ic{&asz} _temporary_;
+    array __kn{&asz} _temporary_;
+    array __pn{&asz} _temporary_;
+    array __in{&asz} _temporary_;
+    array __dk{&asz} _temporary_;
+    array __ya{&asz} _temporary_;
+    array __yb{&asz} _temporary_;
 
     if _n_ = 1 then do;
       do __i = 1 to dim(__c);
@@ -464,7 +502,12 @@ quit;
       run;
     %end;
     %else %do;
-      proc append base=r_ids data=_ids force;
+      data _ids2;
+        set _ids;
+        n_in_case = .;
+        n_in_mrn = .;
+      run;
+      proc append base=r_ids data=_ids2 force;
       run;
     %end;
   %end;
@@ -560,8 +603,8 @@ data _null_;
   length __enc $40 __sp $300;
   __enc = getoption('encoding');
   if symget('have_spine') = '1' then
-    __sp = catx(' ', symget('spine_path'), '/', symget('spine_member'),
-                '(case:', symget('spine_case'), '; MRN:', symget('spine_mrn'), ')');
+    __sp = catx(' ', symget('spine_file'),
+                '(case column:', symget('spine_case'), '; MRN column:', symget('spine_mrn'), ')');
   else __sp = 'none (linkage columns show -)';
   put "# Schema probe: Master Data folder";
   put;
