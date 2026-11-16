@@ -1,17 +1,41 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: PCNR_ raw layer and dictionary framework
-status: Phase 7 in progress — 07-02 complete (dictionary_workbook.py + tests)
-last_updated: "2026-10-27T15:08:12.749Z"
+milestone: v2.0
+milestone_name: PCNR_ 2018-2025, PECAN_ID, PCNR_Master_Data_Nov_2026
+status: Phase 14 (M1) - PENDING SAS RUN (probe)
+last_updated: "2026-11-16T00:00:00.000Z"
 progress:
-  total_phases: 8
-  completed_phases: 7
-  total_plans: 25
-  completed_plans: 26
+  total_phases: 6
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
 ---
 
 # GSD State: PeCAN Data Dictionary (PDD)
+
+## Current milestone: v2.0 - PCNR_ 2018-2025, PECAN_ID, PCNR_Master_Data_Nov_2026 (started 2026-11-16)
+
+**Next step:** Gerard runs `sas/probe_inputs.sas` on the SAS machine and commits the probe (**PENDING SAS RUN**). Output: `.planning/schemas/probe_master_data_<yyyymmdd>.md`. Phases 15-19 cannot be planned until it is committed.
+
+| Phase | Milestone label | Title | Status |
+|-------|-----------------|-------|--------|
+| 14 | M1 | Probe and headless setup | PENDING SAS RUN |
+| 15 | M2 | New-source intake | Blocked on 14 |
+| 16 | M3 | Name map extension | Blocked on 15 |
+| 17 | M4 | PECAN_ID | Blocked on 15 and PDD-D-28 |
+| 18 | M5 | Combined dataset and dictionary 2018-2025 | Blocked on 15-17 |
+| 19 | M6 | Master Excel export | Blocked on 18 |
+
+Open v2.0 decisions (PENDING DECISION, defaults not applied; see `docs/DECISIONS.md`): PDD-D-25 era precedence; PDD-D-26 MRN linkage failure; PDD-D-27 dictionary sheet in master xlsx; PDD-D-28 what PECAN_ID is (no `PCNR_ID` exists in the repo). Price naming sign-off still pending.
+
+### Assumptions (headless run)
+- v1.0 treated as closed: audit PASSED 2026-10-27, all 7 phases complete, Gerard reviewed pdd_v1_0.xlsx. The v1.0 sections below are stale (Phase 7 shows "Not started"; 07-01..07-03 are complete), and `/gsd:complete-milestone` was never run. Only REQUIREMENTS.md was archived.
+- No `.planning/schemas/probe_*.md` exists yet, so no fact about new files was used.
+- `docs/DECISIONS.md` did not exist and was created; D-24 was already used, so new decisions start at PDD-D-25.
+
+---
+
+## v1.0 state (as of 2026-10-27; historical)
 
 ## Current position
 

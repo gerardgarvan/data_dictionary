@@ -7,7 +7,7 @@ Usage (PowerShell, repo root C:\\data_dictionary, branch other than main/master)
     $env:ANTHROPIC_API_KEY = "sk-ant-..."
     python pdd_sdk_run.py sdk_test "Reply with the single word OK" --max-turns 1
     python pdd_sdk_run.py M_new "/gsd:new-milestone" --prompt-file .planning/prompts/new_milestone_headless.md
-    python pdd_sdk_run.py plan_M1 "/gsd:plan-phase 12"
+    python pdd_sdk_run.py plan_M1 "/gsd:plan-phase 14"
     python pdd_sdk_run.py ledger            # show spend so far
 
 Safety:

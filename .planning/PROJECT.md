@@ -1,4 +1,23 @@
-﻿# PeCAN Data Dictionary (PDD)
+# PeCAN Data Dictionary (PDD)
+
+## Current milestone: v2.0 PCNR_ 2018-2025, PECAN_ID, PCNR_Master_Data_Nov_2026
+Started 2026-11-16 (brief: `.planning/MILESTONE_BRIEF_2018_2025.md`; phases 14-19). v1.0 (Phases 1-7) is complete; its requirements are archived in `.planning/milestones/v1.0-REQUIREMENTS.md`.
+
+**Scope**
+- A. Data dictionary for surgical cases 2018-2025: `PECAN_ID` first, then `PCNR_` variables alphabetical, distributions over all 2018-2025 cases, year coverage and source columns per variable.
+- B. `PCNR_Master_Data_Nov_2026.xlsx`: all 2018-2025 PCNR_ data in one workbook (KEY leftmost, DATA).
+- New 2023-2025 source files from the same shared Master Data folder (read-only), mapped onto the existing PCNR_ names; `PECAN_ID` as the patient-level key (see PDD-D-28: the brief calls it a rename of `PCNR_ID`, which does not exist in this repo).
+- Method: probe first (`sas/probe_inputs.sas` -> `.planning/schemas/probe_*.md`), headless steps via `pdd_sdk_run.py`, SAS runs and decisions marked PENDING for Gerard.
+
+**Out of scope**
+- PCNC_, PCND_, CLK_, LAB_, MED_, INTRA_ families (v1.x Phases 8-13, still gated)
+- Recoding placeholders to missing (PCNR_ keeps source values, PDD-D-02)
+- Changing locked decisions PDD-D-01..24
+- Any write to the shared source folder
+
+**Open v2.0 decisions:** PDD-D-25 (era precedence), PDD-D-26 (MRN linkage failure), PDD-D-27 (dictionary sheet in master xlsx), PDD-D-28 (PECAN_ID definition), all in `docs/DECISIONS.md`. Price's naming sign-off is still required before release.
+
+Note: the sections below describe v1.0 as built (20 sources, 41,150-row spine). Its Open decisions table is partly stale (PDD-D-15, 16, 18 are closed per STATE.md).
 
 ## What this is
 A SAS pipeline that builds the PeCAN analytic database as seven prefixed variable families and documents them in one data dictionary workbook. Variables in every family are listed alphabetically, each with its distribution.

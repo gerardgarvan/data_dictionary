@@ -104,7 +104,84 @@ Plans:
 Plans:
 - [x] 07-01-PLAN.md -- SAS orchestrator (07_build_profile.sas), exchange_schema.csv extension, source_notes.csv seed
 - [x] 07-02-PLAN.md -- python/pdd/dictionary_workbook.py core module + test suite (wave 2, parallel with 07-01)
-- [x] 07-03-PLAN.md -- python/scripts/write_dictionary.py entry point + run_pipeline.cmd Phase 7 block (wave 3) (completed 2026-10-27)
+- [x] 07-03-PLAN.md -- python/scripts/write_dictionary.py entry point + run_pipeline.cmd Phase 7 block (wave 3)
+ (completed 2026-10-27)
+
+## Milestone v2.0: PCNR_ 2018-2025, PECAN_ID, PCNR_Master_Data_Nov_2026
+Two deliverables covering surgical cases 2018-2025: (A) a data dictionary with `PECAN_ID` first and `PCNR_` variables alphabetical with distributions, (B) `PCNR_Master_Data_Nov_2026.xlsx`. Source brief: `.planning/MILESTONE_BRIEF_2018_2025.md`. Requirements: `.planning/REQUIREMENTS.md`. Phases M1-M6 are numbered 14-19 (continuing after Phase 13). **M1 must finish (first probe committed) before Phases 15-19 can be planned.** Open decisions PDD-D-25..28 are in `docs/DECISIONS.md`.
+
+Phases 8-13 (v1.x) stay gated and independent; v2.0 depends only on the completed v1.0 (Phases 1-7).
+
+### Phase 14 (M1): Probe and headless setup
+- **Goal:** Make facts about the old and new source files available to the Claude Code machine, and make headless runs safe.
+- **Depends on:** Phase 7 (v1.0 complete)
+- **Requirements:** PRB-01, PRB-02, PRB-03, RUN-01
+- **Status:** `sas/probe_inputs.sas`, `pdd_sdk_run.py` and the CLAUDE.md headless rules are already in the repo (commit 7e79d79 and the v2.0 milestone commit); the probe has not been run. **PENDING SAS RUN.**
+- **Success criteria:**
+  1. `sas/probe_inputs.sas` passes `python tools\sas_lint.py` and `sasjs lint` with zero errors.
+  2. Gerard's first run writes `.planning/schemas/probe_master_data_<yyyymmdd>.md` listing every file and sheet (the 20 existing and all new 2023-2025 files) with the PRB-01 fields, counts 1-10 shown as `<11`, no data values; it is committed.
+  3. The probe reports ID-like columns (shapes, 1:1 check, spine overlap) so PDD-D-28 can be decided; it shows whether any PCNR_ID column exists.
+  4. `pdd_sdk_run.py` refuses main/master and dirty trees, logs cost per step to `logs/api_runs/`, and refuses new steps at the cap (verified by `sdk_test`).
+  5. CLAUDE.md contains the probe-first and headless rules and the SAS pitfalls list.
+- **Plans:** TBD (plan-phase may run now; it ends in PENDING SAS RUN)
+
+### Phase 15 (M2): New-source intake
+- **Goal:** Guard, inventory, import and check the new 2023-2025 files without disturbing the 20 existing ones.
+- **Depends on:** Phase 14 (probe committed)
+- **Requirements:** NEW-01, NEW-02, NEW-03, NEW-04, NEW-05
+- **Success criteria:**
+  1. The existing 20-file SHA-256 baseline matches unchanged; new files have their own baseline entries added by an explicit approved step (not a silent re-baseline).
+  2. Header inventory covers the same file x header matrix for the new files.
+  3. New files import with explicit informats/lengths, IDs/codes as character, `encoding='wlatin1'` where the probe flags non-UTF-8 (D-23), and `Precede#####` normalization where the probe shows 5-digit IDs (D-19); row counts reconcile to the probe.
+  4. Each new file is checked 1:1 per case; any non-1:1 file stops at a decision gate.
+  5. Era-overlap counts and conflicting shared-column values are reported to QC; precedence follows PDD-D-25 (OPEN, default earlier-spine-wins) and is not applied until Gerard decides.
+- **Plans:** TBD
+
+### Phase 16 (M3): Name map extension
+- **Goal:** Map new headers to PCNR_ names under the Phase 4 rules and record year coverage per variable.
+- **Depends on:** Phase 15
+- **Requirements:** MAP-01, MAP-02, MAP-03, MAP-04
+- **Success criteria:**
+  1. Exact header matches reuse the existing PCNR_ name (existing map: 1,297 PCNR_ variables after D-24; the brief's 1,299 counts the two LINKAGE_ONLY columns).
+  2. Near-matches are listed with value distributions side by side as `PENDING DECISION` for Gerard; none is auto-merged.
+  3. New columns get PCNR_ names under rules A1-A4 with 0 collisions and 0 truncation collisions; names already in use keep their meaning.
+  4. First and last surgical year with non-missing values, and contributing source files, are recorded per variable.
+  5. Price's naming sign-off remains listed as pending.
+- **Plans:** TBD
+
+### Phase 17 (M4): PECAN_ID
+- **Goal:** Provide `PECAN_ID` for all 2018-2025 cases and show it links patients across eras.
+- **Depends on:** Phase 15, and PDD-D-28 (what PECAN_ID is) settled
+- **Requirements:** PID-01, PID-02, PID-03, PID-04
+- **Success criteria:**
+  1. PDD-D-28 is decided and recorded; PID-01 is then implemented as stated (name only, values checksum-identical before and after) or as the decided alternative.
+  2. The dictionary row for PECAN_ID reads "formerly PCNR_ID; derived from encrypted MRN" (wording adjusted to the PDD-D-28 outcome).
+  3. PECAN_ID is derived for 2023-2025 with the same rule as 2018-2022.
+  4. Cross-era linkage share of 2023-2025 encrypted MRNs found in 2018-2022 is reported; zero or near-zero overlap stops the milestone at PDD-D-26.
+  5. Cases-per-patient summary (PECAN_ID vs PRECEDE_STUDY_ID) exists for each era and combined.
+- **Plans:** TBD
+
+### Phase 18 (M5): Combined dataset and dictionary 2018-2025
+- **Goal:** One combined case-level PCNR_ dataset and the regenerated dictionary workbook.
+- **Depends on:** Phases 15, 16, 17 (and PDD-D-25 decided)
+- **Requirements:** DD-01, DD-02, DD-03, DD-04
+- **Success criteria:**
+  1. Combined dataset in the `pdd` library on P: (not in git) has PECAN_ID and PRECEDE_STUDY_ID first.
+  2. Values equal source values (no recoding).
+  3. Dictionary workbook: KEY sheet leftmost, PECAN_ID first, PCNR_ variables alphabetical, distributions over all 2018-2025 cases, plus year coverage and source columns (MAP-04); UF colors.
+  4. Reconciliation: dictionary rows = dataset columns; per-variable non-missing counts match; 2018-2022 distributions match the v1.0 dictionary except where new cases add rows.
+- **Plans:** TBD
+
+### Phase 19 (M6): Master Excel export
+- **Goal:** Write `PCNR_Master_Data_Nov_2026.xlsx` and prove it round-trips.
+- **Depends on:** Phase 18
+- **Requirements:** XLS-01, XLS-02, XLS-03, XLS-04
+- **Success criteria:**
+  1. Workbook at `P:\PeCAN Master Data\Gerard\data_dictionary\out\` has KEY leftmost (source, date, row/column counts, ID definitions, missing-value convention) and DATA.
+  2. Pre-export checks stop the run at rows >= 1,048,575, columns >= 16,384, or any text cell > 32,767 characters.
+  3. Round-trip QC in `qc\` matches row count, column names in order, and per-column non-missing counts with the SAS dataset.
+  4. Whether the dictionary is a sheet in this file follows PDD-D-27 (OPEN, default no).
+- **Plans:** TBD
 
 ## Milestone v1.x: Remaining families (each gated on its open decision)
 Each phase repeats Phases 2–7 for its family: source guard, import, name map, build, profile, sheet.
@@ -121,6 +198,8 @@ Each phase repeats Phases 2–7 for its family: source guard, import, name map, 
 Phases 8–13 have no fixed order. Whichever gate clears first runs first, except PCND_, which depends on its inputs.
 
 ## Open decisions (phase gates)
+v2.0 decisions PDD-D-25..28 and Price's naming sign-off are in `docs/DECISIONS.md`.
+
 | ID | Blocks | Description |
 |----|--------|-------------|
 | PDD-D-11 | Phase 8 | PCNC_ source location |
