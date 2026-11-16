@@ -59,8 +59,8 @@ def test_variants_header_and_status():
 def test_variants_required_rows():
     required = [
         "BRADEN_2024_OUT_Braden Activity", "BRADEN_2024_OUT_Braden Mobility",
-        "BRADEN_2024_OUT_Braden Sensory P", "BRADEN_2025_OUT_Braden Activity",
-        "BRADEN_2025_OUT_Braden Mobility", "BRADEN_2025_OUT_Braden Sensory P",
+        "BRADEN_2024_OUT_Braden Sensory Perception", "BRADEN_2025_OUT_Braden Activity",
+        "BRADEN_2025_OUT_Braden Mobility", "BRADEN_2025_OUT_Braden Sensory Perception",
         "Fraility_Score", "Fraility_Category", "SleepApnea_YN",
         "preop_edu_years", "Feels_Exausted", "Low_Physical_Activity",
         "Slow_Walking_Speed", "Unintended_Weight_Loss", "Week_Grip_Strength",
