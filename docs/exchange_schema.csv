@@ -110,6 +110,9 @@ new_overlap.csv,file_a,str,Y
 new_overlap.csv,file_b,str,Y
 new_overlap.csv,n_shared,int,Y
 new_overlap.csv,status,str,Y
+new_overlap_conflicts.csv,pair,str,Y
+new_overlap_conflicts.csv,column,str,Y
+new_overlap_conflicts.csv,n_cases_differ,int,Y
 new_type_changes.csv,norm_key,str,Y
 new_type_changes.csv,new_s_code,str,Y
 new_type_changes.csv,new_sas_name,str,Y

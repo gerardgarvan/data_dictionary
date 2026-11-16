@@ -50,6 +50,10 @@ FILES = {
             ["OLD20_UNION", "s21", "old20", "0", "ZERO"],
         ],
     ),
+    "new_overlap_conflicts.csv": (
+        ["pair", "column", "n_cases_differ"],
+        [["s22_s23", "YEAR", "142"], ["s22_s23", "EmployeeStatus", "4"]],
+    ),
     "new_type_changes.csv": (
         [
             "norm_key", "new_s_code", "new_sas_name", "new_type", "new_length",
@@ -106,11 +110,12 @@ def _argv(d: dict[str, Path], *extra: str) -> list[str]:
 
 def test_sheet_order() -> None:
     assert m.SHEET_ORDER == [
-        "KEY", "GUARD", "ROWCOUNTS", "ONE_TO_ONE", "OVERLAP", "HEADER_MATRIX",
-        "HEADER_INVENTORY", "TYPE_CHANGES", "VARIANTS", "NONASCII",
+        "KEY", "GUARD", "ROWCOUNTS", "ONE_TO_ONE", "OVERLAP", "OVERLAP_CONFLICTS",
+        "HEADER_MATRIX", "HEADER_INVENTORY", "TYPE_CHANGES", "VARIANTS", "NONASCII",
     ]
     assert m.SHEET_SOURCES["VARIANTS"] == "new_source_header_variants.csv"
     assert m.SHEET_SOURCES["OVERLAP"] == "new_overlap.csv"
+    assert m.SHEET_SOURCES["OVERLAP_CONFLICTS"] == "new_overlap_conflicts.csv"
 
 
 def test_required_columns_match_contract() -> None:
@@ -149,6 +154,7 @@ def test_privacy_safe_summary() -> None:
     assert "GATE PDD-D-29 item 3: STOP (PENDING DECISION)" in text
     assert "GATE OLD20_UNION: PASS" in text
     assert "GATE 1:1 (NEW-04): PASS" in text
+    assert "OVERLAP_CONFLICTS n_columns_differ=<11" in text
 
 
 def test_gate_pass_when_all_zero() -> None:
@@ -209,3 +215,47 @@ def test_main_partial(dirs) -> None:
 def test_main_missing_column(dirs) -> None:
     _write_csv(dirs["ex"] / "new_overlap.csv", ["check_type", "file_a", "file_b", "status"], [["PAIRWISE_NEW", "s21", "s22", "ZERO"]])
     assert main(_argv(dirs)) == 1
+
+
+# ---- PDD-D-30 gate ----
+
+def _ov(rows: list[list[str]]) -> dict:
+    s = _sheets()
+    s["OVERLAP"] = (s["OVERLAP"][0], [dict(zip(s["OVERLAP"][0], r)) for r in rows])
+    return s
+
+
+def test_gate_pass_decided_s22_s23() -> None:
+    s = _ov([
+        ["PAIRWISE_NEW", "s21", "s22", "0", "ZERO"],
+        ["PAIRWISE_NEW", "s21", "s23", "0", "ZERO"],
+        ["PAIRWISE_NEW", "s22", "s23", "142", "DECIDED"],
+    ])
+    assert "GATE PDD-D-29 item 3: PASS (s22-s23 = 142 per PDD-D-30)" in m.privacy_safe_summary(s)
+
+
+def test_gate_stop_when_s22_s23_shared_not_decided() -> None:
+    s = _ov([
+        ["PAIRWISE_NEW", "s21", "s22", "0", "ZERO"],
+        ["PAIRWISE_NEW", "s22", "s23", "142", "SHARED"],
+    ])
+    assert "GATE PDD-D-29 item 3: STOP (PENDING DECISION)" in m.privacy_safe_summary(s)
+
+
+def test_gate_stop_when_s21_pair_shared_even_if_s22_s23_decided() -> None:
+    s = _ov([
+        ["PAIRWISE_NEW", "s21", "s22", "5", "SHARED"],
+        ["PAIRWISE_NEW", "s22", "s23", "142", "DECIDED"],
+    ])
+    assert "GATE PDD-D-29 item 3: STOP (PENDING DECISION)" in m.privacy_safe_summary(s)
+
+
+def test_conflicts_sheet_written_after_overlap(tmp_path: Path) -> None:
+    out = tmp_path / "w.xlsx"
+    h, r = FILES["new_overlap_conflicts.csv"]
+    m.write_workbook({"OVERLAP_CONFLICTS": (h, r)}, out)
+    wb = load_workbook(out)
+    assert wb.sheetnames.index("OVERLAP_CONFLICTS") == wb.sheetnames.index("OVERLAP") + 1
+    assert wb["OVERLAP_CONFLICTS"]["B2"].value == "YEAR"
+    key_text = " ".join(str(c.value) for row in wb["KEY"].iter_rows() for c in row)
+    assert "OVERLAP_CONFLICTS" in key_text and "PDD-D-30" in key_text

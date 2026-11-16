@@ -2,12 +2,12 @@
 Core logic for the Phase 15 new-source intake QC workbook (D-22, A6).
 
 Reads:   exchange/new_source_guard.csv, header_inventory_new.csv, header_matrix_new.csv,
-         new_rowcounts.csv, new_one_to_one.csv, new_overlap.csv, new_type_changes.csv,
+         new_rowcounts.csv, new_one_to_one.csv, new_overlap.csv, new_overlap_conflicts.csv, new_type_changes.csv,
          new_nonascii.csv; docs/new_source_header_variants.csv (VARIANTS)
 Writes:  qc/new_source_intake.xlsx (exact counts; lives on P:, not in git)
 Also:    privacy_safe_summary() -> text lines with every count 1..10 written <11.
-Sheets:  KEY | GUARD | ROWCOUNTS | ONE_TO_ONE | OVERLAP | HEADER_MATRIX
-         | HEADER_INVENTORY | TYPE_CHANGES | VARIANTS | NONASCII
+Sheets:  KEY | GUARD | ROWCOUNTS | ONE_TO_ONE | OVERLAP | OVERLAP_CONFLICTS
+         | HEADER_MATRIX | HEADER_INVENTORY | TYPE_CHANGES | VARIANTS | NONASCII
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ SHEET_ORDER = [
     "ROWCOUNTS",
     "ONE_TO_ONE",
     "OVERLAP",
+    "OVERLAP_CONFLICTS",
     "HEADER_MATRIX",
     "HEADER_INVENTORY",
     "TYPE_CHANGES",
@@ -39,6 +40,7 @@ SHEET_SOURCES: dict[str, str] = {
     "ROWCOUNTS": "new_rowcounts.csv",
     "ONE_TO_ONE": "new_one_to_one.csv",
     "OVERLAP": "new_overlap.csv",
+    "OVERLAP_CONFLICTS": "new_overlap_conflicts.csv",
     "HEADER_MATRIX": "header_matrix_new.csv",
     "HEADER_INVENTORY": "header_inventory_new.csv",
     "TYPE_CHANGES": "new_type_changes.csv",
@@ -63,6 +65,7 @@ CONTRACT: dict[str, list[str]] = {
         "n_distinct_enc", "n_enc_multi_case", "status",
     ],
     "new_overlap.csv": ["check_type", "file_a", "file_b", "n_shared", "status"],
+    "new_overlap_conflicts.csv": ["pair", "column", "n_cases_differ"],
     "new_type_changes.csv": [
         "norm_key", "new_s_code", "new_sas_name", "new_type", "new_length",
         "old_s_code", "old_sas_name", "old_type", "old_length",
@@ -79,6 +82,7 @@ INT_COLUMNS_BY_FILE: dict[str, list[str]] = {
         "n_distinct_enc", "n_enc_multi_case",
     ],
     "new_overlap.csv": ["n_shared"],
+    "new_overlap_conflicts.csv": ["n_cases_differ"],
     "new_type_changes.csv": ["new_length", "old_length"],
     "new_nonascii.csv": ["n_nonascii_cells"],
 }
@@ -149,6 +153,25 @@ def _gate(label: str, rows: list[dict[str, str]], ok) -> str:
     return f"GATE {label}: {'PASS' if all(ok(r) for r in rows) else 'STOP (PENDING DECISION)'}"
 
 
+def _is_s22_s23(r: dict[str, str]) -> bool:
+    return {_scode(r.get("file_a", "")), _scode(r.get("file_b", ""))} == {"s22", "s23"}
+
+
+def _pairwise_gate(rows: list[dict[str, str]]) -> str:
+    """PDD-D-29 item 3 with PDD-D-30: s21 pairs must be 0, s22-s23 passes only when 15c marked it DECIDED."""
+    label = "PDD-D-29 item 3"
+    if not rows:
+        return f"GATE {label}: NO DATA (PENDING SAS RUN)"
+    decided = [r for r in rows if _is_s22_s23(r) and r.get("status") == "DECIDED"]
+    others_ok = all(_to_int(r.get("n_shared")) == 0 for r in rows if r not in decided)
+    if not others_ok:
+        return f"GATE {label}: STOP (PENDING DECISION)"
+    if decided:
+        n = mask_small_count(decided[0].get("n_shared"))
+        return f"GATE {label}: PASS (s22-s23 = {n} per PDD-D-30)"
+    return f"GATE {label}: PASS"
+
+
 def privacy_safe_summary(
     sheets: dict[str, tuple[list[str], list[dict[str, str]]]],
 ) -> list[str]:
@@ -188,8 +211,10 @@ def privacy_safe_summary(
         return _to_int(r.get("n_shared")) == 0
 
     ov = rows_of("OVERLAP")
-    lines.append(_gate(
-        "PDD-D-29 item 3", [r for r in ov if r.get("check_type") == "PAIRWISE_NEW"], shared_zero))
+    if "OVERLAP_CONFLICTS" in sheets:
+        lines.append(
+            f"OVERLAP_CONFLICTS n_columns_differ={mask_small_count(len(rows_of('OVERLAP_CONFLICTS')))}")
+    lines.append(_pairwise_gate([r for r in ov if r.get("check_type") == "PAIRWISE_NEW"]))
     lines.append(_gate(
         "OLD20_UNION", [r for r in ov if r.get("check_type") == "OLD20_UNION"], shared_zero))
     lines.append(_gate("1:1 (NEW-04)", rows_of("ONE_TO_ONE"), lambda r: r.get("status") == "PASS"))
@@ -206,8 +231,11 @@ def _key_rows() -> list[list[str]]:
          "status MATCH | MATCH_RAWDIFF | MISMATCH."],
         ["Sheet", "ONE_TO_ONE", "NEW-04 gate: one row per PRECEDE_STUDY_ID per file; status PASS | FAIL."],
         ["Sheet", "OVERLAP", "Shared normalized case IDs. check_type PAIRWISE_NEW (PDD-D-29 item 3), "
-         "SPINE, OLD20_UNION (reopens PDD-D-25 if SHARED), SHARED_COL_CONFLICT. "
-         "status ZERO | SHARED | NOT_APPLICABLE."],
+         "SPINE, OLD20_UNION (reopens PDD-D-25 if SHARED), SHARED_COL_CONFLICT "
+         "(n_shared = number of columns with differing values). "
+         "status ZERO | SHARED | DECIDED (s22-s23 per PDD-D-30) | COMPARED | NOT_APPLICABLE."],
+        ["Sheet", "OVERLAP_CONFLICTS", "PDD-D-30: per column, number of shared s22 x s23 cases whose values "
+         "differ (pair, column, n_cases_differ). Counts only. Phase 18 applies s22-wins, s23-gap-fills."],
         ["Sheet", "HEADER_MATRIX", "Column presence per new file (src_s21, src_s22, src_s23)."],
         ["Sheet", "HEADER_INVENTORY", "Per-file column order, SAS name, type, length, original header."],
         ["Sheet", "TYPE_CHANGES", "Columns whose type or length differs from the older 20 sources."],
@@ -215,7 +243,8 @@ def _key_rows() -> list[list[str]]:
         ["Sheet", "NONASCII", "Count of cells containing non-ASCII bytes per column (no values)."],
         ["Gate", "NEW-01", "Guard baseline_status DRIFT or PROPOSED needs Gerard approval before import."],
         ["Gate", "NEW-04", "Every ONE_TO_ONE status must be PASS."],
-        ["Gate", "PDD-D-29 item 3", "All PAIRWISE_NEW n_shared must be 0; otherwise PENDING DECISION."],
+        ["Gate", "PDD-D-29 item 3", "PAIRWISE_NEW s21-s22 and s21-s23 must be 0. s22-s23 passes only as DECIDED "
+         "(PDD-D-30: n_shared, ID range and MRN/encounter match docs/new_overlap_decisions.csv); otherwise PENDING DECISION."],
         ["Gate", "OLD20_UNION", "Any SHARED row reopens PDD-D-25; PENDING DECISION."],
         ["Code map", "s21 / s22 / s23", "s21=2023, s22=2024, s23=2025. Probe unit numbers are not s-codes."],
         ["Note", "MRN overlap", "MRN non-overlap is expected across key eras (PDD-D-26) "

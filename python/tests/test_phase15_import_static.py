@@ -70,7 +70,9 @@ def test_15c_exports_before_gates():
         (r'outfile="&exchange_path.\new_one_to_one.csv"',
          "PENDING DECISION -- file(s)"),
         (r'outfile="&exchange_path.\new_overlap.csv"',
-         "PENDING DECISION -- new files share normalized"),
+         "PENDING DECISION -- s21 shares normalized"),
+        (r'outfile="&exchange_path.\new_overlap_conflicts.csv"',
+         "PENDING DECISION -- s22-s23 overlap does not match"),
     ):
         assert export in t, export
         assert gate in t, gate
@@ -90,7 +92,15 @@ def test_exchange_contract():
                   "15c_new_import.sas"))
     for name in ("new_source_guard.csv", "header_inventory_new.csv",
                  "header_matrix_new.csv", "new_rowcounts.csv",
-                 "new_one_to_one.csv", "new_overlap.csv",
+                 "new_one_to_one.csv", "new_overlap.csv", "new_overlap_conflicts.csv",
                  "new_type_changes.csv", "new_nonascii.csv"):
         assert name in in_schema, name
         assert name in sas_text, name
+
+
+def test_15c_pdd_d30_gate_inputs():
+    t = _sas()
+    assert "new_overlap_decisions.csv" in t
+    for token in ("expected_n_shared", "id_min", "id_max", "ENCRYPTED_MRN", "ENCRYPTED_ENCOUNTER",
+                  "DECIDED", "COMPARED"):
+        assert token in t, token
