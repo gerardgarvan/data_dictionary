@@ -15,12 +15,12 @@ progress:
 
 ## Current milestone: v2.0 - PCNR_ 2018-2025, PECAN_ID, PCNR_Master_Data_Nov_2026 (started 2026-11-16)
 
-**Next step:** Phase 15 (M2) can be planned: the Phase 14 probe is committed (`.planning/schemas/probe_master_data_20261116.md`, strip-fix rerun, 2026-11-16). Phase 14 is complete: `sas/probe_inputs.sas` now has 0 `sas_lint` errors and 0 `sasjs lint` errors (style warnings only: line length and indentation). Phase 15 gate: count normalized case IDs shared between each pair of the 2023, 2024 and 2025 files (PDD-D-29 item 3).
+**Next step:** Gerard follows `.planning/phases/15-new-source-intake/15-SAS-RUN.md` (Steps 1-5; baseline approval decision at Step 2). Earlier note: Phase 15 (M2) could be planned: the Phase 14 probe is committed (`.planning/schemas/probe_master_data_20261116.md`, strip-fix rerun, 2026-11-16). Phase 14 is complete: `sas/probe_inputs.sas` now has 0 `sas_lint` errors and 0 `sasjs lint` errors (style warnings only: line length and indentation). Phase 15 gate: count normalized case IDs shared between each pair of the 2023, 2024 and 2025 files (PDD-D-29 item 3).
 
 | Phase | Milestone label | Title | Status |
 |-------|-----------------|-------|--------|
 | 14 | M1 | Probe and headless setup | Complete (PRB-01..03, RUN-01 satisfied) |
-| 15 | M2 | New-source intake | Unblocked (probe in) |
+| 15 | M2 | New-source intake | Plans 15-01..15-05 written; PENDING SAS RUN (15a/15b/15c, run sheet 15-SAS-RUN.md); PENDING DECISION (new-file baseline approval) |
 | 16 | M3 | Name map extension | Blocked on 15 |
 | 17 | M4 | PECAN_ID | Blocked on 15-16 (PDD-D-28 DECIDED) |
 | 18 | M5 | Combined dataset and dictionary 2018-2025 | Blocked on 15-17 |
@@ -35,6 +35,8 @@ Decisions (`docs/DECISIONS.md`): PDD-D-26 DECIDED (separate K2 PECAN_IDs via app
 - v1.0 treated as closed: audit PASSED 2026-10-27, all 7 phases complete, Gerard reviewed pdd_v1_0.xlsx. REQUIREMENTS.md was already archived to `milestones/v1.0-REQUIREMENTS.md` (not re-archived). The v1.0 sections below are stale (Phase 7 shows "Not started"; 07-01..07-03 are complete) and `/gsd:complete-milestone` was never run.
 - Probe committed 2026-11-16 (`.planning/schemas/probe_master_data_20261116.md`, strip-fix rerun). The brief's "0 overlap for 2022 5-digit IDs" was a probe bug (padded value vs `^\d{1,5}$`) and is superseded; other brief-quoted findings should be read from the probe file, not the brief.
 - `CLAUDE_md_addition.md` no longer exists: its content was merged into CLAUDE.md in 73881aa. CLAUDE.md already contains the probe-first, headless and SAS-pitfall sections, so it was not changed.
+
+- Phase 15 (A11): new-file datasets are `pdd.nsrc_s21..s23`, not `pdd.src_s2N`, because 03_import `_norm_psid_loop` sweeps `SRC_S__`. Baseline approval (A2) is env var `PDD_APPROVE_NEW_BASELINE=1`, set only by Gerard.
 
 ---
 
@@ -154,6 +156,9 @@ These are QC findings from the Phase 5 live run that require Price's input befor
 
 ### Phase 15 progress (15-02, 2026-11-16)
 - 15-02 complete: `sas/15b_new_inventory_spec.sas` lint-clean (0 errors), 182 pytest pass. **PENDING SAS RUN** (15b, Gerard, after 15a approval); `docs/import_spec_new_generated.csv` is produced by that run and committed by Gerard. NEW-02, NEW-03 spec half written. State commands not used (v2.0 frontmatter kept).
+
+### Phase 15 progress (15-05, 2026-11-16)
+- 15-05 tasks 1-2 complete: Phase 15 wired into `99_run_all.sas` (token 15) and `run_pipeline.cmd`; run sheet `15-SAS-RUN.md` written. Checkpoint (Task 3) is **PENDING SAS RUN** (Gerard) and **PENDING DECISION** (new baseline approval; any gate that fires). Phase 15 is not closed.
 
 ### Phase 15 progress (15-03, 2026-11-16)
 - 15-03 complete: `sas/15c_new_import.sas` lint-clean (0 errors), 192 pytest pass. **PENDING SAS RUN** (15c, Gerard, after 15b spec is committed). Gates (NEW-04 1:1, PDD-D-29 item 3 pairwise, old-source overlap) write QC first and stop at **PENDING DECISION** if triggered; no choice applied. Datasets named `pdd.nsrc_s21..s23` (A11). State commands not used (v2.0 frontmatter kept).
