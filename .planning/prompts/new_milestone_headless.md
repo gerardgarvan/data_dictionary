@@ -12,8 +12,9 @@ questions. Do not ask anything.
 4. Add the phases M1–M6 to ROADMAP.md, numbered continuing from the last existing phase, each
    with goal, depends-on, requirements and success criteria. M1 must finish (probe committed)
    before M2–M6 can be planned.
-5. Register the open decisions new-1, new-2, new-3 in docs/DECISIONS.md at the next free PDD-D
-   numbers with status OPEN and the defaults from the brief. Carry Price's naming sign-off.
+5. Register decisions new-1..new-4 in docs/DECISIONS.md at the next free PDD-D
+   numbers: new-2 with status DECIDED (as written in the brief), the others OPEN with the
+   defaults from the brief. Carry Price's naming sign-off.
 6. Update STATE.md: current milestone, next step = "Gerard runs sas/probe_inputs.sas on the SAS
    machine and commits the probe (PENDING SAS RUN)".
 7. Add the contents of `CLAUDE_md_addition.md` to CLAUDE.md (new sections, do not remove

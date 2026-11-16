@@ -13,6 +13,8 @@ Two deliverables, both covering surgical cases from 2018 through 2025:
 
 `PECAN_ID` is a rename of the existing `PCNR_ID`. Values, derivation and type stay the same. Only the name changes, and the name carries no `PCNR_` prefix.
 
+**Encryption key change (confirmed by Gerard, 2026-11-16).** The 2023–2025 files encrypt MRNs with a different key from 2018–2022. The 2026-11-16 probe found 0 of the 2023–2025 encrypted MRNs in the 2018–2022 spine, and every new value is 5 characters longer. PECAN_IDs for 2023–2025 are therefore assigned separately per key, and stored in a registry built so that a later crosswalk or re-encryption can merge them without renumbering anything (see PID-01..07).
+
 New source files for 2023–2025 are in the same shared folder as the current 20 sources:
 `P:\PeCAN Master Data\00 Shared Data\DSS Received Data\1 Data Files\Master Data`
 
@@ -32,7 +34,8 @@ New source files for 2023–2025 are in the same shared folder as the current 20
 ### New-source intake (M2)
 - **NEW-01** The source guard is extended: the existing 20-file SHA-256 baseline still has to match unchanged, and the new files get their own baseline entries. Adding the new baseline is an explicit, approved step, not a silent re-baseline.
 - **NEW-02** The header inventory (Phase 2 output) is extended to the new files and covers the same file × header matrix.
-- **NEW-03** The new files are imported with the Phase 3 conventions: explicit informats and lengths, IDs and codes read as character, `encoding='wlatin1'` for any file the probe flags as non-UTF-8 (PDD-D-23), and 5-digit case IDs normalized to `Precede#####` (PDD-D-19) if the probe shows that format.
+- **NEW-03** The new files are imported with the Phase 3 conventions: explicit informats and lengths, IDs and codes read as character, `encoding='wlatin1'` for the 2024 and 2025 files (the 2026-11-16 probe flags them; 2023 is UTF-8) per PDD-D-23. All three use 5-digit case IDs; how they are normalized follows decision new-4.
+- **NEW-03a** Header variants found by the probe are mapped, not renamed at source: the Braden columns differ by year (`Braden Activity` in 2023, `Braden_2024_OUT_Braden Activity` and `Braden_2025_OUT_…` later), and several names differ from the older files (`Fraility_Score` in 2023–2025 vs `Frailty_Score`, `SleepApnea_YN` vs `Sleep_Apnea_YN`, `Preop_Edu_Years` vs `Education`). Type changes go to the map review: `Death_Days_After_Surgery` is character in 2023–2025, and the five frailty components are numeric where the 2022 master has character.
 - **NEW-04** 1:1-per-case check on each new file (PDD-D-17 extended). Any file that is not 1:1 stops at a decision gate.
 - **NEW-05** Era overlap check: count case IDs that appear in both the 2018–2022 sources and the 2023–2025 sources, and conflicting values for shared columns. The precedence rule for overlapping cases is a decision gate (**PDD-D-new-1**).
 
@@ -44,9 +47,12 @@ New source files for 2023–2025 are in the same shared folder as the current 20
 
 ### PECAN_ID (M4)
 - **PID-01** `PCNR_ID` is renamed to `PECAN_ID` in every dataset, program, label, dictionary row and doc. Values are unchanged (checksum before and after must match). The dictionary row notes "formerly PCNR_ID; derived from encrypted MRN".
-- **PID-02** PECAN_ID is derived for the 2023–2025 cases with the same rule as 2018–2022.
-- **PID-03** Cross-era linkage check: the share of 2023–2025 encrypted MRNs that also appear in 2018–2022. Patients with surgeries in both eras should produce some overlap. Zero or near-zero overlap means the MRN encryption key changed between deliveries (the PCM-D-16 precedent), and the milestone stops at a decision gate (**PDD-D-new-2**) to resolve it through the MRN/ENCOUNTER crypto files or DSS.
-- **PID-04** Cases-per-patient summary (PECAN_ID vs PRECEDE_STUDY_ID) for each era and combined.
+- **PID-02** Key eras: `K1` = 2018–2022 MRN encryption, `K2` = 2023–2025 MRN encryption. Every encrypted MRN is tagged with its key era. MRNs from different eras are never compared directly.
+- **PID-03** Persistent registry `pdd.pecan_id_registry` (on P:, never in git), append-only: `PECAN_ID`, `ENCRYPTED_MRN`, `KEY_ERA`, `ASSIGNED_RUN` (date), `LINKED_TO_PECAN_ID` (blank for now), `LINK_SOURCE` (blank), `STATUS` (ACTIVE / SUPERSEDED). It is seeded with the existing K1 IDs exactly as they are. Reruns look up the registry first: a known MRN keeps its ID, and only unseen MRNs get a new one. No ID is ever renumbered or reused.
+- **PID-04** K2 IDs come from a range or format that cannot collide with K1 IDs, chosen after reading how `PCNR_ID` is currently built (format recorded in docs/DECISIONS.md). Within K2, the assignment is deterministic, so the same inputs always produce the same IDs.
+- **PID-05** The combined dataset carries `PECAN_ID` and `PECAN_ID_KEY_ERA`. The dictionary and the master workbook's KEY sheet state plainly that patients with surgeries in both eras currently have two PECAN_IDs, so patient counts across 2018–2025 are overestimates until the IDs are linked.
+- **PID-06** A linkage program (`sas/pecan_id_link.sas`) is written and tested but not run. Given a crosswalk (K2 encrypted MRN → K1 encrypted MRN, or both eras re-encrypted under one key), it fills `LINKED_TO_PECAN_ID` and `LINK_SOURCE`, marks matched K2 IDs as SUPERSEDED, and rebuilds the dataset so linked patients carry their K1 PECAN_ID. A QC report lists every ID that changes. Running it later is the whole "revisit".
+- **PID-07** Cases-per-patient summary (PECAN_ID vs PRECEDE_STUDY_ID) for each era, plus the same summary combined with the caveat from PID-05.
 
 ### Combined dataset and dictionary 2018–2025 (M5)
 - **DD-01** One combined case-level PCNR_ dataset for 2018–2025 in the `pdd` library on P: (never in git), with PECAN_ID and PRECEDE_STUDY_ID first.
@@ -65,7 +71,8 @@ New source files for 2023–2025 are in the same shared folder as the current 20
 | ID | Question | Default if unanswered | Who |
 |---|---|---|---|
 | new-1 | Precedence for cases present in both the 2018–2022 and 2023–2025 sources | Existing rule: earlier spine wins, newer sources gap-fill; conflicts listed in QC | Gerard |
-| new-2 | What to do if encrypted MRNs don't link across eras | Stop; no PECAN_ID for 2023–2025 until resolved | Gerard (DSS if needed) |
+| new-2 | Encrypted MRNs don't link across eras (key change confirmed 2026-11-16) | **Decided:** separate K2 PECAN_IDs through the append-only registry, with linkage deferred to `pecan_id_link.sas` when a crosswalk or common key is available | Gerard (decided) |
+| new-4 | How 2022 5-digit case IDs were linked to the spine in Phase 3, and whether the same rule applies to 2023–2025 | Read the Phase 3 decision record; the probe shows 0 overlap under the plain `Precede` + 5-digit rule for the 2022 files too | Gerard |
 | new-3 | Dictionary sheet inside the master xlsx | No | Gerard |
 | carried | Price's sign-off on naming conventions | Still required before release | Price |
 
