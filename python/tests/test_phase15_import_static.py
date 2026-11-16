@@ -1,5 +1,6 @@
 """Static checks for Phase 15 plan 15-03: sas/15c_new_import.sas and the
 exchange contract shared by 15a/15b/15c."""
+import csv
 import re
 import subprocess
 import sys
@@ -52,3 +53,44 @@ def test_15c_forbidden():
         if re.match(r"\s*file\s", line, re.I):
             assert r"C:\data_dictionary\docs" not in line
             assert "&raw_master" not in line
+
+
+def test_15c_gates_present():
+    t = _sas()
+    for s in ("PDD-D-29 item 3", "PDD-D-17", "PDD-D-25", "PAIRWISE_NEW",
+              "OLD20_UNION", "SHARED_COL_CONFLICT", "NOT_APPLICABLE"):
+        assert s in t, s
+    assert "do not stack" in t.lower()
+    assert t.count("PENDING DECISION") >= 3
+
+
+def test_15c_exports_before_gates():
+    t = _sas()
+    for export, gate in (
+        (r'outfile="&exchange_path.\new_one_to_one.csv"',
+         "PENDING DECISION -- file(s)"),
+        (r'outfile="&exchange_path.\new_overlap.csv"',
+         "PENDING DECISION -- new files share normalized"),
+    ):
+        assert export in t, export
+        assert gate in t, gate
+        assert t.index(export) < t.index(gate)
+
+
+def test_15c_no_dedupe():
+    assert not re.search(r"nodupkey", _sas(), re.I)
+
+
+def test_exchange_contract():
+    with SCHEMA.open(newline="", encoding="utf-8") as fh:
+        in_schema = {row["file"] for row in csv.DictReader(fh)}
+    sas_text = "".join(
+        (ROOT / "sas" / n).read_text(encoding="utf-8")
+        for n in ("15a_new_source_guard.sas", "15b_new_inventory_spec.sas",
+                  "15c_new_import.sas"))
+    for name in ("new_source_guard.csv", "header_inventory_new.csv",
+                 "header_matrix_new.csv", "new_rowcounts.csv",
+                 "new_one_to_one.csv", "new_overlap.csv",
+                 "new_type_changes.csv", "new_nonascii.csv"):
+        assert name in in_schema, name
+        assert name in sas_text, name

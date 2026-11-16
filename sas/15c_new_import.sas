@@ -519,7 +519,236 @@ run;
 
 
 /* ============================================================
-   SECTION 8 -- Run (Sections 2-7); 1:1 and overlap gates follow
+   SECTION 8 -- 1:1 gate (NEW-04)
+   Each new file must be 1:1 per normalized case ID with 0 blank IDs
+   (PDD-D-17 extension). Nothing is deduplicated. The QC CSV is exported
+   before the gate stops the run.
+   ============================================================ */
+
+data work.p15c_o2o;
+  length s_code $4 n_rows 8 n_distinct_psid 8 n_blank_psid 8
+         n_distinct_mrn 8 n_distinct_enc 8 n_enc_multi_case 8 status $4;
+  stop;
+run;
+
+%macro p15c_one_to_one;
+  %local _i _sc _mrn _enc _exp _nr _nd _nb _nm _ne _nmc _st _bad;
+  %let _bad = ;
+
+  %do _i = 21 %to 23;
+    %let _sc = s&_i;
+    %let _mrn = ; %let _enc = ; %let _exp = -1;
+    %let _nr = -1; %let _nd = -1; %let _nb = -1;
+    %let _nm = -1; %let _ne = -1; %let _nmc = -1;
+
+    proc sql noprint;
+      select strip(sas_name) into :_mrn trimmed from work.p15c_spec
+        where file_code = "&_sc"
+          and upcase(compress(orig_col_name, ' _')) = 'ENCRYPTEDMRN';
+      select strip(sas_name) into :_enc trimmed from work.p15c_spec
+        where file_code = "&_sc"
+          and upcase(compress(orig_col_name, ' _')) = 'ENCRYPTEDENCOUNTER';
+      select expected_distinct_psid into :_exp trimmed from work.p15c_files
+        where s_code = "&_sc";
+    quit;
+    %if %length(&_mrn) = 0 or %length(&_enc) = 0 %then
+      %fail_out(msg=%str(p15c_one_to_one: ENCRYPTED_MRN or ENCRYPTED_ENCOUNTER not in the spec for &_sc));
+
+    proc sql noprint;
+      select count(*), count(distinct norm_psid), sum(norm_psid = ''),
+             count(distinct &_mrn), count(distinct &_enc)
+        into :_nr trimmed, :_nd trimmed, :_nb trimmed,
+             :_nm trimmed, :_ne trimmed
+        from pdd.nsrc_&_sc;
+      select count(*) into :_nmc trimmed
+        from (select &_enc from pdd.nsrc_&_sc
+              where &_enc ne '' and norm_psid ne ''
+              group by &_enc
+              having count(distinct norm_psid) > 1);
+    quit;
+    %if &_nr = -1 or &_nd = -1 or &_nb = -1 or &_nm = -1 or &_ne = -1 or &_nmc = -1 %then
+      %fail_out(msg=%str(p15c_one_to_one: count query did not populate for &_sc));
+
+    %let _st = FAIL;
+    %if &_nr = &_nd and &_nb = 0 and &_nd = &_exp %then %let _st = PASS;
+    %if &_st = FAIL %then %let _bad = &_bad &_sc;
+
+    proc sql noprint;
+      insert into work.p15c_o2o
+        (s_code, n_rows, n_distinct_psid, n_blank_psid, n_distinct_mrn,
+         n_distinct_enc, n_enc_multi_case, status)
+      values ("&_sc", &_nr, &_nd, &_nb, &_nm, &_ne, &_nmc, "&_st");
+    quit;
+    %put NOTE: [15c_new_import] &_sc 1:1 check &_st (multi-case patients make distinct MRN below row count; that is expected);
+  %end;
+
+  data pdd.qc_new_one_to_one;
+    set work.p15c_o2o;
+  run;
+
+  proc export data=pdd.qc_new_one_to_one
+              outfile="&exchange_path.\new_one_to_one.csv"
+              dbms=csv replace;
+  run;
+
+  %if %length(&_bad) > 0 %then
+    %fail_out(msg=%str(PENDING DECISION -- file(s) &_bad not 1:1 per case (PDD-D-17 extension, NEW-04). No row was dropped or chosen.));
+  %put NOTE: [15c_new_import] 1:1 gate passed for s21 s22 s23;
+%mend p15c_one_to_one;
+
+
+/* ============================================================
+   SECTION 9 -- Overlap and pairwise gate (NEW-05)
+   PAIRWISE_NEW, SPINE, OLD20_UNION, SHARED_COL_CONFLICT rows are written
+   and exported first; then the gates stop the run if any count is above
+   0. Counts go to the P: log and exchange files only, not to git.
+   MRN overlap is not computed across eras (K1 and K2 keys differ,
+   PDD-D-26).
+   ============================================================ */
+
+data work.p15c_ov;
+  length check_type $20 file_a $8 file_b $8 n_shared 8 status $14;
+  stop;
+run;
+
+%macro p15c_ov_row(ct=, a=, b=, n=, st=);
+  %local _st;
+  %if %length(&st) > 0 %then %let _st = &st;
+  %else %if &n = 0 %then %let _st = ZERO;
+  %else %let _st = SHARED;
+  proc sql noprint;
+    insert into work.p15c_ov (check_type, file_a, file_b, n_shared, status)
+    values ("&ct", "&a", "&b", &n, "&_st");
+  quit;
+%mend p15c_ov_row;
+
+%macro p15c_overlap;
+  %local _n2122 _n2123 _n2223 _s21 _s22 _s23 _o21 _o22 _o23
+         _old_list _n_old _k _m _nonorm _i _tot _na;
+  %let _n2122 = -1; %let _n2123 = -1; %let _n2223 = -1;
+  %let _s21 = -1; %let _s22 = -1; %let _s23 = -1;
+  %let _o21 = -1; %let _o22 = -1; %let _o23 = -1;
+  %let _old_list = ; %let _nonorm = ; %let _n_old = 0;
+
+  /* a. pairwise between the new files, distinct non-blank normalized IDs */
+  proc sql noprint;
+    select count(*) into :_n2122 trimmed from
+      (select distinct a.norm_psid from pdd.nsrc_s21 a
+       inner join pdd.nsrc_s22 b on a.norm_psid = b.norm_psid
+       where a.norm_psid ne '');
+    select count(*) into :_n2123 trimmed from
+      (select distinct a.norm_psid from pdd.nsrc_s21 a
+       inner join pdd.nsrc_s23 b on a.norm_psid = b.norm_psid
+       where a.norm_psid ne '');
+    select count(*) into :_n2223 trimmed from
+      (select distinct a.norm_psid from pdd.nsrc_s22 a
+       inner join pdd.nsrc_s23 b on a.norm_psid = b.norm_psid
+       where a.norm_psid ne '');
+  quit;
+
+  /* b. spine overlap (pdd.src_s09) */
+  proc sql noprint;
+    select count(*) into :_s21 trimmed from
+      (select distinct a.norm_psid from pdd.nsrc_s21 a
+       inner join pdd.src_s09 b on a.norm_psid = b.norm_psid
+       where a.norm_psid ne '');
+    select count(*) into :_s22 trimmed from
+      (select distinct a.norm_psid from pdd.nsrc_s22 a
+       inner join pdd.src_s09 b on a.norm_psid = b.norm_psid
+       where a.norm_psid ne '');
+    select count(*) into :_s23 trimmed from
+      (select distinct a.norm_psid from pdd.nsrc_s23 a
+       inner join pdd.src_s09 b on a.norm_psid = b.norm_psid
+       where a.norm_psid ne '');
+  quit;
+
+  /* c. union of the old sources that carry norm_psid */
+  proc sql noprint;
+    select distinct memname into :_old_list separated by ' '
+    from dictionary.columns
+    where libname = 'PDD' and memname like 'SRC_S__'
+      and upcase(name) = 'NORM_PSID';
+    select lowcase(substr(memname, 5)) into :_nonorm separated by ' '
+    from dictionary.tables
+    where libname = 'PDD' and memname like 'SRC_S__'
+      and memname not in (select memname from dictionary.columns
+                          where libname = 'PDD' and upcase(name) = 'NORM_PSID');
+  quit;
+  %let _n_old = %sysfunc(countw(&_old_list, %str( )));
+  %put NOTE: [15c_new_import] old sources with norm_psid: &_n_old, without (expected s04 s05, PDD-D-18): &_nonorm;
+
+  proc datasets lib=work nolist nowarn;
+    delete p15c_old_stack p15c_old_ids;
+  quit;
+  %do _k = 1 %to &_n_old;
+    %let _m = %scan(&_old_list, &_k, %str( ));
+    proc append base=work.p15c_old_stack
+                data=pdd.&_m(keep=norm_psid where=(norm_psid ne ''));
+    run;
+  %end;
+
+  proc sql noprint;
+    create table work.p15c_old_ids as
+      select distinct norm_psid from work.p15c_old_stack
+      where norm_psid ne '';
+    select count(*) into :_o21 trimmed from
+      (select distinct a.norm_psid from pdd.nsrc_s21 a
+       inner join work.p15c_old_ids b on a.norm_psid = b.norm_psid
+       where a.norm_psid ne '');
+    select count(*) into :_o22 trimmed from
+      (select distinct a.norm_psid from pdd.nsrc_s22 a
+       inner join work.p15c_old_ids b on a.norm_psid = b.norm_psid
+       where a.norm_psid ne '');
+    select count(*) into :_o23 trimmed from
+      (select distinct a.norm_psid from pdd.nsrc_s23 a
+       inner join work.p15c_old_ids b on a.norm_psid = b.norm_psid
+       where a.norm_psid ne '');
+  quit;
+
+  %if &_n2122 < 0 or &_n2123 < 0 or &_n2223 < 0 or &_s21 < 0 or &_s22 < 0
+      or &_s23 < 0 or &_o21 < 0 or &_o22 < 0 or &_o23 < 0 %then
+    %fail_out(msg=%str(p15c_overlap: an overlap count query did not populate));
+
+  %p15c_ov_row(ct=PAIRWISE_NEW, a=s21, b=s22, n=&_n2122);
+  %p15c_ov_row(ct=PAIRWISE_NEW, a=s21, b=s23, n=&_n2123);
+  %p15c_ov_row(ct=PAIRWISE_NEW, a=s22, b=s23, n=&_n2223);
+  %p15c_ov_row(ct=SPINE, a=s21, b=s09, n=&_s21);
+  %p15c_ov_row(ct=SPINE, a=s22, b=s09, n=&_s22);
+  %p15c_ov_row(ct=SPINE, a=s23, b=s09, n=&_s23);
+  %p15c_ov_row(ct=OLD20_UNION, a=s21, b=s01-s20, n=&_o21);
+  %p15c_ov_row(ct=OLD20_UNION, a=s22, b=s01-s20, n=&_o22);
+  %p15c_ov_row(ct=OLD20_UNION, a=s23, b=s01-s20, n=&_o23);
+
+  /* d. value conflicts on shared cases: none can exist when nothing is shared */
+  %let _tot = %eval(&_n2122 + &_n2123 + &_n2223 + &_s21 + &_s22 + &_s23
+                    + &_o21 + &_o22 + &_o23);
+  %if &_tot = 0 %then %let _na = 0;
+  %else %do;
+    %let _na = -1;
+    %put NOTE: [15c_new_import] shared cases exist; the value comparison waits for the Phase 16 map (the gates below stop this run);
+  %end;
+  %p15c_ov_row(ct=SHARED_COL_CONFLICT, a=s21-s23, b=s01-s20, n=&_na, st=NOT_APPLICABLE);
+
+  data pdd.qc_new_overlap;
+    set work.p15c_ov;
+  run;
+
+  proc export data=pdd.qc_new_overlap
+              outfile="&exchange_path.\new_overlap.csv"
+              dbms=csv replace;
+  run;
+
+  /* Gates: QC is already written. Never stack, never pick a precedence. */
+  %if %eval(&_n2122 + &_n2123 + &_n2223) > 0 %then
+    %fail_out(msg=%str(PENDING DECISION -- new files share normalized case IDs (PDD-D-29 item 3): s21-s22=&_n2122 s21-s23=&_n2123 s22-s23=&_n2223. Do not stack; Gerard decides.));
+  %if %eval(&_o21 + &_o22 + &_o23 + &_s21 + &_s22 + &_s23) > 0 %then
+    %fail_out(msg=%str(PENDING DECISION -- new files share case IDs with 2018-2022 sources: s21=&_o21 s22=&_o22 s23=&_o23 (spine &_s21 &_s22 &_s23). Reopen PDD-D-25 (precedence).));
+  %put NOTE: [15c_new_import] PASS -- pairwise overlap 0/0/0; spine overlap 0/0/0; old-source overlap 0/0/0;
+%mend p15c_overlap;
+
+
+/* ============================================================
+   SECTION 10 -- Run in order (every macro is defined above its call)
    ============================================================ */
 
 %p15c_preconditions;
@@ -527,12 +756,17 @@ run;
 %p15c_import_all;
 %p15c_char_scan;
 %p15c_type_changes;
+%p15c_one_to_one;
+%p15c_overlap;
 
 %_note_written_ds(ds=pdd.nsrc_s21, label=pdd.nsrc_s21);
 %_note_written_ds(ds=pdd.nsrc_s22, label=pdd.nsrc_s22);
 %_note_written_ds(ds=pdd.nsrc_s23, label=pdd.nsrc_s23);
 %_note_written_ds(ds=pdd.qc_import_rowcounts_new, label=pdd.qc_import_rowcounts_new);
 %_note_written_ds(ds=pdd.qc_new_nonascii, label=pdd.qc_new_nonascii);
+%_note_written_ds(ds=pdd.qc_new_type_changes, label=pdd.qc_new_type_changes);
+%_note_written_ds(ds=pdd.qc_new_one_to_one, label=pdd.qc_new_one_to_one);
+%_note_written_ds(ds=pdd.qc_new_overlap, label=pdd.qc_new_overlap);
 
 proc datasets lib=work nolist nowarn;
   delete p15c_:;
