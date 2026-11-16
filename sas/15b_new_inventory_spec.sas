@@ -332,10 +332,430 @@ proc datasets lib=work nolist nowarn;
   delete p15b_mx_in p15b_inv_exp;
 quit;
 
-/* SECTION 5+ (pre-pass, probe, names, spec) -- appended in Task 2 */
+/* ============================================================
+   SECTION 5 -- Raw character-length pre-pass (post-transcoding)
+   Every column read as $32767 in the file's own encoding; the max
+   length per column drives the spec length (not the probe).
+   ============================================================ */
+
+data work.p15b_csv_cols;
+  length s_code $4 col_order 8 orig_col_name $256;
+  set pdd.header_inventory_new(keep=s_code col_order original_header
+                               rename=(original_header=orig_col_name));
+run;
+
+proc sort data=work.p15b_csv_cols; by s_code col_order; run;
+
+data work.p15b_prepass_all;
+  length s_code $4 col_order 8 max_len 8;
+  stop;
+run;
+
+data work.p15b_probe_all;
+  length s_code $4 col_order 8 parse_fail_best32 8 n_leadzero 8;
+  stop;
+run;
+
+%macro p15b_csv_prepass(scode=, full_path=, ncols=, enc=);
+  %local _nbatches _b _col_start _col_end _b_ncols _nskip;
+  %let _nbatches = %sysfunc(ceil(%sysevalf(&ncols / 200)));
+  %put NOTE: [15b_new_inventory_spec] Pre-pass &scode: ncols=&ncols nbatches=&_nbatches encoding=&enc;
+
+  %do _b = 1 %to &_nbatches;
+    %let _col_start = %eval((&_b - 1) * 200 + 1);
+    %let _col_end   = %sysfunc(min(&ncols, %eval(&_b * 200)));
+    %let _b_ncols   = %eval(&_col_end - &_col_start + 1);
+
+    data work._p15b_pp_long;
+      length _s_code $4 s_code $4;
+      retain _ml1-_ml&_b_ncols 0;
+      array _c {&_b_ncols} $32767 _c1-_c&_b_ncols;
+      array _m {&_b_ncols} _ml1-_ml&_b_ncols;
+      _s_code = "&scode";
+      infile "&full_path" encoding="&enc" dlm=',' dsd missover
+             firstobs=2 lrecl=32767 end=_eof;
+      %if &_col_start > 1 %then %do;
+        %let _nskip = %eval(&_col_start - 1);
+        length _skip1-_skip&_nskip $1;
+        input (_skip1-_skip&_nskip) (:$1.) (_c1-_c&_b_ncols) (:$32767.);
+        drop _skip1-_skip&_nskip;
+      %end;
+      %else %do;
+        input (_c1-_c&_b_ncols) (:$32767.);
+      %end;
+      do _j = 1 to &_b_ncols;
+        if lengthn(_c{_j}) > _m{_j} then _m{_j} = lengthn(_c{_j});
+      end;
+      if _eof then do;
+        do _j = 1 to &_b_ncols;
+          s_code    = _s_code;
+          col_order = &_col_start + _j - 1;
+          max_len   = _m{_j};
+          output;
+        end;
+      end;
+      keep s_code col_order max_len;
+    run;
+
+    proc append base=work.p15b_prepass_all data=work._p15b_pp_long; run;
+    proc datasets lib=work nolist nowarn; delete _p15b_pp_long; quit;
+  %end;
+  %put NOTE: [15b_new_inventory_spec] Pre-pass &scode complete;
+%mend p15b_csv_prepass;
+
+
+/* ============================================================
+   SECTION 7 (defined here, run in the file loop) -- numeric parse probe
+   One pass per file; counts best32. parse failures per column and
+   values with a leading zero followed by a digit (forced to char).
+   ============================================================ */
+
+%macro p15b_probe_numeric(scode=, fpath=, enc=, ncols=);
+  data work._p15b_probe_one;
+    length s_code $4 _v $32767;
+    array _c {&ncols} $32767 _c1-_c&ncols;
+    array _f {&ncols} _f1-_f&ncols;
+    array _z {&ncols} _z1-_z&ncols;
+    retain _f1-_f&ncols 0 _z1-_z&ncols 0;
+    infile "&fpath" encoding="&enc" dlm=',' dsd missover
+           firstobs=2 lrecl=32767 end=_eof;
+    input (_c1-_c&ncols) (:$32767.);
+    do _j = 1 to &ncols;
+      _v = strip(_c{_j});
+      if _v not in ('', 'NULL', '.') then do;
+        if prxmatch('/^0\d/', strip(_v)) then _z{_j} + 1;
+        if input(_v, ?? best32.) = . then _f{_j} + 1;
+      end;
+    end;
+    if _eof then do;
+      s_code = "&scode";
+      do _j = 1 to &ncols;
+        col_order         = _j;
+        parse_fail_best32 = _f{_j};
+        n_leadzero        = _z{_j};
+        output;
+      end;
+    end;
+    keep s_code col_order parse_fail_best32 n_leadzero;
+  run;
+
+  proc append base=work.p15b_probe_all data=work._p15b_probe_one; run;
+  proc datasets lib=work nolist nowarn; delete _p15b_probe_one; quit;
+  %put NOTE: [15b_new_inventory_spec] Parse probe &scode complete;
+%mend p15b_probe_numeric;
+
+%macro p15b_run_files;
+  %local _i _sc _full _enc _nc;
+  %do _i = 1 %to 3;
+    %let _sc = ; %let _full = ; %let _enc = ; %let _nc = 0;
+    data _null_;
+      set work.p15b_files(where=(file_id = &_i));
+      call symputx('_sc',   s_code,       'L');
+      call symputx('_full', full_path,    'L');
+      call symputx('_enc',  src_encoding, 'L');
+    run;
+    proc sql noprint;
+      select count(*) into :_nc trimmed
+      from work.p15b_csv_cols where s_code = "&_sc";
+    quit;
+    %if &_nc = 0 %then
+      %fail_out(msg=%str(p15b_run_files: header parse returned 0 columns for &_sc));
+    %p15b_csv_prepass(scode=&_sc, full_path=&_full, ncols=&_nc, enc=&_enc);
+    %p15b_probe_numeric(scode=&_sc, fpath=&_full, enc=&_enc, ncols=&_nc);
+  %end;
+%mend p15b_run_files;
+%p15b_run_files;
+
+data pdd.raw_char_lengths_new;
+  set work.p15b_prepass_all;
+run;
+
+%macro p15b_assert_prepass;
+  %local _n_bad;
+  %let _n_bad = -1;
+  proc sql noprint;
+    select count(*) into :_n_bad trimmed
+    from (select s_code, count(*) as n, max(col_order) as m
+          from pdd.raw_char_lengths_new group by s_code) a
+    inner join (select s_code, count(*) as n
+                from work.p15b_csv_cols group by s_code) c
+      on a.s_code = c.s_code
+    where a.n ne c.n or a.m ne c.n;
+  quit;
+  %if &_n_bad ne 0 %then
+    %fail_out(msg=%str(p15b_assert_prepass: &_n_bad file(s) where pre-pass columns differ from header columns));
+  %put NOTE: [15b_new_inventory_spec] pre-pass column counts match header counts;
+%mend p15b_assert_prepass;
+%p15b_assert_prepass;
+
+
+/* ============================================================
+   SECTION 6 -- SAS names (V7, <= 32 chars, case-insensitive unique)
+   Same rules as 03a: non-alphanumeric -> _, leading digit -> _ prefix,
+   truncate to 32, later duplicates get _dup2 _dup3 ... (suffix kept
+   inside 32 chars). orig_col_name keeps the full header.
+   ============================================================ */
+
+data work.p15b_named;
+  set work.p15b_csv_cols;
+  by s_code;
+  length sas_name $32 _raw $256 _cand $32 _sfx_str $12 _uname $32;
+  if _n_ = 1 then do;
+    declare hash _seen();
+    _seen.defineKey('_uname');
+    _seen.defineDone();
+  end;
+  if first.s_code then _seen.clear();
+
+  _raw = prxchange('s/[^A-Za-z0-9_]/_/', -1, strip(orig_col_name));
+  if prxmatch('/^\d/', strip(_raw)) then _raw = cats('_', _raw);
+  sas_name = substr(_raw, 1, 32);
+  if lengthn(sas_name) = 0 then sas_name = cats('VAR', col_order);
+
+  _uname = upcase(strip(sas_name));
+  if _seen.check() = 0 then do;
+    _sfx = 2;
+    do while (_seen.check() = 0);
+      _sfx_str = cats('_dup', put(_sfx, best12.));
+      _cand    = cats(substr(sas_name, 1, 32 - lengthn(_sfx_str)), _sfx_str);
+      _uname   = upcase(_cand);
+      _sfx + 1;
+    end;
+    put 'NOTE: [15b_new_inventory_spec] dup resolved: ' s_code= col_order= sas_name= _cand=;
+    sas_name = _cand;
+    _uname   = upcase(_cand);
+  end;
+  _seen.add();
+  drop _raw _cand _sfx _sfx_str _uname;
+run;
+
+%macro p15b_assert_names;
+  %local _n_inv _n_dup;
+  %let _n_inv = -1; %let _n_dup = -1;
+  proc sql noprint;
+    select count(*) into :_n_inv trimmed
+      from work.p15b_named
+      where not prxmatch('/^[A-Za-z_][A-Za-z0-9_]{0,31}$/', strip(sas_name));
+    select count(*) into :_n_dup trimmed
+      from (select s_code, upcase(sas_name) as u, count(*) as n
+            from work.p15b_named
+            group by s_code, upcase(sas_name)
+            having count(*) > 1);
+  quit;
+  %if &_n_inv ne 0 %then
+    %fail_out(msg=%str(p15b_assert_names: &_n_inv invalid V7 sas_name(s)));
+  %if &_n_dup ne 0 %then
+    %fail_out(msg=%str(p15b_assert_names: &_n_dup duplicate sas_name group(s) remain));
+  %put NOTE: [15b_new_inventory_spec] sas_name checks passed (V7 valid, unique, <= 32 chars);
+%mend p15b_assert_names;
+%p15b_assert_names;
+
+
+/* ============================================================
+   SECTION 8 -- Spec build (11 columns)
+   Forced char: PRECEDE Study ID, ENCRYPTED_*, *_ID / *_CODE.
+   Numeric guess stays N / best32. only if every value parses.
+   Work names len_ and fmt_ avoid the LENGTH / FORMAT keywords; they
+   are renamed to length / format on pdd.import_spec_new.
+   ============================================================ */
+
+proc sql noprint;
+  create table work.p15b_spec_in as
+  select n.s_code as file_code length=4,
+         n.col_order,
+         strip(n.orig_col_name) as src_name length=256,
+         strip(n.orig_col_name) as orig_col_name length=256,
+         n.sas_name,
+         h.col_type as imp_type length=4,
+         coalesce(l.max_len, 0) as max_len,
+         coalesce(p.parse_fail_best32, 0) as parse_fail_best32,
+         coalesce(p.n_leadzero, 0) as n_leadzero,
+         f.src_encoding length=10
+  from work.p15b_named n
+  inner join work.p15b_files f on n.s_code = f.s_code
+  left join pdd.header_inventory_new h
+    on n.s_code = h.s_code and n.col_order = h.col_order
+  left join pdd.raw_char_lengths_new l
+    on n.s_code = l.s_code and n.col_order = l.col_order
+  left join work.p15b_probe_all p
+    on n.s_code = p.s_code and n.col_order = p.col_order
+  order by file_code, col_order;
+quit;
+
+data work.p15b_spec_typed;
+  length file_code $4 col_order 8 src_name $256 orig_col_name $256
+         sas_name $32 sas_type $1 len_ 8 informat $34 fmt_ $34
+         notes $200 src_encoding $10 _oc $256;
+  set work.p15b_spec_in;
+  _oc  = upcase(compress(orig_col_name, ' _'));
+  fmt_ = '';
+  if _oc = 'PRECEDESTUDYID' then do;
+    sas_type = 'C';
+    len_     = 22;
+    informat = '$22.';
+    notes    = 'forced to char -- ID column';
+  end;
+  else if prxmatch('/^ENCRYPTED_/i', strip(orig_col_name)) then do;
+    sas_type = 'C';
+    len_     = max(1, max_len);
+    informat = cats('$', put(len_, best12.), '.');
+    notes    = 'forced to char -- ENCRYPTED col';
+  end;
+  else if prxmatch('/(_ID|_CODE)$/i', strip(orig_col_name)) then do;
+    sas_type = 'C';
+    len_     = max(1, max_len);
+    informat = cats('$', put(len_, best12.), '.');
+    notes    = 'forced to char -- ID column';
+  end;
+  else if imp_type = 'num' then do;
+    if n_leadzero > 0 then do;
+      sas_type = 'C';
+      len_     = max(1, max_len);
+      informat = cats('$', put(len_, best12.), '.');
+      notes    = 'numeric guess had leading-zero values -- read as char';
+    end;
+    else if parse_fail_best32 = 0 then do;
+      sas_type = 'N';
+      len_     = 8;
+      informat = 'best32.';
+      notes    = 'parse_fail_best32=0chosen_informat=best32.';
+    end;
+    else do;
+      sas_type = 'C';
+      len_     = max(1, max_len);
+      informat = cats('$', put(len_, best12.), '.');
+      notes    = 'numeric guess had parse failures -- read as char';
+    end;
+  end;
+  else do;
+    sas_type = 'C';
+    len_     = max(1, max_len);
+    informat = cats('$', put(len_, best12.), '.');
+    notes    = '';
+  end;
+  keep file_code col_order src_name orig_col_name sas_name sas_type len_
+       informat fmt_ notes src_encoding;
+run;
+
+data pdd.import_spec_new(rename=(len_=length fmt_=format));
+  set work.p15b_spec_typed;
+run;
+
+
+/* ============================================================
+   SECTION 9 -- Assertions, then docs\import_spec_new_generated.csv
+   ============================================================ */
+
+%macro p15b_assert_spec;
+  %local _n_codes _n_rows94 _n_blank_enc _n_wl _n_utf _n_pid _n_dup;
+  %let _n_codes = -1; %let _n_rows94 = -1; %let _n_blank_enc = -1;
+  %let _n_wl = -1; %let _n_utf = -1; %let _n_pid = -1; %let _n_dup = -1;
+
+  proc sql noprint;
+    select count(distinct file_code) into :_n_codes trimmed
+      from work.p15b_spec_typed;
+    select count(*) into :_n_rows94 trimmed
+      from (select file_code, count(*) as n from work.p15b_spec_typed
+            group by file_code) where n ne 94;
+    select count(*) into :_n_blank_enc trimmed
+      from work.p15b_spec_typed where lengthn(src_encoding) = 0;
+    select count(distinct file_code) into :_n_wl trimmed
+      from work.p15b_spec_typed where src_encoding = 'wlatin1';
+    select count(distinct file_code) into :_n_utf trimmed
+      from work.p15b_spec_typed
+      where file_code = 's21' and src_encoding eq 'utf-8';
+    select count(*) into :_n_pid trimmed
+      from (select file_code from work.p15b_spec_typed
+            where upcase(compress(orig_col_name, ' _')) = 'PRECEDESTUDYID'
+              and sas_type = 'C'
+            group by file_code having count(*) = 1);
+    select count(*) into :_n_dup trimmed
+      from (select file_code, upcase(sas_name) as u, count(*) as n
+            from work.p15b_spec_typed
+            group by file_code, upcase(sas_name) having count(*) > 1);
+  quit;
+
+  %if &_n_codes ne 3 %then
+    %fail_out(msg=%str(p15b_assert_spec: &_n_codes file codes in spec -- expected 3));
+  %if &_n_rows94 ne 0 %then
+    %fail_out(msg=%str(p15b_assert_spec: &_n_rows94 file(s) without exactly 94 spec rows));
+  %if &_n_blank_enc ne 0 %then
+    %fail_out(msg=%str(p15b_assert_spec: &_n_blank_enc spec row(s) with blank src_encoding));
+  %if &_n_wl ne 2 %then
+    %fail_out(msg=%str(p15b_assert_spec: &_n_wl wlatin1 file code(s) -- expected 2 (s22 s23)));
+  %if &_n_utf ne 1 %then
+    %fail_out(msg=%str(p15b_assert_spec: s21 is not utf-8 in the spec));
+  %if &_n_pid ne 3 %then
+    %fail_out(msg=%str(p15b_assert_spec: PRECEDE Study ID is not exactly one char column in each of 3 files (found &_n_pid)));
+  %if &_n_dup ne 0 %then
+    %fail_out(msg=%str(p15b_assert_spec: &_n_dup duplicate sas_name group(s)));
+  %put NOTE: [15b_new_inventory_spec] spec assertions passed;
+%mend p15b_assert_spec;
+%p15b_assert_spec;
+
+%let p15b_spec_enc = utf-8;
+
+data _null_;
+  file "C:\data_dictionary\docs\import_spec_new_generated.csv"
+       lrecl=5000 encoding="&p15b_spec_enc";
+  put 'file_code,col_order,src_name,orig_col_name,sas_name,sas_type,length,informat,format,notes,src_encoding';
+run;
+
+data _null_;
+  set work.p15b_spec_typed;
+  file "C:\data_dictionary\docs\import_spec_new_generated.csv"
+       lrecl=5000 encoding="&p15b_spec_enc" mod;
+  length _q_sn $600 _q_oc $600 _q_nm $80 _q_inf $80 _q_fmt $80 _q_no $400
+         _line $5000;
+  _q_sn  = cats('"', tranwrd(strip(src_name),      '"', '""'), '"');
+  _q_oc  = cats('"', tranwrd(strip(orig_col_name), '"', '""'), '"');
+  _q_nm  = cats('"', tranwrd(strip(sas_name),      '"', '""'), '"');
+  _q_inf = cats('"', tranwrd(strip(informat),      '"', '""'), '"');
+  _q_fmt = cats('"', tranwrd(strip(fmt_),          '"', '""'), '"');
+  _q_no  = cats('"', tranwrd(strip(notes),         '"', '""'), '"');
+  _line  = catx(',', strip(file_code), strip(put(col_order, best12.)),
+                _q_sn, _q_oc, _q_nm, strip(sas_type),
+                strip(put(len_, best12.)), _q_inf, _q_fmt, _q_no,
+                strip(src_encoding));
+  put _line;
+run;
+
+%macro p15b_assert_csv;
+  %local _nspec _ncsv;
+  %let _nspec = -1; %let _ncsv = -1;
+  proc sql noprint;
+    select count(*) into :_nspec trimmed from pdd.import_spec_new;
+  quit;
+  data work._p15b_csv_rc;
+    infile "C:\data_dictionary\docs\import_spec_new_generated.csv"
+           lrecl=5000 encoding="&p15b_spec_enc" firstobs=2 end=_eof;
+    input;
+    _row + 1;
+    if _eof then output;
+    keep _row;
+  run;
+  proc sql noprint;
+    select _row into :_ncsv trimmed from work._p15b_csv_rc;
+  quit;
+  proc datasets lib=work nolist nowarn; delete _p15b_csv_rc; quit;
+  %if &_ncsv ne &_nspec %then
+    %fail_out(msg=%str(import_spec_new_generated.csv has &_ncsv data rows but pdd.import_spec_new has &_nspec));
+  %put NOTE: [15b_new_inventory_spec] CSV row-count assert passed (&_ncsv rows);
+%mend p15b_assert_csv;
+%p15b_assert_csv;
+
+%put NOTE: [15b_new_inventory_spec] docs\import_spec_new_generated.csv written -- commit it (no PHI: names, types, lengths only);
+
+proc datasets lib=work nolist nowarn;
+  delete p15b_csv_cols p15b_prepass_all p15b_probe_all p15b_named
+         p15b_spec_in p15b_spec_typed p15b_hdr_all p15b_counts;
+quit;
 
 %_note_written_ds(ds=pdd.source_inventory_new, label=pdd.source_inventory_new);
 %_note_written_ds(ds=pdd.header_inventory_new, label=pdd.header_inventory_new);
 %_note_written_ds(ds=pdd.header_matrix_new,    label=pdd.header_matrix_new);
+%_note_written_ds(ds=pdd.raw_char_lengths_new, label=pdd.raw_char_lengths_new);
+%_note_written_ds(ds=pdd.import_spec_new,      label=pdd.import_spec_new);
 
 %restore_log;
+
