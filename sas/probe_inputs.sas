@@ -225,7 +225,7 @@ quit;
     length v $200 __t $200;
     __t = strip(cats("&sc"n));
     if missing(__t) then delete;
-    if prxmatch('/^\d{1,5}$/', __t) then v = cats('Precede', put(input(__t, 8.), z5.));
+    if prxmatch('/^\d{1,5}$/', strip(__t)) then v = cats('Precede', put(input(strip(__t), 8.), z5.));
     else v = __t;
   run;
   data _spm0(keep=v);
@@ -444,13 +444,13 @@ quit;
       set _idv;
       length __vn $200 pattern $80 __t $200;
       __t = strip(__v);
-      if prxmatch('/^\d{1,5}$/', __t) then __vn = cats('Precede', put(input(__t, 8.), z5.));
+      if prxmatch('/^\d{1,5}$/', strip(__t)) then __vn = cats('Precede', put(input(strip(__t), 8.), z5.));
       else __vn = __t;
-      if length(__t) >= 16 then
-        pattern = catx(' ', 'LONG', cats('len=', length(__t)),
-                  ifc(prxmatch('/^[0-9]+$/', __t), 'digits',
-                  ifc(prxmatch('/^[0-9A-Fa-f]+$/', __t), 'hex',
-                  ifc(prxmatch('/^[A-Za-z0-9+\/=]+$/', __t), 'base64-like', 'mixed'))));
+      if lengthn(strip(__t)) >= 16 then
+        pattern = catx(' ', 'LONG', cats('len=', lengthn(strip(__t))),
+                  ifc(prxmatch('/^[0-9]+$/', strip(__t)), 'digits',
+                  ifc(prxmatch('/^[0-9A-Fa-f]+$/', strip(__t)), 'hex',
+                  ifc(prxmatch('/^[A-Za-z0-9+\/=]+$/', strip(__t)), 'base64-like', 'mixed'))));
       else do;
         pattern = prxchange('s/\d/9/', -1, __t);
         pattern = prxchange('s/[A-Za-z]/A/', -1, pattern);
