@@ -21,6 +21,7 @@ C11 SAS macro keyword inside a quoted string on a PUT line (macro-in-put)
 C13 Macro called before its %macro definition within the same file
 C14 DATA or SET statement with no dataset name (bare "data ;" / "set ;")
 C19 put() / input() inside %sysfunc() -- use putn()/putc() or inputn()/inputc()
+C30 semicolon inside %put text or %fail_out(msg=%str(...)) message
 C20 TRIMMED keyword in PROC SQL SELECT list -- valid only after INTO targets
 W2  Assert-style count query: reports dataset name and WHERE-clause columns for reviewer
 
@@ -492,6 +493,59 @@ def check_macro_in_put(path, lines):
             hits.append((path, i, 'C11',
                 'macro keyword inside a quoted string on a PUT line -- '
                 'the macro is NOT executed; confirm this is intentional code generation'))
+    return hits
+
+
+# ── C30: semicolon inside %put text or %fail_out(msg=%str(...)) ──────────────
+#
+# A ';' inside %put text ends the statement early, and the rest of the text is
+# parsed as code (ERROR 180-322). Same for %str() messages that %fail_out
+# later echoes through %put. Use a comma or dash instead.
+
+def _c30_balanced_end(text, start):
+    """Index just past the ')' that closes the '(' at text[start]."""
+    depth = 0
+    for k in range(start, len(text)):
+        ch = text[k]
+        if ch == '(':
+            depth += 1
+        elif ch == ')':
+            depth -= 1
+            if depth == 0:
+                return k + 1
+    return -1
+
+
+def check_semicolon_in_put_text(path, lines):
+    hits = []
+    text = '\n'.join(lines)
+
+    def lineno(pos):
+        return text.count('\n', 0, pos) + 1
+
+    # (a) %put: text ends at the first ';'. Anything but a macro statement or
+    # nothing after it on that physical line is a cut-off message.
+    for m in re.finditer(r'%put\b', text, CI):
+        semi = text.find(';', m.end())
+        if semi < 0:
+            continue
+        eol = text.find('\n', semi)
+        rest = text[semi + 1:(eol if eol >= 0 else len(text))].strip()
+        if rest and not rest.startswith('%'):
+            hits.append((path, lineno(m.start()), 'C30',
+                'semicolon inside %put text ends the statement early '
+                '(ERROR 180-322) -- use a comma or dash'))
+
+    # (b) %fail_out(msg=%str(...)): no ';' inside the %str( ) argument.
+    for m in re.finditer(r'%fail_out\s*\(\s*msg\s*=\s*%str\s*\(', text, CI):
+        open_pos = m.end() - 1
+        end = _c30_balanced_end(text, open_pos)
+        if end < 0:
+            continue
+        if ';' in text[open_pos:end]:
+            hits.append((path, lineno(m.start()), 'C30',
+                'semicolon inside %str() message passed to %fail_out -- '
+                'use a comma or dash'))
     return hits
 
 
@@ -1448,6 +1502,7 @@ CHECKS = [
     check_like_in_datastep,
     check_ds_read_in_varloop,
     check_sql_select_trimmed,
+    check_semicolon_in_put_text,
 ]
 
 

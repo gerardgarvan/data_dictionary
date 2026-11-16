@@ -189,7 +189,7 @@
   %if &_n_fname > 0 %then
     %fail_out(msg=%str(p15a_old_guard: &_n_fname filename(s) changed since baseline));
   %if &_n_sha > 0 %then
-    %fail_out(msg=%str(SOURCE GUARD FAILED -- &_n_sha file(s) changed since the 20-file baseline. Do not edit or delete docs/source_guard_baseline.csv (NEW-01); investigate first.));
+    %fail_out(msg=%str(SOURCE GUARD FAILED -- &_n_sha file(s) changed since the 20-file baseline. Do not edit or delete docs/source_guard_baseline.csv (NEW-01) - investigate first.));
 
   %put NOTE: [15a_new_source_guard] PASS -- all 20 SHA-256 values and filenames match docs/source_guard_baseline.csv (unchanged);
 
@@ -452,7 +452,7 @@
     %if &_n_only_base > 0 or &_n_only_curr > 0 %then
       %fail_out(msg=%str(p15a_new_guard: s_code sets differ between new baseline and current scan));
     %if &_n_drift > 0 %then
-      %fail_out(msg=%str(NEW SOURCE GUARD FAILED -- &_n_drift new file(s) changed since the approved baseline. Do not delete docs/source_guard_baseline_new.csv; investigate (PENDING DECISION).));
+      %fail_out(msg=%str(NEW SOURCE GUARD FAILED -- &_n_drift new file(s) changed since the approved baseline. Do not delete docs/source_guard_baseline_new.csv - investigate - PENDING DECISION.));
 
     %put NOTE: [15a_new_source_guard] PASS -- all 3 new-file SHA-256 values match docs/source_guard_baseline_new.csv;
   %end;

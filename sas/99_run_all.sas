@@ -42,9 +42,9 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
 /* ---- Phase pre-flight: stop if a prior step left SAS in a bad state ---- */
 %macro _check_pipeline_ok(phase=);
   %if &syserr > 4 %then
-    %fail_out(msg=%str(phase &phase aborted -- syserr=&syserr from previous step; pipeline cannot continue));
+    %fail_out(msg=%str(phase &phase aborted -- syserr=&syserr from previous step - pipeline cannot continue));
   %if %sysfunc(getoption(obs)) = 0 %then
-    %fail_out(msg=%str(phase &phase aborted -- SAS is in syntax-check mode (OBS=0) from a prior error; pipeline cannot continue));
+    %fail_out(msg=%str(phase &phase aborted -- SAS is in syntax-check mode (OBS=0) from a prior error - pipeline cannot continue));
 %mend _check_pipeline_ok;
 
 %put NOTE: ============================================================;
@@ -101,7 +101,7 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
     select count(*) into :_n_filelist trimmed from work.file_list;
   quit;
   %if &_n_filelist ne 20 %then
-    %fail_out(msg=%str(run_hash_guard: file_list has &_n_filelist rows from baseline -- expected 20; run Phase 2 first to seed the baseline));
+    %fail_out(msg=%str(run_hash_guard: file_list has &_n_filelist rows from baseline -- expected 20 - run Phase 2 first to seed the baseline));
   %put NOTE: [99_run_all] run_hash_guard: work.file_list built (&_n_filelist rows);
 
   /* ---- Compute SHA-256 for all 20 files via certutil PIPE FILEVAR ---- */

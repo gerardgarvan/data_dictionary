@@ -91,7 +91,7 @@
   %if not %sysfunc(fileexist(C:\data_dictionary\docs\new_source_files.csv)) %then
     %fail_out(msg=%str(p15c_preconditions: docs/new_source_files.csv not found));
   %if not %sysfunc(fileexist(C:\data_dictionary\docs\source_guard_baseline_new.csv)) %then
-    %fail_out(msg=%str(PENDING DECISION -- new baseline not approved (NEW-01); run 15a first));
+    %fail_out(msg=%str(PENDING DECISION -- new baseline not approved (NEW-01) - run 15a first));
   %if not %sysfunc(exist(pdd.raw_char_lengths_new)) %then
     %fail_out(msg=%str(p15c_preconditions: pdd.raw_char_lengths_new missing -- run 15b));
   %if not %sysfunc(exist(pdd.src_s09)) %then
@@ -308,7 +308,7 @@ run;
   %if &_nimp = &_exp and &_nimp = &_nraw %then %let _st = MATCH;
   %else %if &_nimp = &_exp %then %do;
     %let _st = MATCH_RAWDIFF;
-    %put NOTE: [15c_new_import] &sc raw line count (&_nraw) differs from imported rows (&_nimp); likely embedded line breaks;
+    %put NOTE: [15c_new_import] &sc raw line count (&_nraw) differs from imported rows (&_nimp) - likely embedded line breaks;
   %end;
 
   proc sql noprint;
@@ -360,7 +360,7 @@ run;
     %fail_out(msg=%str(row count does not match probe for &_bad (NEW-03)));
   %if &_n_np ne 3 %then
     %fail_out(msg=%str(p15c_import_all: each nsrc dataset must have exactly one norm_psid column (found &_n_np of 3)));
-  %put NOTE: [15c_new_import] row counts reconciled; norm_psid present once in each nsrc dataset;
+  %put NOTE: [15c_new_import] row counts reconciled - norm_psid present once in each nsrc dataset;
 %mend p15c_import_all;
 
 
@@ -579,7 +579,7 @@ run;
          n_distinct_enc, n_enc_multi_case, status)
       values ("&_sc", &_nr, &_nd, &_nb, &_nm, &_ne, &_nmc, "&_st");
     quit;
-    %put NOTE: [15c_new_import] &_sc 1:1 check &_st (multi-case patients make distinct MRN below row count; that is expected);
+    %put NOTE: [15c_new_import] &_sc 1:1 check &_st (multi-case patients make distinct MRN below row count - that is expected);
   %end;
 
   data pdd.qc_new_one_to_one;

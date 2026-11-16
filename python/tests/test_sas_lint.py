@@ -704,3 +704,34 @@ def test_c20_clean_on_07_build_profile():
         lines = fh.read().split("\n")
     hits = sas_lint.check_sql_select_trimmed(str(path), lines)
     assert hits == [], "C20 in 07_build_profile.sas:\n" + "\n".join(str(h) for h in hits)
+
+
+# ---------------------------------------------------------------------------
+# C30: semicolon inside %put text or %fail_out(msg=%str(...))
+# ---------------------------------------------------------------------------
+
+def test_c30_fires_on_semicolon_in_put():
+    lines = ["%put NOTE: [x] check ok (expected; that is fine);"]
+    hits = sas_lint.check_semicolon_in_put_text("<test>", lines)
+    assert any(h[2] == "C30" for h in hits), hits
+
+
+def test_c30_fires_on_semicolon_in_fail_out_str():
+    lines = ["%fail_out(msg=%str(PENDING DECISION -- a; b));"]
+    hits = sas_lint.check_semicolon_in_put_text("<test>", lines)
+    assert any(h[2] == "C30" for h in hits), hits
+
+
+def test_c30_fires_on_multiline_fail_out_str():
+    lines = ["%fail_out(msg=%str(first line", "  second; third));"]
+    hits = sas_lint.check_semicolon_in_put_text("<test>", lines)
+    assert any(h[2] == "C30" for h in hits), hits
+
+
+def test_c30_clean_cases():
+    lines = [
+        "%put NOTE: [x] plain text, with a comma;",
+        "%put NOTE: first; %let y = 1;",
+        "%fail_out(msg=%str(PENDING DECISION -- a, b (c)));",
+    ]
+    assert sas_lint.check_semicolon_in_put_text("<test>", lines) == []
