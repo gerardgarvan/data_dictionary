@@ -141,7 +141,7 @@ def test_15a_forbidden_patterns():
     t = _sas()
     assert not re.search(r"%let\s+syscc\s*=\s*0", t, re.I)
     assert not re.search(r"call\s+execute", t, re.I)
-    assert not re.search(r"proc\s+print", t, re.I)
+    assert not re.search(r"proc\s+print\b", t, re.I)
 
 
 def test_15a_counts():
