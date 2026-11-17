@@ -8,6 +8,8 @@
             unchanged, T4 existing name skipped (Foo, Foo_2 used -> Foo_3),
             T5 two new groups with one base, T6 27-char base re-elided,
             T7 stage 2 checks, T9 SAME type guard, T8 no WARNING lines in this log.
+            T2/T3 step ends with STOP (it has no driving SET statement).
+            T2/T3 test id column is TCASE (CASE is reserved in PROC SQL).
   Run     : sas 16_name_map_ext_test.sas  (no pipeline setup required)
             Bring back the log and look for the TESTRESULT SUMMARY line.
   Status  : PENDING SAS RUN (Gerard).
@@ -76,28 +78,32 @@ run;
     length nm $200 _cbe $200 _pat $400 long short $200 mode $10
            _ai _nab_tot _longlen _is_lower _p16_longer 8
            _elide_first 8 _elide_last 8 _elide_head $200 _elide_tail $200
-           case $4;
+           tcase $4;
     if 0 then set work.t_abbrev (keep=long short _longlen _is_lower mode) nobs=_nab_tot;
     retain _nab_tot;
     _p16_longer = 0;
-    case = 'T2';
+    tcase = 'T2';
     nm = 'BRADEN_2024_OUT_Braden_Sensory_Perception';
     %p16_shorten(nm=nm, abbrev=work.t_abbrev)
     output;
-    case = 'T3';
+    tcase = 'T3';
     nm = 'Foo_Score';
     %p16_shorten(nm=nm, abbrev=work.t_abbrev)
     output;
-    keep case nm _p16_longer;
+    /* No driving SET here, and p16_shorten reads the abbrev table with POINT=,
+       which never reaches end of file. Without STOP this step loops forever
+       and fills WORK (disk-full on 2026-11-17). */
+    stop;
+    keep tcase nm _p16_longer;
   run;
   %local _t2_ok _t3_ok;
   %let _t2_ok = 0;
   %let _t3_ok = 0;
   proc sql noprint;
     select count(*) into :_t2_ok trimmed from work.t23
-    where case = 'T2' and length(strip(nm)) <= 27 and index(nm, 'Perc') > 0;
+    where tcase = 'T2' and length(strip(nm)) <= 27 and index(nm, 'Perc') > 0;
     select count(*) into :_t3_ok trimmed from work.t23
-    where case = 'T3' and strip(nm) = 'Foo_Score';
+    where tcase = 'T3' and strip(nm) = 'Foo_Score';
   quit;
   %if &_t2_ok = 1 %then %_record(case=T2_SHORTEN_ALWAYS_ROW, result=PASS);
   %else %_record(case=T2_SHORTEN_ALWAYS_ROW, result=FAIL, detail=%str(not within 27 or Perc missing));
