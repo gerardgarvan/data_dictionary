@@ -115,25 +115,32 @@
    Header and values only, counts and names. */
 %macro p18_export(ds=, file=, cols=, numcols=);
   %local _i _c _hdr;
-  data work._p18_exp;
-    set &ds(rename=(
+  %if %length(&numcols) = 0 %then %do;
+    data work._p18_exp;
+      set &ds;
+    run;
+  %end;
+  %else %do;
+    data work._p18_exp;
+      set &ds(rename=(
+        %do _i = 1 %to %sysfunc(countw(&numcols, %str( )));
+          %scan(&numcols, &_i, %str( ))=_m_%scan(&numcols, &_i, %str( ))
+        %end;
+      ));
+      length
+        %do _i = 1 %to %sysfunc(countw(&numcols, %str( )));
+          %scan(&numcols, &_i, %str( )) $12
+        %end;
+      ;
       %do _i = 1 %to %sysfunc(countw(&numcols, %str( )));
-        %scan(&numcols, &_i, %str( ))=_m_%scan(&numcols, &_i, %str( ))
+        %let _c = %scan(&numcols, &_i, %str( ));
+        if missing(_m_&_c) then &_c = '';
+        else if _m_&_c >= 1 and _m_&_c <= 10 then &_c = '<11';
+        else &_c = strip(put(_m_&_c, best12.));
+        drop _m_&_c;
       %end;
-    ));
-    length
-      %do _i = 1 %to %sysfunc(countw(&numcols, %str( )));
-        %scan(&numcols, &_i, %str( )) $12
-      %end;
-    ;
-    %do _i = 1 %to %sysfunc(countw(&numcols, %str( )));
-      %let _c = %scan(&numcols, &_i, %str( ));
-      if missing(_m_&_c) then &_c = '';
-      else if _m_&_c >= 1 and _m_&_c <= 10 then &_c = '<11';
-      else &_c = strip(put(_m_&_c, best12.));
-      drop _m_&_c;
-    %end;
-  run;
+    run;
+  %end;
   %let _hdr = %sysfunc(translate(%sysfunc(compbl(&cols)), %str(,), %str( )));
   data _null_;
     file "&file" lrecl=32767;
@@ -986,5 +993,29 @@
   %if &_p18_scan_hits > 0 %then
     %p18_fail(msg=%str(MRN scan found a registry MRN in a closed log or QC file - see the scan table hit counts));
 %mend p18_scan_no_mrn;
+
+/* ---- QC dump: stack work.qc_comb_<name> tables into one masked CSV --------
+   tables = blank separated names without the qc_comb_ prefix, file = full path.
+   Missing tables are skipped. Counts only (n masked 1-10 as <11). */
+%macro p18_dump_qc(tables=, file=);
+  %local _i _t;
+  data work._p18_dump;
+    length tbl $32 item $80 n 8 isfail 8;
+    stop;
+  run;
+  %do _i = 1 %to %sysfunc(countw(&tables, %str( )));
+    %let _t = %scan(&tables, &_i, %str( ));
+    %if %sysfunc(exist(work.qc_comb_&_t)) %then %do;
+      data work._p18_d1;
+        length tbl $32;
+        set work.qc_comb_&_t;
+        tbl = "&_t";
+      run;
+      proc append base=work._p18_dump data=work._p18_d1 force;
+      run;
+    %end;
+  %end;
+  %p18_export(ds=work._p18_dump, file=&file, cols=tbl item n isfail, numcols=n);
+%mend p18_dump_qc;
 
 %p18_init;
