@@ -31,7 +31,7 @@ Earlier note (superseded, Phase 15 closed): Phase 15 (M2) could be planned: the 
 
 **Phase 16 next step:** run `.planning/phases/16-name-map-extension/16-SAS-RUN.md` Step 2 (16a and 16b can both run now; Phase 15 is closed), then decide the candidates in `docs/name_map_decisions_new.csv`. Price naming sign-off remains PENDING.
 
-Decisions (`docs/DECISIONS.md`): PDD-D-26 DECIDED (separate K2 PECAN_IDs via append-only registry, linkage deferred). PDD-D-28 DECIDED 2026-11-16 (PECAN_ID = master-merge `pecan_ID`; K1 seed from `g.pecan_id_xwalk`; K2 = 1000000 + rank). PDD-D-29 DECIDED 2026-11-16 (D-19 rule applies to 2023-2025; no cross-era overlap; Phase 15 must check overlap between the three new files). PDD-D-30 DECIDED 2026-11-16 (142 shared s22 x s23 cases are the same surgeries: s22 wins, s23 gap-fills, applied in Phase 18). PDD-D-25 CLOSED - NOT NEEDED (per PDD-D-29 item 2). PENDING DECISION, default not applied: PDD-D-27 dictionary sheet in master xlsx. Price naming sign-off still pending.
+Decisions (`docs/DECISIONS.md`): PDD-D-26 DECIDED (separate K2 PECAN_IDs via append-only registry, linkage deferred). PDD-D-28 DECIDED 2026-11-16 (PECAN_ID = master-merge `pecan_ID`; K1 seed from `g.pecan_id_xwalk`; K2 = 1000000 + rank). PDD-D-29 DECIDED 2026-11-16 (D-19 rule applies to 2023-2025; no cross-era overlap; Phase 15 must check overlap between the three new files). PDD-D-30 DECIDED 2026-11-16 (142 shared s22 x s23 cases are the same surgeries: s22 wins, s23 gap-fills, applied in Phase 18). PDD-D-25 CLOSED - NOT NEEDED (per PDD-D-29 item 2). PDD-D-31 DECIDED 2026-11-16 (combined types for TYPE_CONFLICT_EXACT variables; near-matches decided in `docs/name_map_decisions_new.csv`, 18 SAME rows; rerun 16a and 16b: **PENDING SAS RUN**). PENDING DECISION, default not applied: PDD-D-27 dictionary sheet in master xlsx. Price naming sign-off still pending.
 
 **Phase 15 progress:** 15-04 complete 2026-11-16 (QC writer `python/scripts/write_new_source_qc.py`, exchange schema rows for 8 Phase 15 CSVs; 170 pytest pass). Run it after 15a-15c SAS runs (`--allow-partial` if stopped at the gate).
 
@@ -206,3 +206,6 @@ These are QC findings from the Phase 5 live run that require Price's input befor
 1. 15c PASS message prints `65370.65511`: needs a double dot after the macro variable (`&var..`) so the range shows `65370-65511` style text correctly.
 2. Cache the 20 old sources' `norm_psid` set once, so 15c does not re-read every old dataset from P: on each run (s06 alone takes about 45 s).
 3. Narrow lint rule C30 to plain `%put` text, so the masked semicolons in `00_config.sas`, `02_source_guard.sas` and `05_build_pcnr_macros.sas` stop being flagged.
+4. 16b writes `WARNING: Defining an array with zero elements` five times when a source has no numeric or no character columns: guard the array (declare it only when the count is above zero).
+5. 16b re-reads s06 (3,987 columns) for every value pair, about 45 s each: use the same cache fix as backlog item 2 (read each source once per run).
+
