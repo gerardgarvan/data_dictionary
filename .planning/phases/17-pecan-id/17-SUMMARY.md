@@ -19,7 +19,7 @@ Synthetic tests `17_pecan_id_test` (T1-T18) and `17_pecan_id_link_test` (T0-T7):
 
 ## Close-out fixes (close_17)
 - **17b no-op rerun**: the rerun printed no "registry equals its latest backup" line because `%p17_k2_append` ran `%p17_assert_backup_current` only inside the `new > 0` branch (confirmed by reading the macro). Now the assertion runs on every run before any append decision, also when 0 rows will be appended; after a failed check nothing is appended. The dup link check (`%p17_append_dup_link`) already ran outside the new-rows branch (an existing link is always checked), so no change there. New synthetic test T19 in `17_pecan_id_test.sas` (no-op rerun passes with equal backup; registry differing from backup fails with 0 appended) and a static test.
-- **17c masking**: `qc\pecan_id_cases_per_patient.csv` held real counts (the old header comment said so). `n_ids` and `n_cases` are now text columns and counts 1-10 are written as `<11` (0 and 11+ unchanged, blanks stay blank). Reconciliation still uses the numeric counts. Static test added. The file on P: from the 17c run above has the old unmasked format; rerun 17c (fresh session) before copying anything from it.
+- **17c top-coding (replaces cell masking)**: cell masking still disclosed counts (`n_cases` on a `<11` row = bucket x `n_ids`, e.g. bucket 9 with `n_cases` 27 is 3 IDs; scope totals reveal the sum of masked cells). `qc\pecan_id_cases_per_patient.csv` is now top-coded per scope by `%p17_topcode` (in `17_pecan_id_macros.sas`): from the highest bucket, buckets merge into one `N+` bucket until every row has at least 11 IDs (`n_cases` summed). A scope with under 11 IDs in total becomes one `<11` row and its TOTALS row is dropped. Scope totals and the dup-pair row stay; the dup-pair row is masked in both columns if either count is 1-10. If the without-ID count is 1-10 it is `<11` and the K2 and ALL `n_cases` totals are blanked (total minus bucket sums would reveal it). Test T20 (synthetic, bucket 9 with 3 IDs / 27 cases merges to `2+`; no row with 1-10 IDs; no `n_cases` divides back to a small `n_ids`) plus a static test. The file on P: from earlier 17c runs is not safe to copy; rerun 17c (fresh session) and rerun the synthetic test (T20 is new).
 - `qc\pecan_id_registry_proposed.csv` holds encrypted MRNs. It is gitignored (`*.csv`) and must never be committed; Gerard deletes it after approval.
 
 ## Assumptions (headless run, close-out)
@@ -56,3 +56,7 @@ Synthetic tests `17_pecan_id_test` (T1-T18) and `17_pecan_id_link_test` (T0-T7):
 - `pecan_id_link.sas` is written and tested but not run (needs a crosswalk and a PDD decision).
 - Rerun `17_pecan_id_test.sas` (T19) and `17c_pecan_id_summary.sas` (masked output), each in a fresh session.
 - Nothing pushed. No new PDD-D decisions.
+
+## Assumptions (headless run, top-coding)
+- Merging continues downward past the smallest sub-11 bucket until the merged bucket has at least 11 IDs, so a merged bucket can start below that sub-11 bucket (fixture: buckets 1, 2, 9 with 500, 200, 3 IDs give `1` and `2+`). Only the top bucket is merged; lower buckets stay single.
+- The note column marks top-coded rows. Not yet run in SAS: T20 and 17c are PENDING SAS RUN (Gerard).

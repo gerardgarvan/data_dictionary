@@ -554,6 +554,45 @@ options nodlcreatedir;
   %let PDD_APPROVE_NEW_BASELINE = 0;
   %_expect_ok(case=T19_REBASELINED);
 
+  /* ---- T20 17c top-coding: bucket 9 with 3 IDs / 27 cases must not survive ---- */
+  data work.t20_dist;
+    length scope $8;
+    scope = 'S1'; bn = 1; n_ids = 500; n_cases = 500; output;
+    scope = 'S1'; bn = 2; n_ids = 200; n_cases = 400; output;
+    scope = 'S1'; bn = 9; n_ids = 3; n_cases = 27; output;
+    scope = 'S2'; bn = 7; n_ids = 3; n_cases = 21; output;
+    scope = 'S3'; bn = 3; n_ids = 50; n_cases = 150; output;
+    scope = 'S3'; bn = 7; n_ids = 9; n_cases = 63; output;
+    scope = 'S4'; bn = 1; n_ids = 20; n_cases = 20; output;
+    scope = 'S4'; bn = 2; n_ids = 30; n_cases = 60; output;
+  run;
+  %p17_topcode(in=work.t20_dist, out=work.t20_out, minn=11);
+  proc sql noprint;
+    select count(*) into :_t20_small trimmed from work.t20_out
+      where row_masked = 0 and 1 <= n_ids <= 10;
+    select count(*) into :_t20_divback trimmed from work.t20_out
+      where row_masked = 0 and (n_ids < 11 or n_cases / n_ids > 10 or n_cases < n_ids);
+    select count(*) into :_t20_s1 trimmed from work.t20_out
+      where scope = 'S1' and ((bucket = '1' and n_ids = 500 and n_cases = 500)
+                           or (bucket = '2+' and n_ids = 203 and n_cases = 427));
+    select count(*) into :_t20_s1n trimmed from work.t20_out where scope = 'S1';
+    select count(*) into :_t20_s2 trimmed from work.t20_out
+      where scope = 'S2' and row_masked = 1 and n_ids is null and n_cases is null;
+    select count(*) into :_t20_s2n trimmed from work.t20_out where scope = 'S2';
+    select count(*) into :_t20_s3 trimmed from work.t20_out
+      where scope = 'S3' and bucket = '3+' and n_ids = 59 and n_cases = 213;
+    select count(*) into :_t20_s3n trimmed from work.t20_out where scope = 'S3';
+    select count(*) into :_t20_s4 trimmed from work.t20_out
+      where scope = 'S4' and row_masked = 0 and bucket in ('1' '2');
+    select count(*) into :_t20_s4n trimmed from work.t20_out where scope = 'S4';
+  quit;
+  %_chk(case=T20_NO_ROW_WITH_1_TO_10_IDS, cond=%str(&_t20_small = 0), detail=%str(rows &_t20_small));
+  %_chk(case=T20_NO_N_CASES_DIVIDES_TO_SMALL_N_IDS, cond=%str(&_t20_divback = 0), detail=%str(rows &_t20_divback));
+  %_chk(case=T20_BUCKET_9_MERGED_UP_TO_2PLUS, cond=%str(&_t20_s1 = 2 and &_t20_s1n = 2), detail=%str(S1 &_t20_s1 of &_t20_s1n));
+  %_chk(case=T20_SCOPE_UNDER_11_IDS_MASKED, cond=%str(&_t20_s2 = 1 and &_t20_s2n = 1), detail=%str(S2 &_t20_s2 of &_t20_s2n));
+  %_chk(case=T20_BUCKET_7_9_IDS_MERGED_UP_TO_3PLUS, cond=%str(&_t20_s3 = 1 and &_t20_s3n = 1), detail=%str(S3 &_t20_s3 of &_t20_s3n));
+  %_chk(case=T20_CLEAN_SCOPE_UNCHANGED, cond=%str(&_t20_s4 = 2 and &_t20_s4n = 2), detail=%str(S4 &_t20_s4 of &_t20_s4n));
+
   /* ---- T14 registry baseline guard (17a rule, same pattern as 15a) -------------- */
   /* test-only: WORK registry removed so the absent-registry path can run */
   proc delete data=pdd.pecan_id_registry;

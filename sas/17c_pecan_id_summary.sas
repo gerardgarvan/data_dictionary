@@ -8,11 +8,11 @@
             IDs are listed in the dup link, so ALL overestimates patients
             until they are linked.
   Reads   : pdd.pecan_id_case_map, pdd.pecan_id_dup_link
-  Writes  : qc\pecan_id_cases_per_patient.csv (counts only, no IDs or MRNs; counts 1-10 written as <11)
+  Writes  : qc\pecan_id_cases_per_patient.csv (counts only, no IDs or MRNs; top-coded per scope, no row with 1-10 IDs)
   Gate    : the summary reconciles to the case map (cases with an ID plus
             cases without an ID = case map rows, per scope and in total).
-  Never   : changes any dataset in pdd. Counts 1-10 are written as <11 in the
-            qc file itself (n_ids and n_cases are text columns).
+  Never   : changes any dataset in pdd. Buckets are top-coded per scope (see
+            %p17_topcode) so no row has 1-10 IDs; n_ids and n_cases are text columns.
   Status  : PENDING SAS RUN (Gerard).
 ==========================================================================*/
 
@@ -104,18 +104,25 @@
   %if %eval(&_n_id + &_n_noid) ne &_n_map %then %let _bad = 1;
   %if %eval(&_n_k1 + &_n_k2) ne &_n_map %then %let _bad = 1;
 
+  /* top-coding per scope (replaces cell masking): buckets merge from the top into
+     one 'N+' bucket until every row has at least 11 IDs, so no n_cases can be
+     divided back to a small n_ids and totals never hide a masked cell. */
+  %p17_topcode(in=work.p17c_dist, out=work.p17c_tc, minn=11);
+
   data work.p17c_out;
-    length scope $8 metric $40 bucket $4 n_ids 8 n_cases 8 note $200;
-    set work.p17c_dist;
+    length scope $8 metric $40 bucket $4 n_ids 8 n_cases 8 row_masked 8 note $200;
+    set work.p17c_tc;
     metric = 'CASES_PER_PECAN_ID';
     if scope = 'ALL' then
       note = 'Patients in both eras have two PECAN_IDs and K1 patients with two IDs are in pecan_id_dup_link, so counts overestimate patients until linked';
     else note = '';
-    keep scope metric bucket n_ids n_cases note;
+    note = catx(' ', note, ifc(index(bucket, '+') > 0 and row_masked = 0, 'N+ = top-coded: buckets merged until at least 11 IDs', ''));
+    keep scope metric bucket n_ids n_cases row_masked note;
   run;
 
   data work.p17c_tot;
-    length scope $8 metric $40 bucket $4 n_ids 8 n_cases 8 note $200;
+    length scope $8 metric $40 bucket $4 n_ids 8 n_cases 8 row_masked 8 note $200;
+    row_masked = 0;
     scope = 'K1'; metric = 'TOTALS'; bucket = ''; n_ids = &_n_k1id; n_cases = &_n_k1; note = 'n_ids = distinct K1 PECAN_IDs, n_cases = K1 case map rows'; output;
     scope = 'K2'; metric = 'TOTALS'; bucket = ''; n_ids = &_n_k2id; n_cases = &_n_k2; note = 'n_ids = distinct K2 PECAN_IDs, n_cases = K2 case map rows'; output;
     scope = 'ALL'; metric = 'TOTALS'; bucket = ''; n_ids = %eval(&_n_k1id + &_n_k2id); n_cases = &_n_map; note = 'Overestimates patients until linked'; output;
@@ -123,16 +130,34 @@
     scope = 'K1'; metric = 'DUP_LINK_PAIRS'; bucket = ''; n_ids = &_n_dupids; n_cases = &_n_pairs; note = 'n_ids = PECAN_IDs in a pair, n_cases = pairs (K1 patients with two IDs)'; output;
   run;
 
-  /* counts 1-10 are shown as <11 in the qc file (privacy rule); 0 and 11+ stay */
+  /* scope totals are dropped for a scope that had to be masked; when the without-ID
+     count is 1-10 the K2 and ALL case totals would reveal it (total minus the visible
+     bucket sums), so those two n_cases are blanked; a dup pair row with a count of
+     1-10 in either column is masked in both (n_ids = 2 x pairs would reveal it) */
+  proc sql noprint;
+    create table work.p17c_totk as
+      select t.* from work.p17c_tot t
+      where not (t.metric = 'TOTALS'
+                 and t.scope in (select scope from work.p17c_tc where row_masked = 1));
+  quit;
+
   data work.p17c_all;
     length scope $8 metric $40 bucket $4 n_ids $12 n_cases $12 note $200;
-    set work.p17c_out(rename=(n_ids=_ni n_cases=_nc)) work.p17c_tot(rename=(n_ids=_ni n_cases=_nc));
-    if _ni = . then n_ids = '';
-    else if 1 <= _ni <= 10 then n_ids = '<11';
-    else n_ids = strip(put(_ni, best12.));
-    if _nc = . then n_cases = '';
-    else if 1 <= _nc <= 10 then n_cases = '<11';
-    else n_cases = strip(put(_nc, best12.));
+    set work.p17c_out(rename=(n_ids=_ni n_cases=_nc)) work.p17c_totk(rename=(n_ids=_ni n_cases=_nc));
+    if metric = 'TOTALS' and scope in ('K2' 'ALL') and 1 <= &_n_noid <= 10 then _nc = .;
+    if metric = 'DUP_LINK_PAIRS' and (1 <= _ni <= 10 or 1 <= _nc <= 10) then row_masked = 1;
+    if row_masked = 1 then do;
+      n_ids = '<11';
+      n_cases = '<11';
+    end;
+    else do;
+      if _ni = . then n_ids = '';
+      else if 1 <= _ni <= 10 then n_ids = '<11';
+      else n_ids = strip(put(_ni, best12.));
+      if _nc = . then n_cases = '';
+      else if 1 <= _nc <= 10 then n_cases = '<11';
+      else n_cases = strip(put(_nc, best12.));
+    end;
     keep scope metric bucket n_ids n_cases note;
   run;
 

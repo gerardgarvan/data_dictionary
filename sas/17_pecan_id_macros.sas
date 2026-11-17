@@ -881,4 +881,76 @@
   run;
 %mend p17_casemap;
 
+/* ---- top-coding for count distributions (17c) ---------------------------------
+   in  : one row per scope and bucket, numeric bn (bucket value), n_ids, n_cases
+   out : scope bucket(text) n_ids n_cases row_masked. Per scope, buckets are merged
+         from the top into one 'N+' bucket until every row has n_ids >= minn and
+         the merged bucket has >= minn IDs. n_cases is summed for the merged
+         bucket. A scope with fewer than minn IDs in total becomes one row with
+         row_masked = 1 and n_ids/n_cases missing (the caller writes <11 and
+         drops the scope total). No row with 1 <= n_ids < minn survives. --------- */
+%macro p17_topcode(in=, out=, minn=11);
+  proc sort data=&in out=work._p17_tcd;
+    by scope descending bn;
+  run;
+  data work._p17_tcc;
+    set work._p17_tcd;
+    by scope;
+    if first.scope then cum = 0;
+    cum + n_ids;
+  run;
+  proc sql noprint;
+    create table work._p17_tcs as
+      select scope, sum(n_ids) as tot_ids,
+             min(case when n_ids < &minn then bn else . end) as t_small
+      from work._p17_tcc
+      group by scope;
+    create table work._p17_tct as
+      select s.scope, s.tot_ids, s.t_small,
+             max(case when c.bn <= s.t_small and c.cum >= &minn then c.bn else . end) as t_cut
+      from work._p17_tcs s inner join work._p17_tcc c on s.scope = c.scope
+      group by s.scope, s.tot_ids, s.t_small;
+    create table work._p17_tcm as
+      select a.scope, a.bn, a.n_ids, a.n_cases, t.tot_ids, t.t_cut
+      from &in a inner join work._p17_tct t on a.scope = t.scope
+      order by a.scope, a.bn;
+  quit;
+  data &out;
+    length scope $8 bucket $4 n_ids 8 n_cases 8 row_masked 8;
+    set work._p17_tcm;
+    by scope;
+    retain g_ids 0 g_cases 0;
+    if first.scope then do;
+      g_ids = 0;
+      g_cases = 0;
+    end;
+    if tot_ids < &minn then do;
+      if first.scope then do;
+        bucket = '1+';
+        n_ids = .;
+        n_cases = .;
+        row_masked = 1;
+        output;
+      end;
+    end;
+    else if missing(t_cut) or bn < t_cut then do;
+      bucket = ifc(bn >= 10, '10+', strip(put(bn, 2.)));
+      row_masked = 0;
+      output;
+    end;
+    else do;
+      g_ids + n_ids;
+      g_cases + n_cases;
+      if last.scope then do;
+        bucket = strip(put(t_cut, 2.)) || '+';
+        n_ids = g_ids;
+        n_cases = g_cases;
+        row_masked = 0;
+        output;
+      end;
+    end;
+    keep scope bucket n_ids n_cases row_masked;
+  run;
+%mend p17_topcode;
+
 %p17_init;

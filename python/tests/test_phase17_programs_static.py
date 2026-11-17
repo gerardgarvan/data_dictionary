@@ -172,11 +172,19 @@ def test_17c_structure():
     assert not re.search(r"\b(data|out=)\s*pdd\.", code, flags=re.I)
 
 
-def test_17c_masks_counts_1_to_10():
+def test_17c_top_codes_instead_of_cell_masking():
     code = _code("17c_pecan_id_summary.sas")
-    assert "'<11'" in code
-    assert "1 <= _ni <= 10" in code and "1 <= _nc <= 10" in code
+    assert "%p17_topcode(in=work.p17c_dist" in code
     assert "work.p17c_all" in code[code.index("proc export"):]
+    # scope total dropped for a masked scope; small without-ID count hides the case totals
+    assert "row_masked = 1" in code and "1 <= &_n_noid <= 10" in code
+    m = _code("17_pecan_id_macros.sas")
+    assert "%macro p17_topcode" in m
+    t = (SAS / "17_pecan_id_test.sas").read_text(encoding="utf-8")
+    for tag in ("T20_NO_ROW_WITH_1_TO_10_IDS", "T20_NO_N_CASES_DIVIDES_TO_SMALL_N_IDS",
+                "T20_BUCKET_9_MERGED_UP_TO_2PLUS", "T20_SCOPE_UNDER_11_IDS_MASKED"):
+        assert tag in t, tag
+    assert "n_ids = 3; n_cases = 27" in t
 
 
 def test_17b_k2_append_asserts_backup_before_zero_row_rerun():
