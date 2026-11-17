@@ -26,8 +26,10 @@ Earlier note (superseded, Phase 15 closed): Phase 15 (M2) could be planned: the 
 | 15 | M2 | New-source intake | Complete 2026-11-16 (NEW-01..NEW-05, NEW-03a satisfied; 15a/15b/15c and pipeline 15 run and passed) |
 | 16 | M3 | Name map extension | Complete 2026-11-17 (MAP-01..04 satisfied; test T1-T9 passed, 16a PASS, 16b 1297 variables / 56 NO_DATA, `run_pipeline.cmd 16` PASSED, 0 WARNING) |
 | 17 | M4 | PECAN_ID | Complete 2026-11-17 (PID-01..08; tests T1-T18 and T0-T7 passed; 17a approved 41150 rows 1:1 / 33031 K1 IDs / 1895 dup pairs; 17b 26474 K2 MRNs, registry 59505, case map 77498; see 17-SUMMARY.md) |
-| 18 | M5 | Combined dataset and dictionary 2018-2025 | Next (unblocked; 15-17 complete) |
+| 18 | M5 | Combined dataset and dictionary 2018-2025 | Planned 2026-11-17 (7 plans, headless; execution next; SAS steps PENDING SAS RUN) |
 | 19 | M6 | Master Excel export | Blocked on 18 |
+
+**Phase 18 planned (2026-11-17, headless):** plans 18-01 (type seed, config, exchange schema), 18-02 (macros + synthetic test), 18-03 (18a preflight/probe), 18-04 (18b build), 18-05 (18c profile/recon, 18d MRN scan), 18-06 (dictionary workbook writer), 18-07 (wiring, 18-SAS-RUN, checkpoint). **PENDING SAS RUN:** 18_combine_test, 18a, 18b, 18c, 18d, writer (after execution of the plans). **PENDING DECISION:** PDD-D-33 (proposed): value of PRECEDE_STUDY_ID on K2 rows (NORM / DELIVERED / BLANK; no default, 18b stops until Gerard sets `PDD_K2_PSID_MODE`). 18a is also the probe for the pdd.pcnr 1298-vs-1297 column question and the ASA/CPT1 numeric check (PDD-D-31 item 2, conditional). Research subagent skipped for budget; plan checker run once (3 blockers fixed: split 18-01, no PDD-D-33 default, CONDITIONAL ASA/CPT1).
 
 **Phase 17 COMPLETE (2026-11-17).** PDD-D-32 EXECUTED. **Next:** Phase 18 (combined dataset and dictionary). Price naming sign-off remains PENDING.
 

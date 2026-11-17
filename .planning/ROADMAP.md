@@ -185,7 +185,14 @@ Plans:
   2. Values equal source values (no recoding).
   3. Dictionary workbook: KEY sheet leftmost, PECAN_ID first, PCNR_ variables alphabetical, distributions over all 2018-2025 cases, plus year coverage and source columns (MAP-04); UF colors.
   4. Reconciliation: dictionary rows = dataset columns; per-variable non-missing counts match; 2018-2022 distributions match the v1.0 dictionary except where new cases add rows.
-- **Plans:** TBD
+- **Plans:** 7 plans (planned 2026-11-17, headless)
+  - [ ] 18-01-PLAN.md: PDD-D-31 type seed (`docs/combined_type_decisions.csv`), config additions, exchange schema (wave 1)
+  - [ ] 18-02-PLAN.md: macros and synthetic test `18_combine_test.sas` (wave 2)
+  - [ ] 18-03-PLAN.md: `18a_comb_preflight.sas` probe and type delta (wave 3)
+  - [ ] 18-04-PLAN.md: `18b_comb_build.sas` combined dataset, PDD-D-30 merge, gates (wave 4)
+  - [ ] 18-05-PLAN.md: `18c_comb_profile_qc.sas` profile, recon, NO_DATA; `18d_comb_scan.sas` MRN scan (wave 5)
+  - [ ] 18-06-PLAN.md: dictionary workbook `pdd_2018_2025.xlsx` writer and tests (wave 2)
+  - [ ] 18-07-PLAN.md: wiring token 18, `18-SAS-RUN.md`, validation, checkpoint (wave 6)
 
 ### Phase 19 (M6): Master Excel export
 - **Goal:** Write `PCNR_Master_Data_Nov_2026.xlsx` and prove it round-trips.
