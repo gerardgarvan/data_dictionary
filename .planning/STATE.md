@@ -2,7 +2,7 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: PCNR_ raw layer and dictionary framework
-status: Executing Phase 16
+status: Phase 16 complete; next Phase 17
 last_updated: "2026-11-17T00:19:56.099Z"
 progress:
   total_phases: 8
@@ -24,12 +24,14 @@ Earlier note (superseded, Phase 15 closed): Phase 15 (M2) could be planned: the 
 |-------|-----------------|-------|--------|
 | 14 | M1 | Probe and headless setup | Complete (PRB-01..03, RUN-01 satisfied) |
 | 15 | M2 | New-source intake | Complete 2026-11-16 (NEW-01..NEW-05, NEW-03a satisfied; 15a/15b/15c and pipeline 15 run and passed) |
-| 16 | M3 | Name map extension | Plans 16-01..16-05 written; PENDING SAS RUN (16 test, 16a, 16b; run sheet 16-SAS-RUN.md); PENDING DECISION (near-match candidates, TYPE_CONFLICT_EXACT confirm); 16b prerequisites (Phase 15) done |
-| 17 | M4 | PECAN_ID | Blocked on 15-16 (PDD-D-28 DECIDED) |
+| 16 | M3 | Name map extension | Complete 2026-11-17 (MAP-01..04 satisfied; test T1-T9 passed, 16a PASS, 16b 1297 variables / 56 NO_DATA, `run_pipeline.cmd 16` PASSED, 0 WARNING) |
+| 17 | M4 | PECAN_ID | Next (PDD-D-28 DECIDED; Phases 15-16 complete) |
 | 18 | M5 | Combined dataset and dictionary 2018-2025 | Blocked on 15-17 |
 | 19 | M6 | Master Excel export | Blocked on 18 |
 
-**Phase 16 next step:** run `.planning/phases/16-name-map-extension/16-SAS-RUN.md` Step 2 (16a and 16b can both run now; Phase 15 is closed), then decide the candidates in `docs/name_map_decisions_new.csv`. Price naming sign-off remains PENDING.
+**Phase 16 COMPLETE (2026-11-17).** **Next:** Phase 17 (PECAN_ID). Price naming sign-off remains PENDING.
+
+**Phase 18 notes:** ASA and CPT1 Class are numeric (PDD-D-31 combined types); PDD-D-30 (s22 wins, s23 gap-fills) applies in Phase 18. **Observation (16b, 2026-11-17):** all 56 NO_DATA variables are in s06; the Phase 18 dictionary should flag them.
 
 Decisions (`docs/DECISIONS.md`): PDD-D-26 DECIDED (separate K2 PECAN_IDs via append-only registry, linkage deferred). PDD-D-28 DECIDED 2026-11-16 (PECAN_ID = master-merge `pecan_ID`; K1 seed from `g.pecan_id_xwalk`; K2 = 1000000 + rank). PDD-D-29 DECIDED 2026-11-16 (D-19 rule applies to 2023-2025; no cross-era overlap; Phase 15 must check overlap between the three new files). PDD-D-30 DECIDED 2026-11-16 (142 shared s22 x s23 cases are the same surgeries: s22 wins, s23 gap-fills, applied in Phase 18). PDD-D-25 CLOSED - NOT NEEDED (per PDD-D-29 item 2). PDD-D-31 DECIDED 2026-11-16 (combined types for TYPE_CONFLICT_EXACT variables; near-matches decided in `docs/name_map_decisions_new.csv`, 18 SAME rows; rerun 16a and 16b: **PENDING SAS RUN**). PENDING DECISION, default not applied: PDD-D-27 dictionary sheet in master xlsx. Price naming sign-off still pending.
 
@@ -193,6 +195,10 @@ These are QC findings from the Phase 5 live run that require Price's input befor
 
 - 16-03 complete: `sas/16a_name_map_ext.sas` lint-clean (sas_lint and sasjs lint 0 errors), `python/tests/test_phase16a_static.py` (13 tests; full suite 260 pass). Frozen map read-only and asserted; exact reuse by lookup; candidate union; decisions file applied; undecided stay PENDING_DECISION with blank names. **PENDING SAS RUN** (16a, Gerard) and **PENDING DECISION** (near-match candidates in `docs/name_map_decisions_new.csv`). Price sign-off **PENDING**. State advance commands not used (v2.0 frontmatter kept).
 
+### Phase 16 closed (2026-11-17)
+
+- Gerard ran `.un_pipeline.cmd 16`: PIPELINE PASSED, 0 WARNING lines, review workbook written. Test T1-T9 passed. Details in `16-05-SUMMARY.md`. Lint rules C31 and C32 added (0 hits on sas/); CLAUDE.md pitfalls updated.
+
 ### Phase 16 progress (16-05, 2026-11-16)
 
 - 16-05 tasks 1-2 complete: Phase 16 wired into `99_run_all.sas` (token 16) and `run_pipeline.cmd`; run sheet `16-SAS-RUN.md` written; 265 pytest pass. Task 3 checkpoint is **PENDING SAS RUN** (Gerard) and **PENDING DECISION** (near-match candidates; TYPE_CONFLICT_EXACT confirm). Price sign-off **PENDING**. Phase 16 not closed. State advance commands not used (v2.0 frontmatter kept).
@@ -206,6 +212,6 @@ These are QC findings from the Phase 5 live run that require Price's input befor
 1. 15c PASS message prints `65370.65511`: needs a double dot after the macro variable (`&var..`) so the range shows `65370-65511` style text correctly.
 2. Cache the 20 old sources' `norm_psid` set once, so 15c does not re-read every old dataset from P: on each run (s06 alone takes about 45 s).
 3. Narrow lint rule C30 to plain `%put` text, so the masked semicolons in `00_config.sas`, `02_source_guard.sas` and `05_build_pcnr_macros.sas` stop being flagged.
-4. 16b writes `WARNING: Defining an array with zero elements` five times when a source has no numeric or no character columns: guard the array (declare it only when the count is above zero).
+4. DONE 2026-11-17: 16b zero-element array warnings removed (generated coverage step declares placeholders `_p16_dn 8` and `_p16_dc $1` before the `_numeric_`/`_character_` arrays).
 5. 16b re-reads s06 (3,987 columns) for every value pair, about 45 s each: use the same cache fix as backlog item 2 (read each source once per run).
 

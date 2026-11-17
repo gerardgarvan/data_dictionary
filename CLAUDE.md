@@ -93,3 +93,5 @@ Probe files never contain data values; do not add any. Counts 1–10 stay `<11`.
 - Generated code: `catx(' ', ...)`, not `cats()`, where spaces matter.
 - `encoding='wlatin1'` for files the probe marks wlatin1 (PDD-D-23).
 - 5-digit case IDs normalize to `Precede#####` exact case (PDD-D-19).
+- A DATA step that runs `SET ... POINT=` (directly or through `%p16_shorten` / `%p16_assign_names`) and has no other `SET`/`MERGE`/`INFILE`/`INPUT` reaching end of file must contain `stop;`, or it loops forever and fills WORK (C31).
+- Never name a column `case` (or `when`, `then`, `else`, `as`, `on`) if PROC SQL will reference it: PROC SQL reserved word, error 22-322. Use e.g. `tcase`. `CASE WHEN` expressions are fine (C32).

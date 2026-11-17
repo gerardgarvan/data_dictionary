@@ -22,6 +22,10 @@ C13 Macro called before its %macro definition within the same file
 C14 DATA or SET statement with no dataset name (bare "data ;" / "set ;")
 C19 put() / input() inside %sysfunc() -- use putn()/putc() or inputn()/inputc()
 C30 semicolon inside %put text or %fail_out(msg=%str(...)) message
+C31 DATA step with SET ... POINT= (or %p16_shorten / %p16_assign_names call),
+    no plain SET/MERGE/INFILE and no STOP -- loops forever
+C32 PROC SQL reserved word (case, when, then, else, as, on) used as a bare
+    column name in a file that also uses PROC SQL
 C20 TRIMMED keyword in PROC SQL SELECT list -- valid only after INTO targets
 W2  Assert-style count query: reports dataset name and WHERE-clause columns for reviewer
 
@@ -546,6 +550,92 @@ def check_semicolon_in_put_text(path, lines):
             hits.append((path, lineno(m.start()), 'C30',
                 'semicolon inside %str() message passed to %fail_out -- '
                 'use a comma or dash'))
+    return hits
+
+
+# ── C31: DATA step with SET ... POINT= and no STOP ───────────────────────────
+#
+# SET ... POINT= never reads end of file, so a DATA step that has no other
+# SET/MERGE/INFILE/INPUT driving it loops forever (and fills WORK) unless it
+# contains STOP. Macros known to use POINT= count as POINT= users.
+
+_C31_POINT_MACROS = r'%(?:p16_shorten|p16_assign_names)\b'
+
+
+def _c31_strip_literals(text):
+    """Blank quoted strings so words inside text are not seen as code."""
+    text = re.sub(r'"[^"\n]*"', '""', text)
+    return re.sub(r"'[^'\n]*'", "''", text)
+
+
+def check_set_point_no_stop(path, lines):
+    hits = []
+    text = _c31_strip_literals('\n'.join(lines))
+    for m in re.finditer(r'(?:^|;)[ \t]*data\b[^;]*;', text, CI | re.M):
+        end = re.search(r'\brun\s*;|\bquit\s*;|%mend\b', text[m.end():], CI)
+        body = text[m.end():m.end() + (end.start() if end else len(text))]
+        uses_point = (re.search(r'\bpoint\s*=', body, CI)
+                      or re.search(_C31_POINT_MACROS, body, CI))
+        if not uses_point:
+            continue
+        plain_read = False
+        for sm in re.finditer(r'(?:^|;|\s)(set|merge|infile|input)\b([^;]*);',
+                              body, CI):
+            if sm.group(1).lower() in ('set', 'merge') and \
+                    re.search(r'\bpoint\s*=', sm.group(2), CI):
+                continue
+            if re.search(r'\bif\s+0\s+then\s*$', body[:sm.start(1)], CI):
+                continue  # attribute-only SET, never executes
+            plain_read = True
+            break
+        if plain_read or re.search(r'(?:^|;|\s)stop\s*;', body, CI):
+            continue
+        pos = m.start() + (1 if text[m.start()] == ';' else 0)
+        hits.append((path, text.count('\n', 0, pos) + 1, 'C31',
+            'DATA step uses SET ... POINT= (directly or via macro) with no '
+            'other SET/MERGE/INFILE and no STOP; it loops forever -- add stop;'))
+    return hits
+
+
+# ── C32: PROC SQL reserved word used as a column name ────────────────────────
+#
+# A column named case (when, then, else, as, on) assigned in a DATA step is
+# fine there but fails when PROC SQL references it (ERROR 22-322). CASE WHEN
+# expressions are not flagged. Only files that also use PROC SQL are checked.
+
+_C32_WORDS = r'(?:case|when|then|else|as|on)'
+
+
+def check_sql_reserved_column(path, lines):
+    hits = []
+    text = _c31_strip_literals('\n'.join(lines))
+    if not re.search(r'\bproc\s+sql\b', text, CI):
+        return hits
+    pats = [
+        # DATA step assignment at statement start: case = ...
+        r'(?:^|;)[ \t]*' + _C32_WORDS + r'[ \t]*=(?!=)',
+        # length / format / attrib declaration: case $20
+        r'\b(?:length|format)\b[^;]*\b' + _C32_WORDS + r'[ \t]+\$?\d*\.?[ \t]*;',
+        r'\bcase[ \t]+\$',
+        # PROC SQL references
+        r'\bwhere\s+(?:\w+\.)?case\b(?!\s+when)',
+        r'\bselect\s+(?:distinct\s+)?(?:\w+\.)?case\s*(?:,|=|\bfrom\b)',
+        r'\b(?:group|order)\s+by\s+(?:\w+\.)?case\b',
+    ]
+    seen = set()
+    for pat in pats:
+        for m in re.finditer(pat, text, CI | re.M):
+            seg = text[m.start():m.end() + 12]
+            if re.match(r'(?:;)?[ \t]*case\s+when\b', seg, CI):
+                continue
+            pos = m.start() + (1 if text[m.start()] == ';' else 0)
+            ln = text.count('\n', 0, pos) + 1
+            if ln in seen:
+                continue
+            seen.add(ln)
+            hits.append((path, ln, 'C32',
+                'PROC SQL reserved word used as a column name (case, when, '
+                'then, else, as, on) -- rename the column (e.g. tcase)'))
     return hits
 
 
@@ -1503,6 +1593,8 @@ CHECKS = [
     check_ds_read_in_varloop,
     check_sql_select_trimmed,
     check_semicolon_in_put_text,
+    check_set_point_no_stop,
+    check_sql_reserved_column,
 ]
 
 

@@ -22,15 +22,13 @@ key-files:
     - .planning/STATE.md
     - .planning/ROADMAP.md
 requirements: [MAP-01, MAP-02, MAP-03, MAP-04]
-status: "awaiting SAS run"
-completed: 2026-11-16
+status: "complete"
+completed: 2026-11-17
 ---
 
 # Phase 16 Plan 05: Wiring, run sheet, checkpoint Summary
 
-Phase 16 is wired into the pipeline additively and handed to Gerard with a run sheet. Tasks 1 and 2 are complete; Task 3 (SAS run and candidate decisions) is a human checkpoint and is NOT done.
-
-**Status: awaiting SAS run. PENDING SAS RUN** (16_name_map_ext_test, 16a, 16b, `run_pipeline.cmd 16`). **PENDING DECISION** (every near-match candidate; confirm TYPE_CONFLICT_EXACT reuse). **Price sign-off PENDING.**
+Phase 16 is wired into the pipeline, run by Gerard on 2026-11-17 and **COMPLETE** (MAP-01..04). Price's naming sign-off remains PENDING (unchanged).
 
 ## Tasks
 
@@ -38,7 +36,7 @@ Phase 16 is wired into the pipeline additively and handed to Gerard with a run s
 |------|--------|--------|
 | 1 Wiring | df1cfaa | `_valid` list gains 16; Phase 16 block after Phase 15 (check, 16a, check, 16b); `run_pipeline.cmd` Phase 16 Python block before the log scans; 5 static tests |
 | 2 Run sheet and STATE | 2fb7f1f | `16-SAS-RUN.md` (steps 1-4, decision gate i-vi with options and evidence, bring-back list, A1-A16); STATE.md Phase 16 row, next step, assumption line |
-| 3 Gerard SAS run | - | PENDING SAS RUN / PENDING DECISION (headless; not waited on) |
+| 3 Gerard SAS run | 2026-11-17 | `.un_pipeline.cmd 16`: PIPELINE PASSED, 0 WARNING lines in 99_run_all.log; `name_map_ext_review.xlsx` written |
 
 ## Verification (static only)
 
@@ -70,3 +68,54 @@ None.
 ## Self-Check: PASSED
 
 Files present; commits df1cfaa and 2fb7f1f verified.
+
+## SAS run results (2026-11-17, masked; counts 1-10 shown as <11)
+
+Synthetic test `16_name_map_ext_test.sas`: TESTRESULT SUMMARY ALL TESTS PASSED (T1-T9).
+
+**16a** - PASS, all candidates decided. `n_new_rows` = 282 = key 3 + linkage_only 6 + exact_reuse 255 + same_decided 18 + named 0 + pending_decision 0 (reconciles).
+
+**16b**
+- `pdd.qc_map_ext_values`: 1987 rows.
+- MAP-04 coverage: 1297 variables, 56 NO_DATA, 0 PENDING keys. `pdd.name_map_coverage` 2279 rows; `pdd.name_map_vars_coverage` 1297 rows.
+
+| Source | Variables | NO_DATA | NO_YEAR cells | Distinct years |
+|--------|-----------|---------|---------------|----------------|
+| s01 | 2 | 0 | 534 | 5 |
+| s02 | 2 | 0 | <11 | 3 |
+| s03 | 99 | 0 | 0 | 2 |
+| s06 | 1237 | 56 | 8616 | 2 |
+| s07 | 102 | 0 | 0 | 2 |
+| s08 | 7 | 0 | 0 | 5 |
+| s09 | 121 | 0 | 0 | 5 |
+| s10 | 111 | 0 | 0 | 1 |
+| s11 | 2 | 0 | <11 | 1 |
+| s12 | 83 | 0 | 0 | 1 |
+| s13 | 1 | 0 | 0 | 1 |
+| s14 | 5 | 0 | 0 | 1 |
+| s15 | 81 | 0 | 0 | 1 |
+| s16 | 1 | 0 | 0 | 1 |
+| s17 | 81 | 0 | 0 | 1 |
+| s18 | 3 | 0 | 807 | 1 |
+| s19 | 65 | 0 | 0 | 3 |
+| s20 | 3 | 0 | 0 | 5 |
+| s21 | 91 | 0 | 0 | 1 |
+| s22 | 91 | 0 | 0 | 1 |
+| s23 | 91 | 0 | 0 | 1 |
+
+- s04 and s05 have no coverage line: confirmed by design. `16b_name_map_values_cov.sas` selects only status PCNR or PENDING_DECISION columns per source and, when a source has none, logs "has no mapped variables -- skipped" (line 404). s04 and s05 have no mapped PCNR/pending columns in `pdd.name_map_ext`.
+- **Observation for Phase 18:** all 56 NO_DATA variables are in s06. This is not a failure; the dictionary should flag them.
+
+## Fixes made during the 2026-11-17 run (already committed by Gerard)
+
+- `16_name_map_ext_test.sas`: T2/T3 DATA step had no driving SET and `%p16_shorten` reads with `SET ... POINT=`, so the step never ended and filled the C: drive (WORK). Added `stop;`. Column `case` renamed `tcase` (CASE is reserved in PROC SQL; T2/T3 SQL checks failed with 22-322).
+- `16b_name_map_values_cov.sas`: generated coverage step declares placeholders `_p16_dn 8` and `_p16_dc $1` before `array _an[*] _numeric_` / `array _ac[*] _character_`, removing 5 "Defining an array with zero elements" warnings (s08, s13 and three others).
+
+## Lint rules added at close
+
+- C31 (SET ... POINT= without STOP) and C32 (PROC SQL reserved word as column) in `tools/sas_lint.py`, with tests in `python/tests/test_sas_lint.py`. Over `sas/*.sas`: 0 hits for both (no true positives to fix). Replaying the pre-fix test file (99991a5^) fires C31 once and C32 six times. See CLAUDE.md pitfalls.
+
+## Assumptions (headless run)
+
+- Run results were taken from the prompt text; no log or data files were read (no P: or SAS here).
+- C31/C32 are heuristics: C31 ignores `if 0 then set` (attribute-only) and quoted text; C32 only checks files that contain PROC SQL.

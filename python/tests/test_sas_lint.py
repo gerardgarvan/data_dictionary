@@ -735,3 +735,57 @@ def test_c30_clean_cases():
         "%fail_out(msg=%str(PENDING DECISION -- a, b (c)));",
     ]
     assert sas_lint.check_semicolon_in_put_text("<test>", lines) == []
+
+
+# ---------------------------------------------------------------------------
+# C31: SET ... POINT= without STOP
+# ---------------------------------------------------------------------------
+
+def test_c31_fires_on_point_without_stop():
+    lines = ["data work.x;", "  do i = 1 to 3;", "    set work.y point=i;",
+             "    output;", "  end;", "run;"]
+    hits = sas_lint.check_set_point_no_stop("<test>", lines)
+    assert any(h[2] == "C31" for h in hits), hits
+
+
+def test_c31_fires_on_point_macro_without_stop():
+    lines = ["data _null_;", "  %p16_shorten(nm=a, abbrev=b);", "run;"]
+    hits = sas_lint.check_set_point_no_stop("<test>", lines)
+    assert any(h[2] == "C31" for h in hits), hits
+
+
+def test_c31_clean_cases():
+    with_stop = ["data work.x;", "  set work.y point=i;", "  output;", "  stop;", "run;"]
+    with_set = ["data work.x;", "  set work.z;", "  set work.y point=i;", "run;"]
+    no_point = ["data work.x;", "  set work.z;", "run;"]
+    in_text = ['data _null_;', '  put "point=1";', 'run;']
+    for lines in (with_stop, with_set, no_point, in_text):
+        assert sas_lint.check_set_point_no_stop("<test>", lines) == [], lines
+
+
+# ---------------------------------------------------------------------------
+# C32: PROC SQL reserved word as column name
+# ---------------------------------------------------------------------------
+
+def test_c32_fires_on_case_column_in_sql_file():
+    lines = ["data work.t;", "  length case $20;", "  case = 'a';", "run;",
+             "proc sql;", "  select count(*) from work.t where case = 'a';", "quit;"]
+    hits = sas_lint.check_sql_reserved_column("<test>", lines)
+    assert any(h[2] == "C32" for h in hits), hits
+
+
+def test_c32_clean_cases():
+    case_when = ["proc sql;", "  select case when a = 1 then 'x' else 'y' end as z",
+                 "  from work.t;", "quit;"]
+    no_sql = ["data work.t;", "  case = 'a';", "run;"]
+    renamed = ["data work.t;", "  tcase = 'a';", "run;", "proc sql;",
+               "  select tcase from work.t;", "quit;"]
+    for lines in (case_when, no_sql, renamed):
+        assert sas_lint.check_sql_reserved_column("<test>", lines) == [], lines
+
+
+def test_c31_fires_when_only_if0_set_present():
+    lines = ["data work.t;", "  if 0 then set work.a nobs=n;",
+             "  %p16_shorten(nm=nm, abbrev=work.a)", "  output;", "run;"]
+    hits = sas_lint.check_set_point_no_stop("<test>", lines)
+    assert any(h[2] == "C31" for h in hits), hits
