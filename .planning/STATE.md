@@ -1,14 +1,14 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.0
-milestone_name: PCNR_ 2018-2025, PECAN_ID, PCNR_Master_Data_Nov_2026
-status: Phase 14 (M1) complete - probe committed, probe_inputs.sas lint-clean (0 errors). Phase 15 unblocked
-last_updated: "2026-11-16T00:00:00.000Z"
+milestone: v1.0
+milestone_name: PCNR_ raw layer and dictionary framework
+status: Executing Phase 16
+last_updated: "2026-11-17T00:19:56.099Z"
 progress:
-  total_phases: 6
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_phases: 8
+  completed_phases: 7
+  total_plans: 25
+  completed_plans: 26
 ---
 
 # GSD State: PeCAN Data Dictionary (PDD)
@@ -34,6 +34,7 @@ Decisions (`docs/DECISIONS.md`): PDD-D-26 DECIDED (separate K2 PECAN_IDs via app
 **Phase 15 progress:** 15-04 complete 2026-11-16 (QC writer `python/scripts/write_new_source_qc.py`, exchange schema rows for 8 Phase 15 CSVs; 170 pytest pass). Run it after 15a-15c SAS runs (`--allow-partial` if stopped at the gate).
 
 ### Assumptions (headless run)
+
 - Milestone re-registered 2026-11-16 against the revised brief (52f6ad9); the first registration (73881aa) used the older brief. PDD numbers 25-28 were kept; PDD-D-26 changed to DECIDED; PDD-D-29 added for new-4.
 - v1.0 treated as closed: audit PASSED 2026-10-27, all 7 phases complete, Gerard reviewed pdd_v1_0.xlsx. REQUIREMENTS.md was already archived to `milestones/v1.0-REQUIREMENTS.md` (not re-archived). The v1.0 sections below are stale (Phase 7 shows "Not started"; 07-01..07-03 are complete) and `/gsd:complete-milestone` was never run.
 - Probe committed 2026-11-16 (`.planning/schemas/probe_master_data_20261116.md`, strip-fix rerun). The brief's "0 overlap for 2022 5-digit IDs" was a probe bug (padded value vs `^\d{1,5}$`) and is superseded; other brief-quoted findings should be read from the probe file, not the brief.
@@ -47,6 +48,8 @@ Decisions (`docs/DECISIONS.md`): PDD-D-26 DECIDED (separate K2 PECAN_IDs via app
 
 ## Current position
 
+Phase: 16 (name-map-extension) — EXECUTING
+Plan: 1 of 5
 | Field | Value |
 |-------|-------|
 | Milestone | v1.0 — PCNR_ raw layer and dictionary framework |
@@ -155,22 +158,28 @@ These are QC findings from the Phase 5 live run that require Price's input befor
 - `_bridge_analysis_2022` fix committed (a99c259): `work.src_s08_s1` resolved via sheet_map in `_diag_unmatched_ids`; hardcoded override retained in `_bridge_analysis_2022`.
 
 ### Phase 15 progress (15-01, 2026-11-16)
+
 - 15-01 complete: `sas/15a_new_source_guard.sas` lint-clean, docs seeds committed. **PENDING SAS RUN** (15a, Gerard) and **PENDING DECISION** (approve new baseline via `PDD_APPROVE_NEW_BASELINE=1`). `gsd-tools state advance-plan` could not parse the v2.0 STATE format, so position was not auto-advanced.
 
 ### Phase 15 progress (15-02, 2026-11-16)
+
 - 15-02 complete: `sas/15b_new_inventory_spec.sas` lint-clean (0 errors), 182 pytest pass. **PENDING SAS RUN** (15b, Gerard, after 15a approval); `docs/import_spec_new_generated.csv` is produced by that run and committed by Gerard. NEW-02, NEW-03 spec half written. State commands not used (v2.0 frontmatter kept).
 
 ### Phase 15 progress (15-05, 2026-11-16)
+
 - 15-05 tasks 1-2 complete: Phase 15 wired into `99_run_all.sas` (token 15) and `run_pipeline.cmd`; run sheet `15-SAS-RUN.md` written. Checkpoint (Task 3) is **PENDING SAS RUN** (Gerard) and **PENDING DECISION** (new baseline approval; any gate that fires). Phase 15 is not closed.
 
 ### Phase 15 progress (15-03, 2026-11-16)
+
 - 15-03 complete: `sas/15c_new_import.sas` lint-clean (0 errors), 192 pytest pass. **PENDING SAS RUN** (15c, Gerard, after 15b spec is committed). Gates (NEW-04 1:1, PDD-D-29 item 3 pairwise, old-source overlap) write QC first and stop at **PENDING DECISION** if triggered; no choice applied. Datasets named `pdd.nsrc_s21..s23` (A11). State commands not used (v2.0 frontmatter kept).
 
 ### Phase 15 closed (2026-11-16)
+
 - Masked summary: GUARD MATCH x3; ROWCOUNTS MATCH x3 (10772/13029/12689); ONE_TO_ONE PASS x3; PAIRWISE_NEW 0/0/142 DECIDED (PDD-D-30); SPINE 0 x3; OLD20_UNION 0 x3; TYPE_CHANGES 138; NONASCII cells 0/18/26; GATE PDD-D-29 item 3 PASS; GATE OLD20_UNION PASS; GATE 1:1 PASS.
 - Full detail in `phases/15-new-source-intake/15-05-SUMMARY.md`.
 
 ## Cleanup backlog
+
 1. 15c PASS message prints `65370.65511`: needs a double dot after the macro variable (`&var..`) so the range shows `65370-65511` style text correctly.
 2. Cache the 20 old sources' `norm_psid` set once, so 15c does not re-read every old dataset from P: on each run (s06 alone takes about 45 s).
 3. Narrow lint rule C30 to plain `%put` text, so the masked semicolons in `00_config.sas`, `02_source_guard.sas` and `05_build_pcnr_macros.sas` stop being flagged.
