@@ -538,8 +538,8 @@ data work._t13_warn_check;
   retain _n_warn 0 _n_err 0;
   infile "&_test_log_path" lrecl=32767 end=_eof;
   input;
-  if index(upcase(_infile_), 'WARNING:') > 0 then _n_warn + 1;
-  if index(upcase(_infile_), 'ERROR:') > 0
+  if upcase(substr(_infile_,1,7)) = 'WARNING' then _n_warn + 1;
+  if upcase(substr(_infile_,1,5)) = 'ERROR'
      and index(upcase(_infile_), 'TESTRESULT SUMMARY') = 0 then _n_err + 1;
   if index(upcase(_infile_), '[FAIL]') > 0 or index(upcase(_infile_), '[PASS]') > 0 then
     put _infile_;

@@ -226,7 +226,7 @@ data work._t8_warn_check;
   retain _n_warn 0;
   infile "&_test_log_path" lrecl=32767 end=_eof;
   input;
-  if index(upcase(_infile_), 'WARNING:') > 0 then _n_warn + 1;
+  if upcase(substr(_infile_,1,7)) = 'WARNING' then _n_warn + 1;
   if _eof then do;
     call symputx('_t8_n_warn', _n_warn);
     output;

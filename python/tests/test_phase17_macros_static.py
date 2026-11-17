@@ -189,4 +189,6 @@ def test_test_harness_chk_uses_unquote_and_fails_on_error():
         code = (ROOT / "sas" / name).read_text(encoding="utf-8")
         assert "%if %unquote(&cond)" in code, name
         assert "%if &cond" not in code, name
-        assert "'ERROR:'" in code, name
+        assert "upcase(substr(_infile_,1,5)) = 'ERROR'" in code, name
+        assert "upcase(substr(_infile_,1,7)) = 'WARNING'" in code, name
+        assert "index(upcase(_infile_), 'ERROR:')" not in code, name
