@@ -182,6 +182,10 @@ These are QC findings from the Phase 5 live run that require Price's input befor
 
 - 16-02 complete: `sas/16_name_map_ext_macros.sas` and `sas/16_name_map_ext_test.sas` lint-clean (0 errors), 226 pytest pass. **PENDING SAS RUN** (`16_name_map_ext_test.sas`, Gerard, synthetic data only). State advance commands not used (v2.0 frontmatter kept).
 
+### Phase 16 progress (16-04, 2026-11-16)
+
+- 16-04 complete: `sas/16b_name_map_values_cov.sas` lint-clean (0 errors; sasjs lint 0 errors), `python/tests/test_phase16b_static.py` (11 tests pass). Value distributions per candidate pair (MAP-02 evidence) and year coverage per variable and source with NO_YEAR bucket (MAP-04). **PENDING SAS RUN** (16b, Gerard, after 16a; Phase 15 prerequisites done). State advance commands not used (v2.0 frontmatter kept).
+
 ### Phase 16 progress (16-01, 2026-11-16)
 
 - 16-01 complete: exchange contract for the 8 Phase 16 CSVs in `docs/exchange_schema.csv` (68 rows), header-only `docs/name_map_decisions_new.csv`, offline expectation test (100 keys, 90 exact, 10 non-matching all listed in variants file), `python/pdd/name_map_ext_workbook.py` and `python/scripts/write_name_map_ext_review.py` (ruff clean, 16-01 tests pass). MAP-01..04 not yet satisfied (need 16a/16b SAS runs). Near-match naming **PENDING DECISION**; Price sign-off **PENDING**. State advance commands not used (v2.0 frontmatter kept).
