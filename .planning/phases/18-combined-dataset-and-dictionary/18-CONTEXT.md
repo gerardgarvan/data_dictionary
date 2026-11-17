@@ -46,6 +46,14 @@ Out of scope: PCND_/PCNC_ families, linking PECAN_IDs (`pecan_id_link.sas` stays
 - A5 Counts only in QC and logs; counts 1-10 exported as `<11`. No raw values in type-failure QC (Phase 5's `raw_value` column is not copied).
 - A6 Python: new module and script; v1.0 `write_dictionary.py` untouched and its tests keep passing.
 - A7 No new PDD-D numbers other than PDD-D-33 (decided); Price naming sign-off remains PENDING and is stated on the KEY sheet.
+- A9 **Execution (2026-11-17).** A `PCNR_PRECEDE_STUDY_ID` row of the name map (if any) is not a PCNR_ column of the dataset: the key column `PRECEDE_STUDY_ID` replaces it, and 18a treats a `PCNR_PRECEDE_STUDY_ID` column of `pdd.pcnr` as KEY, not UNEXPLAINED.
+- A10 `%pdd_profile` runs with `lib=pdd`, `prefix=PCNR_`, `family=PCNR_2018_2025` and the frozen `pdd.name_map` (only LINKAGE_ONLY exclusion uses it; the combined dataset holds PCNR status variables only). Phase 6 runs in `p6_test_mode=1` so a profile failure flushes QC before the stop. The suppress list is not extended: the key columns have no PCNR_ prefix and are never profiled.
+- A11 KEY fact item names written by 18c: ROWS, COLUMNS, K1_ROWS, K2_ROWS, DISTINCT_PECAN_ID_K1, DISTINCT_PECAN_ID_K2, SHARED_SURGERIES, DUP_PAIRS, K1_BLANK_MRN_ROWS, PCNR_VARIABLES, NODATA_VARIABLES, PDD_K2_PSID_MODE, DATE, SOURCE_DATASETS. The writer accepts these (aliases in `_FACT_ALIASES`).
+- A12 An empty `PDD_K2_PSID_MODE` resolves to the decided default NORM; only a non-empty value other than NORM, DELIVERED, BLANK stops.
+- A13 18d under `99_run_all.sas` (open master log) scans only the CSVs; `run_pipeline.cmd` checks the 18d log for ERROR and WARNING lines. Standalone, 18d also scans the closed 18a-18c logs.
+- A14 Recon distinct-value check uses the v1.0 profile: LOW_CARD without an OTHER row gives the LEVEL row count, else the N_DISTINCT stat. If v1.0 small-cell suppression makes a level count differ, the run stops and the SAS-RUN sheet says to report it (no choice applied).
+- A15 The new-era variable map is one source column per PCNR_ variable per source (`sas_name` of `name_map_ext`); a variable mapped to two columns of one source stops the run. The writer subagent recorded its own assumptions (masked-count comparison, SOURCES sheet fallback) in its hand-back; they are visible in the module.
+- Nothing was run in SAS. Synthetic test T1-T17 and T0 define the expected behavior; first real log decides.
 
 </decisions>
 

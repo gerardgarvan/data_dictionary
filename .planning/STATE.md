@@ -2,7 +2,7 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: PCNR_ raw layer and dictionary framework
-status: Phase 17 complete; next Phase 18
+status: Phase 18 written (7 plans, lint and pytest clean); PENDING SAS RUN (Gerard)
 last_updated: "2026-11-17T00:19:56.099Z"
 progress:
   total_phases: 8
@@ -26,10 +26,12 @@ Earlier note (superseded, Phase 15 closed): Phase 15 (M2) could be planned: the 
 | 15 | M2 | New-source intake | Complete 2026-11-16 (NEW-01..NEW-05, NEW-03a satisfied; 15a/15b/15c and pipeline 15 run and passed) |
 | 16 | M3 | Name map extension | Complete 2026-11-17 (MAP-01..04 satisfied; test T1-T9 passed, 16a PASS, 16b 1297 variables / 56 NO_DATA, `run_pipeline.cmd 16` PASSED, 0 WARNING) |
 | 17 | M4 | PECAN_ID | Complete 2026-11-17 (PID-01..08; tests T1-T18 and T0-T7 passed; 17a approved 41150 rows 1:1 / 33031 K1 IDs / 1895 dup pairs; 17b 26474 K2 MRNs, registry 59505, case map 77498; see 17-SUMMARY.md) |
-| 18 | M5 | Combined dataset and dictionary 2018-2025 | Planned 2026-11-17 (7 plans, headless; execution next; SAS steps PENDING SAS RUN) |
+| 18 | M5 | Combined dataset and dictionary 2018-2025 | Executed (code) 2026-11-17: plans 18-01..18-07 written, lint and pytest clean; SAS steps PENDING SAS RUN (18-SAS-RUN.md); not closed |
 | 19 | M6 | Master Excel export | Blocked on 18 |
 
 **Phase 18 planned (2026-11-17, headless):** plans 18-01 (type seed, config, exchange schema), 18-02 (macros + synthetic test), 18-03 (18a preflight/probe), 18-04 (18b build), 18-05 (18c profile/recon, 18d MRN scan), 18-06 (dictionary workbook writer), 18-07 (wiring, 18-SAS-RUN, checkpoint). **PENDING SAS RUN:** 18_combine_test, 18a, 18b, 18c, 18d, writer (after execution of the plans). **PDD-D-33 DECIDED (Gerard, 2026-11-17):** K2 PRECEDE_STUDY_ID = normalized `Precede#####` (default `PDD_K2_PSID_MODE`=NORM, no stop). 18a is also the probe for the pdd.pcnr 1298-vs-1297 column question and the ASA/CPT1 numeric check (PDD-D-31 item 2, conditional). Research subagent skipped for budget; plan checker run once (3 blockers fixed: split 18-01, no PDD-D-33 default, CONDITIONAL ASA/CPT1).
+
+**Phase 18 executed, headless (2026-11-17):** 18-01 (seed `docs/combined_type_decisions.csv`, config `comb_ds`, `comb_backup_stem`, `PDD_K2_PSID_MODE` default NORM, exchange schema), 18-02 (`sas/18_combine_macros.sas`, `sas/18_combine_test.sas`), 18-03 (`18a_comb_preflight.sas`), 18-04 (`18b_comb_build.sas`), 18-05 (`18c_comb_profile_qc.sas`, `18d_comb_scan.sas`), 18-06 (`python/pdd/dictionary_2018_2025_workbook.py`, `python/scripts/write_dictionary_2018_2025.py`), 18-07 (token 18 in `99_run_all.sas` and `run_pipeline.cmd`, `18-SAS-RUN.md`, `18-VALIDATION.md`). PDD-D-33 DECIDED (K2 PRECEDE_STUDY_ID = normalized Precede#####, default NORM, stop removed). ASA_Anesth_Record and CPT1_Class stay conditional numeric: 18a measures both sides and stops at PENDING DECISION on any non-numeric value. Plan-checker items applied (KEY sheet states the DD-04 limit: counts and distinct values, not level-by-level frequencies; tests in `python/tests/`; `test_phase17_programs_static.py` and the phase 15/16 wiring tests updated for token 18). **PENDING SAS RUN (Gerard):** `18_combine_test.sas`, then 18a, 18b, 18c, 18d (each in a fresh session), then the writer. **PENDING DECISION:** none open; one arises only if a gate stops (see the table in 18-SAS-RUN.md). Price naming sign-off still pending. Assumptions: `18-CONTEXT.md` section Assumptions (headless run), A9-A15.
 
 **Phase 17 COMPLETE (2026-11-17).** PDD-D-32 EXECUTED. **Next:** Phase 18 (combined dataset and dictionary). Price naming sign-off remains PENDING.
 

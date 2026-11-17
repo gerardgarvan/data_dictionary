@@ -326,7 +326,7 @@ options nodlcreatedir;
   %p18_typeconv_reset;
   %p18_typeconv_add(tag=t1);
   %_val(ds=work.b_t1, var=PCNR_AGE, where=%str(norm_psid = %'Precede00001%'));
-  %_chk(case=T1_DECIMAL_PARSED, cond=%str(&_v = 1.5), detail=%str(1.5 not parsed));
+  %_chk(case=T1_DECIMAL_PARSED, cond=%str(%sysevalf(&_v = 1.5)), detail=%str(1.5 not parsed));
   %_val(ds=work.qc_comb_typeconv, var=n_char_to_num_fail, where=%str(pcnr_name = %'PCNR_AGE%'));
   %_chk(case=T1_UNPARSEABLE_COUNTED, cond=%str(&_v = 1), detail=%str(failure count));
   %_cnt(ds=dictionary.columns,
