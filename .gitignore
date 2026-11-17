@@ -70,3 +70,5 @@ logs/
 !docs/import_spec_new_generated.csv
 # Exception: PDD-D-30 overlap decision (pair, counts, ID range, rule), metadata only
 !docs/new_overlap_decisions.csv
+# Phase 16 name-map decisions for s21-s23, header/name metadata only -- plan 16-01
+!docs/name_map_decisions_new.csv
