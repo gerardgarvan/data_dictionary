@@ -25,7 +25,7 @@ Earlier note (superseded, Phase 15 closed): Phase 15 (M2) could be planned: the 
 | 14 | M1 | Probe and headless setup | Complete (PRB-01..03, RUN-01 satisfied) |
 | 15 | M2 | New-source intake | Complete 2026-11-16 (NEW-01..NEW-05, NEW-03a satisfied; 15a/15b/15c and pipeline 15 run and passed) |
 | 16 | M3 | Name map extension | Complete 2026-11-17 (MAP-01..04 satisfied; test T1-T9 passed, 16a PASS, 16b 1297 variables / 56 NO_DATA, `run_pipeline.cmd 16` PASSED, 0 WARNING) |
-| 17 | M4 | PECAN_ID | Next (PDD-D-28 DECIDED; Phases 15-16 complete) |
+| 17 | M4 | PECAN_ID | Planned 2026-11-17 (5 plans in .planning/phases/17-pecan-id; execution next; SAS runs PENDING SAS RUN; PROBE REQUEST PR-1 g.pecan_id_xwalk PENDING SAS RUN, new program sas/17_probe_xwalk.sas; no new decision open) |
 | 18 | M5 | Combined dataset and dictionary 2018-2025 | Blocked on 15-17 |
 | 19 | M6 | Master Excel export | Blocked on 18 |
 
@@ -215,3 +215,5 @@ These are QC findings from the Phase 5 live run that require Price's input befor
 4. DONE 2026-11-17: 16b zero-element array warnings removed (generated coverage step declares placeholders `_p16_dn 8` and `_p16_dc $1` before the `_numeric_`/`_character_` arrays).
 5. 16b re-reads s06 (3,987 columns) for every value pair, about 45 s each: use the same cache fix as backlog item 2 (read each source once per run).
 
+
+**Phase 17 planned (2026-11-17, headless):** plans 17-01 (config g read-only, macros, synthetic test), 17-02 (xwalk probe + K1 seed), 17-03 (PDD-D-30 dedupe + K2 assign + case map + gates), 17-04 (pecan_id_link.sas written/tested/not run), 17-05 (summary, wiring, SAS-RUN). Approval option PDD_APPROVE_NEW_BASELINE (default 0). Open facts: xwalk never probed (MRN length $40 in D-28 vs spine 41); spine MRN levels 31,137 (probe) vs 31,136 (D-28), gate compares at run time. Assumptions in 17-CONTEXT.md. Research/checker subagents skipped for budget.
