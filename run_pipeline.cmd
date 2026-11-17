@@ -14,6 +14,7 @@ REM  Usage: run_pipeline.cmd           (full run, phases 2 3)
 REM         run_pipeline.cmd 3         (dev: phase 3 only, requires prior full run)
 REM         run_pipeline.cmd 2 3       (explicit: space-separated, no quotes needed)
 REM         run_pipeline.cmd 15        (v2.0 new-source intake; needs a prior v1.0 run)
+REM         run_pipeline.cmd 16        (v2.0 name map extension; needs Phase 15 outputs)
 REM  Log:   %LOGS_PATH%\99_run_all.log  (master log with per-program summary)
 REM
 REM  Machine override: create config.local.cmd at repo root to set SAS_EXE.
@@ -170,6 +171,24 @@ if !ERRORLEVEL! EQU 0 (
   echo Phase 15 Python complete.
 ) else (
   echo Phase 15 Python skipped -- phase 15 not in PDD_PHASES
+)
+
+REM ---- Phase 16 Python: write name_map_ext_review.xlsx (only when phase 16 requested) ----
+echo %PDD_PHASES% | findstr /i "\<16\>" >nul 2>&1
+if !ERRORLEVEL! EQU 0 (
+  echo Phase 16 Python: writing name_map_ext_review.xlsx
+  set _P16_EXCHANGE=P:\PeCAN Master Data\Gerard\data_dictionary\exchange
+  set _P16_QC=P:\PeCAN Master Data\Gerard\data_dictionary\qc
+  echo === run %DATE% %TIME% === > "%LOGS_PATH%\write_name_map_ext_review_console.txt"
+  "%PDD_PYTHON%" "%~dp0python\scripts\write_name_map_ext_review.py" --exchange "!_P16_EXCHANGE!" --qc "!_P16_QC!" --logs "%LOGS_PATH%" --docs "%~dp0docs" >> "%LOGS_PATH%\write_name_map_ext_review_console.txt" 2>&1
+  if !ERRORLEVEL! NEQ 0 (
+    echo Phase 16 Python FAILED -- see logs\write_name_map_ext_review_console.txt
+    echo Phase 16 Python FAILED >> "%MASTER_LOG%"
+    goto :fail
+  )
+  echo Phase 16 Python complete.
+) else (
+  echo Phase 16 Python skipped -- phase 16 not in PDD_PHASES
 )
 
 REM ---- Scan master log for ERROR lines ----
