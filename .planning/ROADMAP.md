@@ -155,8 +155,8 @@ Plans:
   3. New columns get PCNR_ names under rules A1-A4 with 0 collisions and 0 truncation collisions; names already in use keep their meaning.
   4. First and last surgical year with non-missing values, and contributing source files, are recorded per variable.
   5. Price's naming sign-off remains listed as pending.
-- **Plans:** 1/5 plans executed
-  - [ ] 16-01-PLAN.md — Wave 1: exchange contract, `docs/name_map_decisions_new.csv` seed, offline expectation test, review workbook writer (MAP-01..04)
+- **Plans:** 2/5 plans executed
+  - [x] 16-01-PLAN.md — Wave 1: exchange contract, `docs/name_map_decisions_new.csv` seed, offline expectation test, review workbook writer (MAP-01..04)
   - [x] 16-02-PLAN.md — Wave 1: naming/collision/Stage 2 macros + synthetic SAS test (MAP-01, MAP-03)
   - [ ] 16-03-PLAN.md — Wave 2: `sas/16a_name_map_ext.sas` frozen-map extension, candidate gate, naming (MAP-01..03; PENDING SAS RUN / PENDING DECISION)
   - [ ] 16-04-PLAN.md — Wave 2: `sas/16b_name_map_values_cov.sas` value distributions and year coverage (MAP-02, MAP-04; PENDING SAS RUN; Phase 15 prerequisites done)
