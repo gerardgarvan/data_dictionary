@@ -238,3 +238,34 @@ def test_wiring():
     assert "%let pdd_phases_run = 2 3 4;" in s
     assert 'if "%PDD_PHASES%"=="" set PDD_PHASES=2 3 4' in cmd
     assert 'findstr /i "\\<17\\>"' not in cmd
+
+
+def _defs_with_includes(name, seen=None):
+    seen = seen if seen is not None else set()
+    if name in seen or not (SAS / name).exists():
+        return set()
+    seen.add(name)
+    raw = re.sub(r"/\*.*?\*/", "", (SAS / name).read_text(encoding="utf-8"), flags=re.S)
+    defs = {m.lower() for m in re.findall(r"%macro\s+(p1[67]_\w+)", raw, re.I)}
+    for inc in re.findall(r'%include\s+"([^"]+)"', raw, re.I):
+        defs |= _defs_with_includes(re.split(r"[\\/]", inc)[-1], seen)
+    return defs
+
+
+@pytest.mark.parametrize("name", ["17a_pecan_id_k1_seed.sas", "17b_pecan_id_k2.sas",
+                                  "17c_pecan_id_summary.sas", "pecan_id_link.sas"])
+def test_production_program_macros_are_defined_or_included(name):
+    called = {m.lower() for m in re.findall(r"%(p1[67]_\w+)", _code(name), re.I)}
+    missing = called - _defs_with_includes(name)
+    assert not missing, f"{name} calls undefined macros: {sorted(missing)}"
+
+
+def test_17c_includes_macros_forces_abort_and_fails_loudly():
+    code = _code("17c_pecan_id_summary.sas")
+    assert code.index("00_config.sas") < code.index("%let p17_fail_mode = ABORT;")
+    assert '%include "&sas_path.\\17_pecan_id_macros.sas";' in code
+    main = code[code.index("%macro p17c_main"):]
+    for needle in ("SYSERR", "0 data rows", "does not equal registry rows"):
+        assert needle in main
+    assert main.index("does not equal registry rows") < main.index("proc export")
+    assert main.index("0 data rows") < main.index("proc export")

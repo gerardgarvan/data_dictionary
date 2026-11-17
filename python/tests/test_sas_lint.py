@@ -834,3 +834,20 @@ def test_c35_clean_cases():
     ok3 = ["proc sql;", "  select distinct a, b from t order by a;", "quit;"]
     for lines in (ok1, ok2, ok3):
         assert sas_lint.check_group_by_no_summary("<test>", lines) == [], lines
+
+
+# C36 called p16_/p17_ macro must be defined or included
+def test_c36_fires_when_macro_not_included(tmp_path):
+    f = tmp_path / "prod.sas"
+    f.write_text('%include "&sas_path.\other_macros.sas";\n%p17_topcode(in=a);\n', encoding="utf-8")
+    (tmp_path / "other_macros.sas").write_text("%macro p17_other;\n%mend p17_other;\n", encoding="utf-8")
+    hits = sas_lint.check_macro_defined_or_included(str(f), f.read_text(encoding="utf-8").split("\n"))
+    assert any(h[2] == "C36" for h in hits), hits
+
+
+def test_c36_passes_when_included_or_defined(tmp_path):
+    (tmp_path / "m_macros.sas").write_text("%macro p17_topcode(in=);\n%mend p17_topcode;\n", encoding="utf-8")
+    f = tmp_path / "prod.sas"
+    f.write_text('%include "&sas_path.\m_macros.sas";\n%macro p16_x;\n%mend p16_x;\n%p17_topcode(in=a);\n%p16_x;\n',
+                 encoding="utf-8")
+    assert sas_lint.check_macro_defined_or_included(str(f), f.read_text(encoding="utf-8").split("\n")) == []

@@ -37,6 +37,8 @@
   %end;
 %mend restore_log;
 
+%include "&sas_path.\17_pecan_id_macros.sas";
+
 %macro fail_out(msg=);
   %put ERROR: [17c_pecan_id_summary] &msg;
   %restore_log;
@@ -47,12 +49,20 @@
 %check_encoding;
 %check_pdd_lib;
 
+/* record the worst &syserr seen after a step (syserr is reset by every step) */
+%macro p17c_err;
+  %if &syserr > 4 and &syserr > &_errmax %then %let _errmax = &syserr;
+%mend p17c_err;
+
 %macro p17c_main;
-  %local _n_map _n_id _n_noid _n_k1 _n_k2 _n_k1id _n_k2id _n_pairs _n_dupids _bad;
-  %let _n_pairs = 0; %let _n_dupids = 0;
+  %local _n_map _errmax _n_reg _n_allids _n_outrows _n_tcrows _n_id _n_noid _n_k1 _n_k2 _n_k1id _n_k2id _n_pairs _n_dupids _bad;
+  %let _n_pairs = 0; %let _n_dupids = 0; %let _errmax = 0;
+  %let _n_reg = -1; %let _n_outrows = 0; %let _n_tcrows = 0;
   %route_log;
   %if not %sysfunc(exist(pdd.pecan_id_case_map)) %then
     %fail_out(msg=%str(pdd.pecan_id_case_map missing - run 17b first));
+  %if not %sysfunc(exist(pdd.pecan_id_registry)) %then
+    %fail_out(msg=%str(pdd.pecan_id_registry missing - run 17a and 17b first));
 
   proc sql noprint;
     create table work.p17c_pc as
@@ -65,6 +75,7 @@
     select count(*) into :_n_k1 trimmed from pdd.pecan_id_case_map where KEY_ERA = 'K1';
     select count(*) into :_n_k2 trimmed from pdd.pecan_id_case_map where KEY_ERA = 'K2';
   quit;
+  %p17c_err;
 
   data work.p17c_pc2;
     set work.p17c_pc;
@@ -88,6 +99,7 @@
     select count(*) into :_n_k1id trimmed from work.p17c_pc2 where KEY_ERA = 'K1';
     select count(*) into :_n_k2id trimmed from work.p17c_pc2 where KEY_ERA = 'K2';
   quit;
+  %p17c_err;
 
   %if %sysfunc(exist(pdd.pecan_id_dup_link)) %then %do;
     proc sql noprint;
@@ -108,6 +120,7 @@
      one 'N+' bucket until every row has at least 11 IDs, so no n_cases can be
      divided back to a small n_ids and totals never hide a masked cell. */
   %p17_topcode(in=work.p17c_dist, out=work.p17c_tc, minn=11);
+  %p17c_err;
 
   data work.p17c_out;
     length scope $8 metric $40 bucket $4 n_ids 8 n_cases 8 row_masked 8 note $200;
@@ -161,6 +174,29 @@
     keep scope metric bucket n_ids n_cases note;
   run;
 
+
+  /* loud failure: any step error, empty output, or ALL ID total off the registry */
+  %if %sysfunc(exist(work.p17c_tc)) %then %do;
+    proc sql noprint;
+      select count(*) into :_n_tcrows trimmed from work.p17c_tc;
+    quit;
+  %end;
+  %if %sysfunc(exist(work.p17c_all)) %then %do;
+    proc sql noprint;
+      select count(*) into :_n_outrows trimmed from work.p17c_all;
+    quit;
+  %end;
+  proc sql noprint;
+    select count(*) into :_n_reg trimmed from pdd.pecan_id_registry;
+    select coalesce(sum(n_ids), 0) into :_n_allids trimmed from work.p17c_dist where scope = 'ALL';
+  quit;
+  %p17c_err;
+  %if &_errmax > 4 %then
+    %fail_out(msg=%str(a step ended with SYSERR &_errmax. - summary not written));
+  %if &_n_tcrows = 0 or &_n_outrows = 0 %then
+    %fail_out(msg=%str(summary output has 0 data rows - top-coded rows &_n_tcrows., output rows &_n_outrows.));
+  %if &_n_allids ne &_n_reg %then
+    %fail_out(msg=%str(ALL scope ID total &_n_allids. does not equal registry rows &_n_reg.));
 
   %if &_bad = 1 %then
     %fail_out(msg=%str(summary does not reconcile to the case map - with ID &_n_id., without ID &_n_noid., K1 &_n_k1., K2 &_n_k2., rows &_n_map.));

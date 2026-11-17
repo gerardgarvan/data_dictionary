@@ -32,6 +32,8 @@ C34 %if &cond with a quoted macro parameter and no %unquote -- character
     operand ERROR when the caller passes cond=%str(...)
 C35 PROC SQL GROUP BY with no summary function and no HAVING -- WARNING
     'GROUP BY clause has been transformed into an ORDER BY clause'
+C36 %p16_* / %p17_* macro called but neither defined in the file nor in a file
+    it %includes (resolves &sas_path. and the literal sas directory)
 C20 TRIMMED keyword in PROC SQL SELECT list -- valid only after INTO targets
 W2  Assert-style count query: reports dataset name and WHERE-clause columns for reviewer
 
@@ -702,6 +704,51 @@ def check_group_by_no_summary(path, lines):
                     'GROUP BY without a summary function is turned into ORDER BY '
                     '(WARNING) -- use SELECT DISTINCT ... ORDER BY'))
             pos += len(stmt) + 1
+    return hits
+
+
+# ── C36: called p16_/p17_ macro not defined or included ─────────────────────
+
+_C36_CALL = re.compile(r'%(p1[67]_\w+)', CI)
+_C36_DEF = re.compile(r'%macro\s+(p1[67]_\w+)', CI)
+_C36_INC = re.compile(r'%include\s+"([^"]+)"', CI)
+
+
+def _c36_defs(path, seen):
+    """Macro names defined in path plus every file it %includes (recursive)."""
+    import os
+    key = os.path.abspath(path)
+    if key in seen or not os.path.isfile(path):
+        return set()
+    seen.add(key)
+    with open(path, encoding='utf-8', errors='replace') as fh:
+        text = strip_block_comments(fh.read())
+    defs = {m.group(1).lower() for m in _C36_DEF.finditer(text)}
+    sas_dir = os.path.dirname(key)
+    for m in _C36_INC.finditer(text):
+        name = re.split(r'[\\/]', m.group(1))[-1]
+        defs |= _c36_defs(os.path.join(sas_dir, name), seen)
+    return defs
+
+
+def check_macro_defined_or_included(path, lines):
+    import os
+    base = os.path.basename(path).lower()
+    # macro libraries and test programs rely on the caller's includes
+    if not os.path.isfile(path) or base.endswith('_macros.sas') or '_test' in base:
+        return []
+    defs = _c36_defs(path, set())
+    hits = []
+    for i, raw in enumerate(lines, 1):
+        if re.match(r'\s*%(?:macro|mend)', raw, CI):
+            code = re.sub(r'^\s*%macro\s+\w+', '', raw, flags=CI)
+        else:
+            code = raw
+        for m in _C36_CALL.finditer(code):
+            if m.group(1).lower() not in defs:
+                hits.append((path, i, 'C36',
+                    f'%{m.group(1)} is called but defined neither in this file nor in a '
+                    f'file it %includes -- add the %include of its macro file'))
     return hits
 
 
@@ -1664,6 +1711,7 @@ CHECKS = [
     check_member_name_length,
     check_if_quoted_param,
     check_group_by_no_summary,
+    check_macro_defined_or_included,
 ]
 
 
