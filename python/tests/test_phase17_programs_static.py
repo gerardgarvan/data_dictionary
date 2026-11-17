@@ -52,16 +52,23 @@ def test_xwalk_is_not_an_input(name):
 def test_17a_structure():
     code = _code("17a_pecan_id_k1_seed.sas")
     assert "%pdd_lib_g;" in code
-    assert "exist(pdd.pecan_id_registry)" in code
-    assert "registry exists, K1 build skipped" in code
-    assert re.search(r"proc\s+append|%p17_append_dup_link", code)
+    assert "%p17_k1_registry_link(" in code
+    mac = _code("17_pecan_id_macros.sas")
+    rl = mac[mac.index("%macro p17_k1_registry_link"):mac.index("%mend p17_k1_registry_link")]
+    assert "exist(pdd.pecan_id_registry)" in rl
+    assert "registry exists, K1 build skipped" in rl
+    assert "%p17_append_dup_link" in rl
+    # the dup link append sits behind the failure guard, after the baseline guard
+    guard = rl.index("%if &_p17_failed = 0 %then %do;", rl.index("%p17_registry_baseline("))
+    assert guard < rl.index("%p17_append_dup_link")
+    assert rl.index("%p17_registry_baseline(") < rl.index("%p17_gate_registry(", rl.index("%p17_registry_baseline("))
     # QC written before the gate verdict, join before the gate
     j = code.index("%p17_k1_join(")
     d = code.index("%p17_dump_qc(tables=k1", j)
     g = code.index("%p17_gate_k1;")
     assert j < d < g
     # k1_cases only after the gate, registry only after k1_cases
-    assert g < code.index("data pdd.pecan_id_k1_cases") < code.index("%p17_registry_baseline(")
+    assert g < code.index("data pdd.pecan_id_k1_cases") < code.index("%p17_k1_registry_link(")
     # registry is never created directly in 17a; only through the approval guard
     assert not re.search(r"data\s+pdd\.pecan_id_registry\b", code, flags=re.I)
     assert "pecan_id_registry_proposed.csv" in code and "pecan_id_registry_proposed_summary.csv" in code
@@ -73,6 +80,50 @@ def test_17a_structure():
     assert "PRECEDE_Study_ID" in code and "PRECEDE_STUDY_ID" in code and "norm" in code
     assert re.search(r"pecan_id_dup_pairs_by_year\.csv", code) and "pecan_id_k1.csv" in code
     assert "BLANK_SPINE_MRN_ROWS" in code
+
+
+@pytest.mark.parametrize("name", ["17a_pecan_id_k1_seed.sas", "17b_pecan_id_k2.sas",
+                                  "17c_pecan_id_summary.sas", "pecan_id_link.sas"])
+def test_production_programs_force_abort_mode(name):
+    """Production programs never inherit FLAG from a test run in the same session."""
+    code = _code(name)
+    cfg = code.index('%include "C:\\data_dictionary\\sas\\00_config.sas";')
+    m = re.search(r"%let\s+p17_fail_mode\s*=\s*ABORT\s*;", code)
+    assert m and m.start() > cfg
+    assert m.start() < code.index("%pdd_lib;")
+    assert "FLAG" not in code
+
+
+def test_gates_fail_on_missing_table():
+    mac = _code("17_pecan_id_macros.sas")
+    for macro in ("p17_gate_registry", "p17_gate_casemap"):
+        body = mac[mac.index("%macro " + macro):mac.index("%mend " + macro)]
+        assert "%sysfunc(exist(" in body and "%return;" in body, macro
+        assert body.index("%sysfunc(exist(") < body.index("proc sql"), macro
+
+
+@pytest.mark.parametrize("name", ["17_pecan_id_test.sas", "17_pecan_id_link_test.sas"])
+def test_tests_restore_session_state(name):
+    code = (SAS / name).read_text(encoding="utf-8")
+    assert "_saved_fail_mode" in code and "_saved_pdd_path" in code
+    assert "fresh SAS session" in code
+    assert "libname p17bak clear" in code
+
+
+def test_baseline_not_approved_test_present():
+    t = (SAS / "17_pecan_id_test.sas").read_text(encoding="utf-8")
+    for tag in ("T15_NO_APPROVAL_FAILS", "T15_NO_APPROVAL_LINK_NOT_WRITTEN",
+                "T15_NO_APPROVAL_NO_LINK_BACKUP", "T15_APPROVED_LINK_WRITTEN", "T16_GATE_MISSING_REGISTRY_FAILS"):
+        assert tag in t, tag
+    assert "%p17_k1_registry_link(" in t
+
+
+def test_log_scans_use_prefix_comparison():
+    for name in ("17_pecan_id_test.sas", "17_pecan_id_link_test.sas", "04_decisions_test.sas",
+                 "16_name_map_ext_test.sas"):
+        code = (SAS / name).read_text(encoding="utf-8")
+        assert "substr(_infile_" not in code, name
+        assert "upcase(_infile_) =: 'WARNING'" in code, name
 
 
 def test_link_table_only_touched_by_proc_append():

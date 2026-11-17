@@ -13,11 +13,17 @@
             T6 APPLY refuses a registry that differs from its backup
             T7 no WARNING lines in this log
   Run     : sas 17_pecan_id_link_test.sas  (no pipeline setup required)
+  Session : repoints pdd and p17bak at WORK folders and uses FLAG mode. It
+            restores p17_fail_mode and pdd at the end, but run every production
+            program in a fresh SAS session anyway.
   Status  : PENDING SAS RUN (Gerard).
 ==========================================================================*/
 
 %let _test_log_path = %sysfunc(pathname(work))\17_pecan_id_link_test.log;
 proc printto log="&_test_log_path" new; run;
+
+/* session state saved here, restored by %_restore_state at the very end */
+%let _saved_pdd_path = %sysfunc(pathname(pdd));
 
 options validvarname=v7 dlcreatedir;
 libname pdd "%sysfunc(pathname(work))\tpdd";
@@ -32,7 +38,24 @@ options nodlcreatedir;
 %include "C:\data_dictionary\sas\17_pecan_id_macros.sas";
 %include "C:\data_dictionary\sas\17_pecan_id_link_macros.sas";
 
+%let _saved_fail_mode = &p17_fail_mode;
 %let p17_fail_mode = FLAG;
+
+%macro _restore_state;
+  %let p17_fail_mode = &_saved_fail_mode;
+  %let _p17_failed = 0;
+  %if %sysfunc(libref(p17bak)) = 0 %then %do;
+    libname p17bak clear;
+  %end;
+  %if %length(&_saved_pdd_path) > 0 %then %do;
+    libname pdd base "&_saved_pdd_path";
+  %end;
+  %else %if %sysfunc(libref(pdd)) = 0 %then %do;
+    libname pdd clear;
+  %end;
+  %put NOTE: [17_pecan_id_link_test] session state restored - fail mode &p17_fail_mode, pdd and p17bak librefs reset;
+  %put NOTE: [17_pecan_id_link_test] run production programs in a fresh SAS session;
+%mend _restore_state;
 
 %let _all_pass = 1;
 %macro _record(case=, result=, detail=);
@@ -231,8 +254,8 @@ data work._t7_warn_check;
   retain _n_warn 0 _n_err 0;
   infile "&_test_log_path" lrecl=32767 end=_eof;
   input;
-  if upcase(substr(_infile_,1,7)) = 'WARNING' then _n_warn + 1;
-  if upcase(substr(_infile_,1,5)) = 'ERROR'
+  if upcase(_infile_) =: 'WARNING' then _n_warn + 1;
+  if upcase(_infile_) =: 'ERROR'
      and index(upcase(_infile_), 'TESTRESULT SUMMARY') = 0 then _n_err + 1;
   if index(upcase(_infile_), '[FAIL]') > 0 or index(upcase(_infile_), '[PASS]') > 0 then
     put _infile_;
@@ -257,3 +280,4 @@ run;
     %put ERROR: [17_pecan_id_link_test] TESTRESULT SUMMARY: ONE OR MORE TESTS FAILED;
 %mend _final_summary;
 %_final_summary;
+%_restore_state;

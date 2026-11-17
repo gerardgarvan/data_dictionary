@@ -17,6 +17,12 @@
 ==========================================================================*/
 
 %include "C:\data_dictionary\sas\00_config.sas";
+
+/* Production run: always ABORT. Never inherit FLAG from an earlier session
+   (the synthetic tests use FLAG). Run each program in a fresh SAS session. */
+%let p17_fail_mode = ABORT;
+%let _p17_failed = 0;
+
 %pdd_lib;
 
 %macro route_log;

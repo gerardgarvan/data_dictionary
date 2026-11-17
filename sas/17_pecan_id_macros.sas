@@ -238,6 +238,11 @@
 %macro p17_gate_registry(reg=pdd.pecan_id_registry);
   %local _c1 _c2 _c3 _c4 _c5 _c6 _c7 _nbad;
   %let _c1=0; %let _c2=0; %let _c3=0; %let _c4=0; %let _c5=0; %let _c6=0; %let _c7=0;
+  /* a missing table is a failure, never a PASS */
+  %if not %sysfunc(exist(&reg)) %then %do;
+    %p17_fail(msg=%str(registry gate FAILED - table &reg does not exist));
+    %return;
+  %end;
   proc sql noprint;
     select count(*) into :_c1 trimmed from
       (select PECAN_ID from &reg group by PECAN_ID having count(*) > 1);
@@ -273,6 +278,11 @@
 %macro p17_gate_casemap(map=pdd.pecan_id_case_map, reg=pdd.pecan_id_registry);
   %local _c1 _c2 _c3 _c4 _c5 _c6 _nbad;
   %let _c1=0; %let _c2=0; %let _c3=0; %let _c4=0; %let _c5=0; %let _c6=0;
+  /* a missing table is a failure, never a PASS */
+  %if not %sysfunc(exist(&map)) or not %sysfunc(exist(&reg)) %then %do;
+    %p17_fail(msg=%str(case map gate FAILED - table &map or &reg does not exist));
+    %return;
+  %end;
   proc sql noprint;
     select count(*) into :_c1 trimmed from
       (select norm_psid from &map group by norm_psid having count(*) > 1);
@@ -664,6 +674,44 @@
     %p17_fail(msg=%str(PENDING DECISION - registry baseline not approved. Proposed registry has &_n_rows. rows. Review the proposal and masked summary in qc then rerun with PDD_APPROVE_NEW_BASELINE=1. Registry not created));
   %end;
 %mend p17_registry_baseline;
+
+/* ---- 17a steps that depend on the registry (one macro, so the test covers
+   the same code). Order: registry present -> backup current -> gate, or
+   registry absent -> K1 rows -> decision counts -> baseline guard -> gate.
+   Only when none of those failed: K1 count, dup link append. After any
+   failure (FLAG mode) nothing registry- or link-related runs. Globals:
+   p17_n_link_new p17_n_reg_k1 p17_n_link_tot. */
+%macro p17_k1_registry_link(jn=, pairs=, propfile=, sumfile=);
+  %global p17_n_link_new p17_n_reg_k1 p17_n_link_tot;
+  %let p17_n_link_new = 0; %let p17_n_reg_k1 = 0; %let p17_n_link_tot = 0;
+  %if %sysfunc(exist(pdd.pecan_id_registry)) %then %do;
+    %put NOTE: [p17] registry exists, K1 build skipped;
+    %p17_assert_backup_current;
+    %if &_p17_failed = 0 %then %p17_gate_registry(reg=pdd.pecan_id_registry);
+  %end;
+  %else %do;
+    %p17_k1_reg_rows(in=&jn, out=work._p17_regk1);
+    %if %eval(&p17_n_multi_mrn + &p17_n_only_blank) > 0 %then
+      %p17_fail(msg=%str(PENDING DECISION - K1 IDs with more than one spine MRN &p17_n_multi_mrn., IDs only on blank MRN rows &p17_n_only_blank.. Registry not created));
+    %else %do;
+      %p17_registry_baseline(in=work._p17_regk1, propfile=&propfile, sumfile=&sumfile);
+      %if &_p17_failed = 0 %then %p17_gate_registry(reg=pdd.pecan_id_registry);
+    %end;
+  %end;
+  %if &_p17_failed = 0 %then %do;
+    proc sql noprint;
+      select count(*) into :p17_n_reg_k1 trimmed from pdd.pecan_id_registry
+        where KEY_ERA = 'K1';
+    quit;
+    %p17_qadd(ds=pdd.qc_pecan_id_k1, item=REGISTRY_K1_ROWS, n=&p17_n_reg_k1);
+    /* dup link: append only pairs not yet present (dated backup first) */
+    %p17_append_dup_link(pairs=&pairs);
+    %p17_nobs(ds=pdd.pecan_id_dup_link, mv=p17_n_link_tot);
+    %p17_qadd(ds=pdd.qc_pecan_id_k1, item=DUP_LINK_ROWS_APPENDED, n=&p17_n_link_new);
+    %p17_qadd(ds=pdd.qc_pecan_id_k1, item=DUP_LINK_ROWS_TOTAL, n=&p17_n_link_tot);
+  %end;
+  %else %put NOTE: [p17] registry and dup link steps skipped after a failure;
+%mend p17_k1_registry_link;
 
 /* ---- K2 assignment (append-only). cases: norm_psid ENCRYPTED_MRN mrn_usable
    one row per deduped case. Known (MRN,K2) pairs keep their ID, unseen MRNs

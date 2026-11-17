@@ -20,14 +20,23 @@
             T12 backup-current assertion: no backup, approval, differing registry
             T14 registry baseline guard: no approval / value 2 = proposal + masked
                 summary, no registry; approval 1 = registry + current backup
+            T15 17a registry and link step with FLAG mode: baseline not approved
+                -> no registry, dup link not written, no link backup; approved -> both
+            T16 registry and case map gates FAIL when their table does not exist
             T13 no WARNING or ERROR lines in this log (runs last)
   Run     : sas 17_pecan_id_test.sas  (no pipeline setup required)
             Bring back the log and look for the TESTRESULT SUMMARY line.
+  Session : this test repoints pdd and p17bak at WORK folders and uses FLAG
+            mode. It restores p17_fail_mode and pdd at the end, but run every
+            production program in a fresh SAS session anyway.
   Status  : PENDING SAS RUN (Gerard).
 ==========================================================================*/
 
 %let _test_log_path = %sysfunc(pathname(work))\17_pecan_id_test.log;
 proc printto log="&_test_log_path" new; run;
+
+/* session state saved here, restored by %_restore_state at the very end */
+%let _saved_pdd_path = %sysfunc(pathname(pdd));
 
 options validvarname=v7 dlcreatedir;
 libname pdd "%sysfunc(pathname(work))\tpdd";
@@ -58,7 +67,31 @@ options nodlcreatedir;
 
 %include "C:\data_dictionary\sas\17_pecan_id_macros.sas";
 
+%let _saved_fail_mode = &p17_fail_mode;
 %let p17_fail_mode = FLAG;
+
+%macro _restore_state;
+  %let p17_fail_mode = &_saved_fail_mode;
+  %let _p17_failed = 0;
+  %if %sysfunc(libref(p17bak)) = 0 %then %do;
+    libname p17bak clear;
+  %end;
+  %if %length(&_saved_pdd_path) > 0 %then %do;
+    libname pdd base "&_saved_pdd_path";
+  %end;
+  %else %if %sysfunc(libref(pdd)) = 0 %then %do;
+    libname pdd clear;
+  %end;
+  %put NOTE: [17_pecan_id_test] session state restored - fail mode &p17_fail_mode, pdd and p17bak librefs reset;
+  %put NOTE: [17_pecan_id_test] run production programs 17a 17b 17c in a fresh SAS session;
+%mend _restore_state;
+
+%macro _drop(ds=);
+  %if %sysfunc(exist(&ds)) %then %do;
+    proc delete data=&ds;
+    run;
+  %end;
+%mend _drop;
 
 %let _all_pass = 1;
 %macro _record(case=, result=, detail=);
@@ -527,6 +560,43 @@ options nodlcreatedir;
   %p17_assert_backup_current;
   %_expect_ok(case=T14_APPROVED_REGISTRY_HAS_CURRENT_BACKUP);
 
+  /* ---- T15 17a registry and link step, FLAG mode, baseline not approved --------- */
+  /* Regression: a failed baseline guard in FLAG mode used to let the dup link be written. */
+  %_drop(ds=pdd.pecan_id_registry);
+  %_drop(ds=pdd.pecan_id_dup_link);
+  %p17_latest_backup(stem=piddup);
+  %let _t15_bak0 = &_p17_latest;
+  %let PDD_APPROVE_NEW_BASELINE = 0;
+  %let _p17_failed = 0;
+  %p17_k1_registry_link(jn=work.t9_k1cases, pairs=work.t7_pairs,
+       propfile=&_t14_prop, sumfile=&_t14_sum);
+  %_expect_fail(case=T15_NO_APPROVAL_FAILS);
+  %_chk(case=T15_NO_APPROVAL_REGISTRY_NOT_CREATED, cond=%str(%sysfunc(exist(pdd.pecan_id_registry)) = 0),
+        detail=%str(registry created without approval));
+  %_chk(case=T15_NO_APPROVAL_LINK_NOT_WRITTEN, cond=%str(%sysfunc(exist(pdd.pecan_id_dup_link)) = 0),
+        detail=%str(dup link written although the baseline was not approved));
+  %p17_latest_backup(stem=piddup);
+  %_chk(case=T15_NO_APPROVAL_NO_LINK_BACKUP, cond=%str(%superq(_p17_latest) = %superq(_t15_bak0)),
+        detail=%str(a link backup was taken after the failed baseline));
+  %_chk(case=T15_NO_APPROVAL_NO_LINK_APPENDED, cond=%str(&p17_n_link_new = 0),
+        detail=%str(link rows appended &p17_n_link_new));
+  %let PDD_APPROVE_NEW_BASELINE = 1;
+  %p17_k1_registry_link(jn=work.t9_k1cases, pairs=work.t7_pairs,
+       propfile=&_t14_prop, sumfile=&_t14_sum);
+  %_expect_ok(case=T15_APPROVED_NO_FAILURE);
+  %let PDD_APPROVE_NEW_BASELINE = 0;
+  %_chk(case=T15_APPROVED_REGISTRY_CREATED, cond=%str(%sysfunc(exist(pdd.pecan_id_registry)) = 1),
+        detail=%str(registry not created with approval));
+  %_chk(case=T15_APPROVED_LINK_WRITTEN, cond=%str(%sysfunc(exist(pdd.pecan_id_dup_link)) = 1 and &p17_n_link_new = 1),
+        detail=%str(link not written with approval - appended &p17_n_link_new));
+
+  /* ---- T16 gates fail on a missing table, never PASS ----------------------------- */
+  %_drop(ds=pdd.pecan_id_registry);
+  %p17_gate_registry(reg=pdd.pecan_id_registry);
+  %_expect_fail(case=T16_GATE_MISSING_REGISTRY_FAILS);
+  %p17_gate_casemap(map=pdd.pecan_id_case_map_none, reg=pdd.pecan_id_registry);
+  %_expect_fail(case=T16_GATE_CASEMAP_MISSING_TABLE_FAILS);
+
 %mend _run_tests;
 %_run_tests;
 
@@ -538,8 +608,8 @@ data work._t13_warn_check;
   retain _n_warn 0 _n_err 0;
   infile "&_test_log_path" lrecl=32767 end=_eof;
   input;
-  if upcase(substr(_infile_,1,7)) = 'WARNING' then _n_warn + 1;
-  if upcase(substr(_infile_,1,5)) = 'ERROR'
+  if upcase(_infile_) =: 'WARNING' then _n_warn + 1;
+  if upcase(_infile_) =: 'ERROR'
      and index(upcase(_infile_), 'TESTRESULT SUMMARY') = 0 then _n_err + 1;
   if index(upcase(_infile_), '[FAIL]') > 0 or index(upcase(_infile_), '[PASS]') > 0 then
     put _infile_;
@@ -564,3 +634,4 @@ run;
     %put ERROR: [17_pecan_id_test] TESTRESULT SUMMARY: ONE OR MORE TESTS FAILED;
 %mend _final_summary;
 %_final_summary;
+%_restore_state;

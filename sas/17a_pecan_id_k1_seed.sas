@@ -29,6 +29,12 @@
 ==========================================================================*/
 
 %include "C:\data_dictionary\sas\00_config.sas";
+
+/* Production run: always ABORT. Never inherit FLAG from an earlier session
+   (the synthetic tests use FLAG). Run each program in a fresh SAS session. */
+%let p17_fail_mode = ABORT;
+%let _p17_failed = 0;
+
 %pdd_lib;
 %pdd_lib_g;
 
@@ -76,9 +82,6 @@
 %mend p17a_preconditions;
 
 %macro p17a_main;
-  %local _n_reg_k1 _n_link_tot;
-  %let _n_reg_k1 = 0;
-  %let _n_link_tot = 0;
   %route_log;
   %p17a_preconditions;
 
@@ -87,42 +90,23 @@
   %p17_dump_qc(tables=k1, file=&qc_path.\pecan_id_k1.csv);
   %p17_gate_k1;
 
-  data pdd.pecan_id_k1_cases;
-    set work.p17a_jn;
-    keep norm_psid PRECEDE_STUDY_ID ENCRYPTED_MRN YEAR PECAN_ID MRN_STATUS;
-  run;
+  %if &_p17_failed = 0 %then %do;
+    data pdd.pecan_id_k1_cases;
+      set work.p17a_jn;
+      keep norm_psid PRECEDE_STUDY_ID ENCRYPTED_MRN YEAR PECAN_ID MRN_STATUS;
+    run;
+  %end;
 
   /* dup pairs (PDD-D-32 item 2) */
   %p17_dup_pairs(in=work.p17a_jn, out=work.p17a_pairs);
   %p17_qadd(ds=pdd.qc_pecan_id_k1, item=DUP_PAIRS_FOUND, n=&p17_n_pairs);
 
-  /* registry: created only when absent */
-  %if %sysfunc(exist(pdd.pecan_id_registry)) %then %do;
-    %put NOTE: [17a_pecan_id_k1_seed] registry exists, K1 build skipped;
-    %p17_assert_backup_current;
-    %p17_gate_registry(reg=pdd.pecan_id_registry);
-  %end;
-  %else %do;
-    %p17_k1_reg_rows(in=work.p17a_jn, out=work.p17a_reg);
-    %if %eval(&p17_n_multi_mrn + &p17_n_only_blank) > 0 %then
-      %fail_out(msg=%str(PENDING DECISION - K1 IDs with more than one spine MRN &p17_n_multi_mrn., IDs only on blank MRN rows &p17_n_only_blank.. Registry not created));
-    /* baseline rule: no approval, no registry (proposal + masked summary, then stop) */
-    %p17_registry_baseline(in=work.p17a_reg,
-         propfile=&qc_path.\pecan_id_registry_proposed.csv,
-         sumfile=&qc_path.\pecan_id_registry_proposed_summary.csv);
-    %p17_gate_registry(reg=pdd.pecan_id_registry);
-  %end;
-  proc sql noprint;
-    select count(*) into :_n_reg_k1 trimmed from pdd.pecan_id_registry
-      where KEY_ERA = 'K1';
-  quit;
-  %p17_qadd(ds=pdd.qc_pecan_id_k1, item=REGISTRY_K1_ROWS, n=&_n_reg_k1);
-
-  /* dup link: append only pairs not yet present (dated backup first) */
-  %p17_append_dup_link(pairs=work.p17a_pairs);
-  %p17_nobs(ds=pdd.pecan_id_dup_link, mv=_n_link_tot);
-  %p17_qadd(ds=pdd.qc_pecan_id_k1, item=DUP_LINK_ROWS_APPENDED, n=&p17_n_link_new);
-  %p17_qadd(ds=pdd.qc_pecan_id_k1, item=DUP_LINK_ROWS_TOTAL, n=&_n_link_tot);
+  /* registry (created only when absent and approved) and dup link append.
+     Nothing in there runs once the baseline guard or any gate has failed. */
+  %p17_k1_registry_link(jn=work.p17a_jn, pairs=work.p17a_pairs,
+       propfile=&qc_path.\pecan_id_registry_proposed.csv,
+       sumfile=&qc_path.\pecan_id_registry_proposed_summary.csv);
+  %if &_p17_failed ne 0 %then %fail_out(msg=%str(registry or link step failed - see the log. Nothing further was run));
 
   /* QC outputs, counts only */
   %p17_dump_qc(tables=k1, file=&qc_path.\pecan_id_k1.csv);

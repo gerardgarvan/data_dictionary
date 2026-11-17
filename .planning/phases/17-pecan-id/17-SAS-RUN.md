@@ -10,13 +10,16 @@
 3. (Done) `probe_xwalk2` and `probe_xwalk3` are committed; the key hand-off below matches probe_xwalk3 sections 1a and 1c.
 4. SAS command template as in 16-SAS-RUN.md, with `-sysin "C:\data_dictionary\sas\<program>.sas"`.
 
+## Session rule (read first)
+Run **each production program in a fresh SAS session** (a new `sas -sysin ...` process, or restart SAS if you use the interactive client), and **close any table viewers open on `pdd`** (and on `p17bak` backups) first, so no library is locked. The two synthetic tests run in FLAG mode and repoint `pdd` and `p17bak` at WORK; they restore both at the end, but never run 17a/17b/17c in the same session as a test. 17a, 17b, 17c and `pecan_id_link.sas` also force `p17_fail_mode = ABORT` themselves, and the registry and case map gates fail on a missing table.
+
 ## K1 key hand-off (PR-3, reviewed)
 `PDD_K1_SPINE_KEY=PRECEDE_Study_ID`, `PDD_K1_HARM_KEY=PRECEDE_STUDY_ID`, `PDD_K1_KEY_MODE=norm` (PDD-D-19). 17a uses these as defaults when the variables are empty, so no `-set` is needed; to override, put `%let PDD_K1_..=...;` before the include or use the same names in the run command.
 
 ## Run order
 | Step | Program | Expect | Bring back |
 |---|---|---|---|
-| 1 | `17_pecan_id_test.sas`, then `17_pecan_id_link_test.sas` | `TESTRESULT SUMMARY: ALL TESTS PASSED`, no WARNING | the PASS/FAIL lines (echoed to the log at the end) |
+| 1 | `17_pecan_id_test.sas`, then `17_pecan_id_link_test.sas` (each its own session) | `TESTRESULT SUMMARY: ALL TESTS PASSED`, no WARNING | the PASS/FAIL lines (echoed to the log at the end) |
 | 2a | `17a_pecan_id_k1_seed.sas` (no approval) | first run on an empty library stops by design: `ERROR ... PENDING DECISION - registry baseline not approved`; registry NOT created; K1 gate counts in `qc\pecan_id_k1.csv` | log, `qc\pecan_id_k1.csv`, `qc\pecan_id_registry_proposed_summary.csv` (masked counts; review `qc\pecan_id_registry_proposed.csv` yourself, it holds encrypted MRNs, do not send or commit) |
 | 2 | `17a_pecan_id_k1_seed.sas` with `-set PDD_APPROVE_NEW_BASELINE 1` | K1 join gate PASS: spine rows = harmonized rows = matched rows (expected 41,150, computed), none 0, more than one 0, missing pecan_ID 0; `BLANK_SPINE_MRN_ROWS=` (expected 1); dup pairs (expected 1,895); registry created (33,031 K1 rows expected, one per distinct ID) and backed up; `pdd.pecan_id_dup_link` appended | log, `qc\pecan_id_k1.csv`, `qc\pecan_id_dup_pairs_by_year.csv` |
 | 3 | `17a` again (no approval) | `registry exists, K1 build skipped`, dup link appended 0 | log, `qc\pecan_id_k1.csv` |
