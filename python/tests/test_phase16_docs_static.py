@@ -30,7 +30,8 @@ def test_decisions_new_header() -> None:
     new = (DOCS / "name_map_decisions_new.csv").read_text(encoding="utf-8").splitlines()
     old = (DOCS / "name_map_decisions.csv").read_text(encoding="utf-8").splitlines()
     assert new[0] == old[0]
-    assert len([ln for ln in new if ln.strip()]) == 1
+    # header plus the 18 SAME rows Gerard decided on 2026-11-16 (see test_phase16a_static)
+    assert len([ln for ln in new if ln.strip()]) == 19
 
 
 def test_no_new_codes_in_phase4_decisions() -> None:
