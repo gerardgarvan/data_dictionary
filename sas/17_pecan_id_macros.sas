@@ -612,6 +612,52 @@
   %end;
 %mend p17_k1_reg_rows;
 
+/* ---- registry baseline guard (same pattern as 15a) ---------------------
+   The registry must not be created silently. Call only when
+   pdd.pecan_id_registry is absent. in= is the proposed registry.
+   Without PDD_APPROVE_NEW_BASELINE=1: writes the proposed registry to
+   propfile= (contains encrypted MRNs, stays in qc, never in git) and a masked
+   counts summary (1-10 shown as <11) to sumfile=, creates NOTHING, then fails
+   (ABORT mode: %fail_out). With approval: creates the registry and its first
+   backup. */
+%macro p17_registry_baseline(in=, propfile=, sumfile=);
+  %local _n_rows _n_k1 _n_ids _n_mrns;
+  %let _n_rows = 0; %let _n_k1 = 0; %let _n_ids = 0; %let _n_mrns = 0;
+  %if "&PDD_APPROVE_NEW_BASELINE" = "1" %then %do;
+    data pdd.pecan_id_registry;
+      set &in;
+    run;
+    %p17_backup;
+    %put NOTE: [p17] registry created by explicit approval (PDD_APPROVE_NEW_BASELINE=1) with its first backup;
+  %end;
+  %else %do;
+    proc sql noprint;
+      select count(*), sum(KEY_ERA = 'K1'), count(distinct PECAN_ID),
+             count(distinct ENCRYPTED_MRN)
+        into :_n_rows trimmed, :_n_k1 trimmed, :_n_ids trimmed, :_n_mrns trimmed
+        from &in;
+    quit;
+    proc export data=&in outfile="&propfile" dbms=csv replace;
+    run;
+    data work._p17_bsum;
+      length item $40 n_masked $12;
+      item = 'PROPOSED_REGISTRY_ROWS';  n = &_n_rows; link mask; output;
+      item = 'PROPOSED_K1_ROWS';        n = &_n_k1;   link mask; output;
+      item = 'PROPOSED_DISTINCT_IDS';   n = &_n_ids;  link mask; output;
+      item = 'PROPOSED_DISTINCT_MRNS';  n = &_n_mrns; link mask; output;
+      keep item n_masked;
+      return;
+      mask:
+        if n >= 1 and n <= 10 then n_masked = '<11';
+        else n_masked = strip(put(n, 12.));
+      return;
+    run;
+    proc export data=work._p17_bsum outfile="&sumfile" dbms=csv replace;
+    run;
+    %p17_fail(msg=%str(PENDING DECISION - registry baseline not approved. Proposed registry has &_n_rows. rows. Review the proposal and masked summary in qc then rerun with PDD_APPROVE_NEW_BASELINE=1. Registry not created));
+  %end;
+%mend p17_registry_baseline;
+
 /* ---- K2 assignment (append-only). cases: norm_psid ENCRYPTED_MRN mrn_usable
    one row per deduped case. Known (MRN,K2) pairs keep their ID, unseen MRNs
    get max(K2 PECAN_ID)+rank (base when no K2 row exists). Order: registry

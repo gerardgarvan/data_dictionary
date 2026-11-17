@@ -8,13 +8,14 @@
             keep their ID, (3) the surgery-level key table
             pdd.pecan_id_case_map (K1 cases from pdd.pecan_id_k1_cases,
             K2 cases by (MRN,K2) lookup), (4) gates.
-  Reads   : pdd.nsrc_s21, pdd.nsrc_s22, pdd.nsrc_s23, pdd.pecan_id_k1_cases,
+  Reads   : docs/new_overlap_decisions.csv, pdd.nsrc_s21, pdd.nsrc_s22, pdd.nsrc_s23, pdd.pecan_id_k1_cases,
             pdd.pecan_id_registry (made by 17a)
   Writes  : pdd.pecan_id_registry (append only, backup after the append so
             the next run finds the backup current), pdd.pecan_id_case_map,
             pdd.qc_pecan_id_*, qc\pecan_id_k2_summary.csv, qc\pecan_id_gate.csv
   Gates   : QC first, then abort: s21 overlap, repeated case, shared s22 x s23
-            count not equal to PDD_EXPECT_SHARED (default 142, PENDING DECISION),
+            count not equal to expected_n_shared in docs/new_overlap_decisions.csv
+            row s22_s23 (read into PDD_EXPECT_SHARED, no default, row missing = fail),
             duplicate PECAN_ID, duplicate (MRN,K2), K2 ID below 1000001,
             K1 ID at or above 1000000, K2 case with usable MRN and no PECAN_ID,
             K1 case whose ID is not in the K1 registry.
@@ -58,9 +59,29 @@
 
 %macro p17b_defaults;
   %global PDD_EXPECT_SHARED PDD_K2_BASE;
-  %if %length(&PDD_EXPECT_SHARED) = 0 %then %let PDD_EXPECT_SHARED = 142;
   %if %length(&PDD_K2_BASE) = 0 %then %let PDD_K2_BASE = 1000000;
 %mend p17b_defaults;
+
+/* Expected shared s22 x s23 case count: row s22_s23, column expected_n_shared
+   of docs/new_overlap_decisions.csv (PDD-D-30). No default. Row missing, file
+   missing or value not a whole number is a failure. */
+%macro p17b_read_expected;
+  %local _f;
+  %let _f = C:\data_dictionary\docs\new_overlap_decisions.csv;
+  %let PDD_EXPECT_SHARED = ;
+  %if not %sysfunc(fileexist(&_f)) %then
+    %fail_out(msg=%str(docs/new_overlap_decisions.csv not found. Expected shared count unknown));
+  data _null_;
+    infile "&_f" dsd dlm=',' firstobs=2 truncover lrecl=500;
+    length pair $40 expected $40;
+    input pair $ expected $;
+    if strip(pair) = 's22_s23' and prxmatch('/^\d+$/', strip(expected)) then
+      call symputx('PDD_EXPECT_SHARED', strip(expected), 'G');
+  run;
+  %if %length(&PDD_EXPECT_SHARED) = 0 %then
+    %fail_out(msg=%str(row s22_s23 with a numeric expected_n_shared missing in docs/new_overlap_decisions.csv));
+  %put NOTE: [17b_pecan_id_k2] expected shared s22 x s23 cases &PDD_EXPECT_SHARED read from docs/new_overlap_decisions.csv;
+%mend p17b_read_expected;
 
 %macro p17b_preconditions;
   %local _m;
@@ -73,6 +94,7 @@
       %fail_out(msg=%str(pdd.nsrc_s&_m missing - run Phase 15 first));
   %end;
   %p17b_defaults;
+  %p17b_read_expected;
 %mend p17b_preconditions;
 
 %macro p17b_main;

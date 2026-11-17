@@ -12,7 +12,12 @@
             PDD_K1_HARM_KEY=PRECEDE_STUDY_ID, PDD_K1_KEY_MODE=norm (PDD-D-19).
             Defaults below only fill a variable that is still empty.
   Reads   : pdd.src_s09, g.master_data_harmonized (g read-only, PID-08)
-  Writes  : pdd.pecan_id_k1_cases, pdd.pecan_id_registry (only when absent),
+  Baseline: the registry is created only when absent AND the OS/command
+            option PDD_APPROVE_NEW_BASELINE=1 is set (same pattern as 15a).
+            Without it: qc\pecan_id_registry_proposed.csv (encrypted MRNs, not
+            for git) and qc\pecan_id_registry_proposed_summary.csv (masked
+            counts), then ERROR and stop. Registry and dup link untouched.
+  Writes  : pdd.pecan_id_k1_cases, pdd.pecan_id_registry (only when absent and approved),
             pdd.pecan_id_dup_link (append only), pdd.qc_pecan_id_k1,
             backups in &backup_path.,
             qc\pecan_id_k1.csv, qc\pecan_id_dup_pairs_by_year.csv
@@ -101,10 +106,10 @@
     %p17_k1_reg_rows(in=work.p17a_jn, out=work.p17a_reg);
     %if %eval(&p17_n_multi_mrn + &p17_n_only_blank) > 0 %then
       %fail_out(msg=%str(PENDING DECISION - K1 IDs with more than one spine MRN &p17_n_multi_mrn., IDs only on blank MRN rows &p17_n_only_blank.. Registry not created));
-    data pdd.pecan_id_registry;
-      set work.p17a_reg;
-    run;
-    %p17_backup;
+    /* baseline rule: no approval, no registry (proposal + masked summary, then stop) */
+    %p17_registry_baseline(in=work.p17a_reg,
+         propfile=&qc_path.\pecan_id_registry_proposed.csv,
+         sumfile=&qc_path.\pecan_id_registry_proposed_summary.csv);
     %p17_gate_registry(reg=pdd.pecan_id_registry);
   %end;
   proc sql noprint;

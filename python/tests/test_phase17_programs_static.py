@@ -61,8 +61,15 @@ def test_17a_structure():
     g = code.index("%p17_gate_k1;")
     assert j < d < g
     # k1_cases only after the gate, registry only after k1_cases
-    assert g < code.index("data pdd.pecan_id_k1_cases") < code.index("data pdd.pecan_id_registry;")
-    assert "%p17_backup;" in code
+    assert g < code.index("data pdd.pecan_id_k1_cases") < code.index("%p17_registry_baseline(")
+    # registry is never created directly in 17a; only through the approval guard
+    assert not re.search(r"data\s+pdd\.pecan_id_registry\b", code, flags=re.I)
+    assert "pecan_id_registry_proposed.csv" in code and "pecan_id_registry_proposed_summary.csv" in code
+    macros = _code("17_pecan_id_macros.sas")
+    body = macros[macros.index("%macro p17_registry_baseline"):macros.index("%mend p17_registry_baseline")]
+    assert '"&PDD_APPROVE_NEW_BASELINE" = "1"' in body
+    assert body.index('"&PDD_APPROVE_NEW_BASELINE" = "1"') < body.index("data pdd.pecan_id_registry;")
+    assert "%p17_backup;" in body and "%p17_fail(" in body
     assert "PRECEDE_Study_ID" in code and "PRECEDE_STUDY_ID" in code and "norm" in code
     assert re.search(r"pecan_id_dup_pairs_by_year\.csv", code) and "pecan_id_k1.csv" in code
     assert "BLANK_SPINE_MRN_ROWS" in code
@@ -93,6 +100,17 @@ def test_17b_structure():
     assert "pecan_id_k2_summary.csv" in code and "pecan_id_gate.csv" in code
     assert "PENDING DECISION" in code
     assert "PDD_EXPECT_SHARED" in code
+    # expected count comes from the decisions csv, no default in code
+    assert "new_overlap_decisions.csv" in code and "s22_s23" in code
+    assert not re.search(r"let\s+PDD_EXPECT_SHARED\s*=\s*\d", code, flags=re.I)
+    assert "142" not in code
+    assert code.index("%p17b_read_expected;") < code.index("%p17_pdd_d30_cases(")
+    csv = (ROOT / "docs" / "new_overlap_decisions.csv").read_text(encoding="utf-8").splitlines()
+    assert csv[0].split(",")[1] == "expected_n_shared"
+    assert any(r.startswith("s22_s23,") for r in csv[1:])
+    t = (SAS / "17_pecan_id_test.sas").read_text(encoding="utf-8")
+    for tag in ("T14_NO_APPROVAL_FAILS", "T14_NO_APPROVAL_REGISTRY_NOT_CREATED", "T14_APPROVAL_1_NO_FAILURE"):
+        assert tag in t, tag
 
 
 def test_17c_structure():
@@ -110,7 +128,6 @@ def test_no_hardcoded_expected_counts_in_code():
             assert num not in code, (n, num)
     b = _code("17b_pecan_id_k2.sas")
     assert "36348" in b  # orientation row only, isfail 0
-    assert "142" in b
 
 
 def test_link_program_rules():

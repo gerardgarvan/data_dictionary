@@ -77,6 +77,12 @@ options nodlcreatedir;
     %global PDD_APPROVE_NEW_BASELINE;
     %let PDD_APPROVE_NEW_BASELINE = 0;
   %end;
+  /* -set PDD_APPROVE_NEW_BASELINE 1 is an OS env var (as in 15a): carry it
+     into the macro variable that the Phase 17 macros read. Only 1 approves. */
+  %if %sysfunc(envlen(PDD_APPROVE_NEW_BASELINE)) > 0 %then %do;
+    %if "%sysget(PDD_APPROVE_NEW_BASELINE)" = "1" %then
+      %let PDD_APPROVE_NEW_BASELINE = 1;
+  %end;
 %mend _set_approve_default;
 %_set_approve_default;
 

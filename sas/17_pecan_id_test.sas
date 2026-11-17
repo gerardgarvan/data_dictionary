@@ -18,6 +18,8 @@
             T10 registry gate PASS and FAIL cases
             T11 case map and case map gate PASS and FAIL cases
             T12 backup-current assertion: no backup, approval, differing registry
+            T14 registry baseline guard: no approval / value 2 = proposal + masked
+                summary, no registry; approval 1 = registry + current backup
             T13 no WARNING lines in this log (runs last)
   Run     : sas 17_pecan_id_test.sas  (no pipeline setup required)
             Bring back the log and look for the TESTRESULT SUMMARY line.
@@ -485,6 +487,35 @@ options nodlcreatedir;
   %let PDD_APPROVE_NEW_BASELINE = 0;
   %p17_assert_backup_current;
   %_expect_ok(case=T12_REGISTRY_EQUALS_NEW_BACKUP);
+
+  /* ---- T14 registry baseline guard (17a rule, same pattern as 15a) -------------- */
+  /* test-only: WORK registry removed so the absent-registry path can run */
+  proc delete data=pdd.pecan_id_registry;
+  run;
+  %let _t14_prop = %sysfunc(pathname(work))\t14_proposed.csv;
+  %let _t14_sum = %sysfunc(pathname(work))\t14_summary.csv;
+  %let PDD_APPROVE_NEW_BASELINE = 0;
+  %p17_registry_baseline(in=work.t9_regk1, propfile=&_t14_prop, sumfile=&_t14_sum);
+  %_expect_fail(case=T14_NO_APPROVAL_FAILS);
+  %_chk(case=T14_NO_APPROVAL_REGISTRY_NOT_CREATED, cond=%str(%sysfunc(exist(pdd.pecan_id_registry)) = 0),
+        detail=%str(registry was created without approval));
+  %_chk(case=T14_NO_APPROVAL_PROPOSAL_WRITTEN, cond=%str(%sysfunc(fileexist(&_t14_prop)) = 1),
+        detail=%str(proposal csv missing));
+  %_chk(case=T14_NO_APPROVAL_SUMMARY_WRITTEN, cond=%str(%sysfunc(fileexist(&_t14_sum)) = 1),
+        detail=%str(summary csv missing));
+  %let PDD_APPROVE_NEW_BASELINE = 2;
+  %p17_registry_baseline(in=work.t9_regk1, propfile=&_t14_prop, sumfile=&_t14_sum);
+  %_expect_fail(case=T14_APPROVAL_VALUE_OTHER_THAN_1_FAILS);
+  %_chk(case=T14_VALUE_2_REGISTRY_NOT_CREATED, cond=%str(%sysfunc(exist(pdd.pecan_id_registry)) = 0),
+        detail=%str(registry created with approval value 2));
+  %let PDD_APPROVE_NEW_BASELINE = 1;
+  %p17_registry_baseline(in=work.t9_regk1, propfile=&_t14_prop, sumfile=&_t14_sum);
+  %_expect_ok(case=T14_APPROVAL_1_NO_FAILURE);
+  %p17_nobs(ds=pdd.pecan_id_registry, mv=_q);
+  %_chk(case=T14_APPROVED_REGISTRY_CREATED, cond=%str(&_q = 2), detail=%str(registry rows &_q expected 2));
+  %let PDD_APPROVE_NEW_BASELINE = 0;
+  %p17_assert_backup_current;
+  %_expect_ok(case=T14_APPROVED_REGISTRY_HAS_CURRENT_BACKUP);
 
 %mend _run_tests;
 %_run_tests;
