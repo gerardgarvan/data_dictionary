@@ -10,7 +10,7 @@ CMD = (ROOT / "run_pipeline.cmd").read_text(encoding="utf-8", errors="replace")
 
 
 def test_valid_tokens():
-    assert "%let _valid = 2 3 4 5 6 7 15 16 17;" in SAS
+    assert "%let _valid = 2 3 4 5 6 7 15 16 17 18;" in SAS
 
 
 def test_phase16_block_order():

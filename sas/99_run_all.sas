@@ -15,6 +15,7 @@
     Phase 15 15a/15b/15c            -- new-source intake 2023-2025 (v2.0)
     Phase 16 16a/16b                -- name map extension 2023-2025 (v2.0)
     Phase 17 17a/17b/17c            -- PECAN_ID registry, K1 join, K2, case map (v2.0)
+    Phase 18 18a/18b/18c/18d        -- combined dataset 2018-2025, profile, recon, MRN scan (v2.0)
 
   Usage (batch -- canonical):
     run_pipeline.cmd  (at repo root)
@@ -245,7 +246,7 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
 
 %macro _validate_phases;
   %local _valid _i _tok;
-  %let _valid = 2 3 4 5 6 7 15 16 17;
+  %let _valid = 2 3 4 5 6 7 15 16 17 18;
   %if %length(%superq(pdd_phases_run)) = 0 %then %do;
     %put ERROR: [99_run_all] PDD_PHASES is empty -- cannot run pipeline;
     %abort cancel;
@@ -460,6 +461,30 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
   %end;
   %else
     %put NOTE: [99_run_all] Phase 17 skipped (not in PDD_PHASES=&pdd_phases_run);
+
+  /* =========================================================================
+     PHASE 18 -- combined dataset and dictionary 2018-2025 (v2.0 M5).
+     18_combine_test.sas (synthetic) is NOT here: run it in its own session.
+     ========================================================================= */
+  %_check_pipeline_ok(phase=18);
+  %if %_phase_in(18) %then %do;
+    %let _ts = %sysfunc(datetime(), datetime20.);
+    %put NOTE: [timing] phase 18 start &_ts;
+    %put NOTE: ---- Phase 18: combined dataset 2018-2025 --------------------;
+    %include "&sas_path.\18a_comb_preflight.sas";
+    %_check_pipeline_ok(phase=18);
+    %include "&sas_path.\18b_comb_build.sas";
+    %_check_pipeline_ok(phase=18);
+    %include "&sas_path.\18c_comb_profile_qc.sas";
+    %_check_pipeline_ok(phase=18);
+    %include "&sas_path.\18d_comb_scan.sas";
+    %put NOTE: ---- Phase 18 SAS orchestrator complete -------------------;
+    %let pdd_phases_done = &pdd_phases_done 18;
+    %let _ts = %sysfunc(datetime(), datetime20.);
+    %put NOTE: [timing] phase 18 end &_ts;
+  %end;
+  %else
+    %put NOTE: [99_run_all] Phase 18 skipped (not in PDD_PHASES=&pdd_phases_run);
 
 %mend _run_phases;
 %_run_phases;

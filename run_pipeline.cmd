@@ -17,6 +17,8 @@ REM         run_pipeline.cmd 15        (v2.0 new-source intake; needs a prior v1
 REM         run_pipeline.cmd 16        (v2.0 name map extension; needs Phase 15 outputs)
 REM         run_pipeline.cmd 17        (v2.0 PECAN_ID: 17a K1 join, 17b K2 and case map, 17c summary; no Python step;
 REM                                     needs Phase 15 outputs, set PDD_K1_* and PDD_APPROVE_NEW_BASELINE as in 17-SAS-RUN.md)
+REM         run_pipeline.cmd 18        (v2.0 combined dataset: 18a, 18b, 18c, 18d, then write_dictionary_2018_2025.py;
+REM                                     needs Phases 16 and 17 outputs, see 18-SAS-RUN.md; run each SAS program in a fresh session when possible)
 REM  Log:   %LOGS_PATH%\99_run_all.log  (master log with per-program summary)
 REM
 REM  Machine override: create config.local.cmd at repo root to set SAS_EXE.
@@ -191,6 +193,31 @@ if !ERRORLEVEL! EQU 0 (
   echo Phase 16 Python complete.
 ) else (
   echo Phase 16 Python skipped -- phase 16 not in PDD_PHASES
+)
+
+REM ---- Phase 18 Python: write pdd_2018_2025.xlsx and scan the 18d log (only when phase 18 requested) ----
+echo %PDD_PHASES% | findstr /i "\<18\>" >nul 2>&1
+if !ERRORLEVEL! EQU 0 (
+  echo Phase 18 Python: writing pdd_2018_2025.xlsx
+  echo === run %DATE% %TIME% === > "%LOGS_PATH%\write_dictionary_2018_2025_console.txt"
+  "%PDD_PYTHON%" "%~dp0python\scripts\write_dictionary_2018_2025.py" >> "%LOGS_PATH%\write_dictionary_2018_2025_console.txt" 2>&1
+  if !ERRORLEVEL! NEQ 0 (
+    echo Phase 18 Python FAILED -- see logs\write_dictionary_2018_2025_console.txt
+    echo Phase 18 Python FAILED >> "%MASTER_LOG%"
+    goto :fail
+  )
+  echo Phase 18 Python complete.
+  REM 18d log: the one log no SAS program can scan while it writes it
+  if exist "%LOGS_PATH%\18d_comb_scan.log" (
+    for /f %%E in ('findstr /b /c:"ERROR" /c:"WARNING" "%LOGS_PATH%\18d_comb_scan.log" 2^>nul ^| find /c /v ""') do set _P18D=%%E
+    if "!_P18D!" NEQ "0" (
+      echo Phase 18 18d log has ERROR or WARNING lines -- see logs\18d_comb_scan.log
+      echo Phase 18 18d log has ERROR or WARNING lines >> "%MASTER_LOG%"
+      goto :fail
+    )
+  )
+) else (
+  echo Phase 18 Python skipped -- phase 18 not in PDD_PHASES
 )
 
 REM ---- Scan master log for ERROR lines ----

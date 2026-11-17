@@ -223,7 +223,7 @@ def test_link_program_rules():
 def test_wiring():
     s = (SAS / "99_run_all.sas").read_text(encoding="utf-8", errors="replace")
     cmd = (ROOT / "run_pipeline.cmd").read_text(encoding="utf-8", errors="replace")
-    assert "%let _valid = 2 3 4 5 6 7 15 16 17;" in s
+    assert "%let _valid = 2 3 4 5 6 7 15 16 17 18;" in s
     a = s.index('%include "&sas_path.\\17a_pecan_id_k1_seed.sas";')
     b = s.index('%include "&sas_path.\\17b_pecan_id_k2.sas";')
     c = s.index('%include "&sas_path.\\17c_pecan_id_summary.sas";')
