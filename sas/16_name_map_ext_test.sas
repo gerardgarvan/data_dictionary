@@ -7,7 +7,7 @@
             T1 clean_name, T2 shorten with an always row, T3 short name
             unchanged, T4 existing name skipped (Foo, Foo_2 used -> Foo_3),
             T5 two new groups with one base, T6 27-char base re-elided,
-            T7 stage 2 checks, T8 no WARNING lines in this log.
+            T7 stage 2 checks, T9 SAME type guard, T8 no WARNING lines in this log.
   Run     : sas 16_name_map_ext_test.sas  (no pipeline setup required)
             Bring back the log and look for the TESTRESULT SUMMARY line.
   Status  : PENDING SAS RUN (Gerard).
@@ -186,6 +186,28 @@ run;
   %if &_t7_bad_fail >= 1 and &p16_stage2_fail = 0 %then %_record(case=T7_STAGE2, result=PASS);
   %else %_record(case=T7_STAGE2, result=FAIL,
          detail=%str(dup fail=&_t7_bad_fail clean fail=&p16_stage2_fail));
+
+  /* ---- T9 SAME type guard (any frozen name, Num vs Num) ---------------- */
+  data work.t9_old;
+    length pcnr_name $32 sas_type $1;
+    pcnr_name = 'PCNR_Edu_Years'; sas_type = 'N'; output;
+    pcnr_name = 'PCNR_Education'; sas_type = 'C'; output;
+  run;
+  data work.t9_in;
+    length pcnr_b $32 sas_type_new $1;
+    rown = 1; pcnr_b = 'PCNR_Edu_Years'; sas_type_new = 'N'; output;
+    rown = 2; pcnr_b = 'PCNR_Education'; sas_type_new = 'N'; output;
+  run;
+  %p16_same_type_bad(in=work.t9_in, oldtypes=work.t9_old, out=work.t9_bad)
+  %local _t9_n _t9_row;
+  %let _t9_n = -1; %let _t9_row = -1;
+  proc sql noprint;
+    select count(*), coalesce(min(rown), 0) into :_t9_n trimmed, :_t9_row trimmed
+    from work.t9_bad;
+  quit;
+  %if &_t9_n = 1 and &_t9_row = 2 %then %_record(case=T9_SAME_TYPE_GUARD, result=PASS);
+  %else %_record(case=T9_SAME_TYPE_GUARD, result=FAIL,
+         detail=%str(expected only row 2 flagged, got n=&_t9_n row=&_t9_row));
 
 %mend _run_tests;
 %_run_tests;

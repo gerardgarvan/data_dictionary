@@ -117,3 +117,29 @@ def test_16a_assign_names_called_twice_and_macro_order():
         uses = [u for u in uses if not code[max(0, u - 7):u].lower().endswith(("%macro ", " %mend "))
                 and not code[max(0, u - 6):u].lower().endswith("%mend ")]
         assert uses and min(uses) > d, name
+
+
+def test_16a_same_type_guard():
+    t = _code()
+    assert "%p16_same_type_bad(" in t
+    assert "SAME side b has no frozen column of the same type" in _text()
+    macros = (ROOT / "sas" / "16_name_map_ext_macros.sas").read_text(encoding="utf-8")
+    assert "%macro p16_same_type_bad" in macros
+    test_sas = (ROOT / "sas" / "16_name_map_ext_test.sas").read_text(encoding="utf-8")
+    assert "T9_SAME_TYPE_GUARD" in test_sas
+
+
+def test_phase16_decisions_file_content():
+    import csv
+
+    path = ROOT / "docs" / "name_map_decisions_new.csv"
+    rows = list(csv.DictReader(path.read_text(encoding="utf-8").splitlines()))
+    assert len(rows) == 18
+    assert {r["decision"] for r in rows} == {"SAME"}
+    assert {r["decided_by"] for r in rows} == {"Gerard"}
+    assert {r["date"] for r in rows} == {"2026-11-16"}
+    edu = [r for r in rows if r["header_a"] == "preop_edu_years"]
+    assert len(edu) == 3
+    assert all(r["header_b"] == "Edu_Years" and r["s_code_b"] == "s06" for r in edu)
+    keys = [(r["s_code_a"], r["header_a"]) for r in rows]
+    assert len(keys) == len(set(keys))

@@ -660,6 +660,24 @@
   quit;
   %p16a_failif(n=&_n, row=&_r, msg=%str(side b must resolve to exactly one frozen PCNR name))
 
+  /* SAME against any frozen PCNR name: the side-b name must have a frozen
+     column of the same type as the new column (Num vs Num, Char vs Char) */
+  proc sql noprint;
+    create table work.p16_dec_ty as
+    select distinct h.rown, n.sas_type as sas_type_new length=1, b.pcnr_b
+    from work.p16_dec_hit as h
+    inner join work.p16_new as n
+      on n.s_code = h.s_code and n.col_order = h.col_order
+    inner join work.p16_dec_b as b on h.rown = b.rown
+    where h.decision = 'SAME';
+  quit;
+  %p16_same_type_bad(in=work.p16_dec_ty, oldtypes=work.p16_old_types, out=work.p16_ty_bad)
+  proc sql noprint;
+    select count(*), coalesce(min(rown), 0) into :_n trimmed, :_r trimmed
+      from work.p16_ty_bad;
+  quit;
+  %p16a_failif(n=&_n, row=&_r, msg=%str(SAME side b has no frozen column of the same type))
+
   /* RENAME target checks (B4 analogue) */
   proc sql noprint;
     select count(*), coalesce(min(rown), 0) into :_n trimmed, :_r trimmed

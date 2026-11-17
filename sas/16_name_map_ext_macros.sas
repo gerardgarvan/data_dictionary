@@ -215,3 +215,23 @@
 
   %let p16_stage2_fail = %eval(&_n_a + &_n_b + &_n_c + &_n_d);
 %mend p16_stage2;
+
+
+/* ------------------------------------------------------------------------
+   p16_same_type_bad: SAME decisions against any frozen PCNR name (Phase 16
+   decision gate). in= has rown, sas_type_new (C or N) and pcnr_b (the frozen
+   name the decision resolves to). oldtypes= has pcnr_name and sas_type of the
+   frozen rows. out= gets one row per decision row whose frozen name has no
+   frozen column of the same type (Num vs Num, Char vs Char). Nothing is
+   written to the frozen map.
+   ------------------------------------------------------------------------ */
+%macro p16_same_type_bad(in=, oldtypes=, out=);
+  proc sql noprint;
+    create table &out as
+    select distinct h.rown, h.pcnr_b, h.sas_type_new
+    from &in as h
+    where not exists (select 1 from &oldtypes as o
+                      where o.pcnr_name = h.pcnr_b
+                        and o.sas_type = h.sas_type_new);
+  quit;
+%mend p16_same_type_bad;
