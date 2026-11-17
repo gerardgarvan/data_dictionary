@@ -168,8 +168,8 @@ Plans:
 - **Requirements:** PID-01, PID-02, PID-03, PID-04, PID-05, PID-06, PID-07, PID-08
 - **Success criteria:**
   1. PDD-D-28 is DECIDED and recorded; K2 IDs are `1000000 + rank` (PID-04) and cannot collide with K1 IDs.
-  2. `PECAN_ID` carries master-merge `pecan_ID` values unchanged (PID-01); the K1 seed passes the PDD-D-28 seed checks; `g.pecan_id_xwalk` is read-only via a `00_config.sas` libname (PID-08); the dictionary row uses the PDD-D-28 wording.
-  3. Every encrypted MRN is tagged K1 or K2 and never compared across eras; `pdd.pecan_id_registry` (on P:, not in git) is append-only, seeded from `g.pecan_id_xwalk` unchanged; reruns keep known IDs and no ID is renumbered or reused; K2 assignment is deterministic.
+  2. `PECAN_ID` carries master-merge `pecan_ID` values unchanged (PID-01); K1 IDs come from the row-by-row join of the spine to `g.MASTER_DATA_HARMONIZED` (PDD-D-32: 41,150 rows 1:1, 0 missing pecan_ID); `g` is read-only via a `00_config.sas` libname (PID-08); the dictionary row uses the PDD-D-28 wording.
+  3. Every encrypted MRN is tagged K1 or K2 and never compared across eras; `pdd.pecan_id_registry` (on P:, not in git) is append-only, K1 rows from the PDD-D-32 join (not the xwalk), dup patients recorded in `pdd.pecan_id_dup_link`; reruns keep known IDs and no ID is renumbered or reused; K2 assignment is deterministic.
   4. Combined dataset carries `PECAN_ID` and `PECAN_ID_KEY_ERA`; dictionary and master KEY sheet state that patients in both eras have two PECAN_IDs until linked.
   5. `sas/pecan_id_link.sas` is written and tested but not run; a QC report lists every ID that would change.
   6. Cases-per-patient summary (PECAN_ID vs PRECEDE_STUDY_ID) exists per era and combined with the caveat.
