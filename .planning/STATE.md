@@ -178,6 +178,10 @@ These are QC findings from the Phase 5 live run that require Price's input befor
 - Masked summary: GUARD MATCH x3; ROWCOUNTS MATCH x3 (10772/13029/12689); ONE_TO_ONE PASS x3; PAIRWISE_NEW 0/0/142 DECIDED (PDD-D-30); SPINE 0 x3; OLD20_UNION 0 x3; TYPE_CHANGES 138; NONASCII cells 0/18/26; GATE PDD-D-29 item 3 PASS; GATE OLD20_UNION PASS; GATE 1:1 PASS.
 - Full detail in `phases/15-new-source-intake/15-05-SUMMARY.md`.
 
+### Phase 16 progress (16-02, 2026-11-16)
+
+- 16-02 complete: `sas/16_name_map_ext_macros.sas` and `sas/16_name_map_ext_test.sas` lint-clean (0 errors), 226 pytest pass. **PENDING SAS RUN** (`16_name_map_ext_test.sas`, Gerard, synthetic data only). State advance commands not used (v2.0 frontmatter kept).
+
 ## Cleanup backlog
 
 1. 15c PASS message prints `65370.65511`: needs a double dot after the macro variable (`&var..`) so the range shows `65370-65511` style text correctly.
