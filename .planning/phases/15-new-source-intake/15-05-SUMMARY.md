@@ -44,7 +44,7 @@ GUARD MATCH x3; ROWCOUNTS MATCH x3 (10772/13029/12689); ONE_TO_ONE PASS x3; PAIR
 - 15a: baseline approved and committed. 15b: spec committed (`docs/import_spec_new_generated.csv`). 15c: PASS after PDD-D-30.
 - `run_pipeline.cmd 15` passed (Pipeline PASSED 2026-11-16 17:11); `qc
 ew_source_intake.xlsx` written; git tree clean after the pipeline's 15b rerun, so the committed spec is unchanged.
-- Closing checks here: `pytest python	ests` 208 passed; `ruff check python\` clean; `sas_lint` on `15a`/`15b`/`15c` and `99_run_all.sas` 0 errors (warnings only).
+- Closing checks here: `pytest python\tests` 208 passed; `ruff check python\` clean; `sas_lint` on `15a`/`15b`/`15c` and `99_run_all.sas` 0 errors (warnings only).
 
 ## Assumptions (headless run)
 - Repo is on the SAS machine at `C:\data_dictionary`, branch `pdd-2018-2025-api`; Claude commits locally and never pushes.
