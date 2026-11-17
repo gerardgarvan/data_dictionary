@@ -15,15 +15,16 @@ progress:
 
 ## Current milestone: v2.0 - PCNR_ 2018-2025, PECAN_ID, PCNR_Master_Data_Nov_2026 (started 2026-11-16)
 
-**Phase 15 status (2026-11-16):** 15a done (new baseline approved and committed). 15b done (spec committed). 15c run 1 stopped at PDD-D-29 item 3 (s22-s23 = 142 shared cases); now resolved by PDD-D-30 (s22 wins, s23 gap-fills). **Next step:** rerun 15c, then `run_pipeline.cmd 15` (see `15-SAS-RUN.md`).
+**Phase 15 status (2026-11-16):** 15a done (new baseline approved and committed). 15b done (spec committed). 15c PASS after PDD-D-30 (s22 wins, s23 gap-fills). `run_pipeline.cmd 15` passed (Pipeline PASSED 2026-11-16 17:11); `qc
+ew_source_intake.xlsx` written. **Phase 15 COMPLETE (NEW-01..NEW-05, NEW-03a).** **Next step:** Phase 16 SAS runs per `16-05-PLAN.md` (16a and 16b can both run now).
 
-**Next step:** Gerard follows `.planning/phases/15-new-source-intake/15-SAS-RUN.md` (Steps 1-5; baseline approval decision at Step 2). Earlier note: Phase 15 (M2) could be planned: the Phase 14 probe is committed (`.planning/schemas/probe_master_data_20261116.md`, strip-fix rerun, 2026-11-16). Phase 14 is complete: `sas/probe_inputs.sas` now has 0 `sas_lint` errors and 0 `sasjs lint` errors (style warnings only: line length and indentation). Phase 15 gate: count normalized case IDs shared between each pair of the 2023, 2024 and 2025 files (PDD-D-29 item 3).
+Earlier note (superseded, Phase 15 closed): Phase 15 (M2) could be planned: the Phase 14 probe is committed (`.planning/schemas/probe_master_data_20261116.md`, strip-fix rerun, 2026-11-16). Phase 14 is complete: `sas/probe_inputs.sas` now has 0 `sas_lint` errors and 0 `sasjs lint` errors (style warnings only: line length and indentation). Phase 15 gate: count normalized case IDs shared between each pair of the 2023, 2024 and 2025 files (PDD-D-29 item 3).
 
 | Phase | Milestone label | Title | Status |
 |-------|-----------------|-------|--------|
 | 14 | M1 | Probe and headless setup | Complete (PRB-01..03, RUN-01 satisfied) |
-| 15 | M2 | New-source intake | Plans 15-01..15-05 written; PENDING SAS RUN (15a/15b/15c, run sheet 15-SAS-RUN.md); PENDING DECISION (new-file baseline approval) |
-| 16 | M3 | Name map extension | Blocked on 15 |
+| 15 | M2 | New-source intake | Complete 2026-11-16 (NEW-01..NEW-05, NEW-03a satisfied; 15a/15b/15c and pipeline 15 run and passed) |
+| 16 | M3 | Name map extension | Plans written (16-01..16-05); Phase 15 done, so SAS runs are unblocked |
 | 17 | M4 | PECAN_ID | Blocked on 15-16 (PDD-D-28 DECIDED) |
 | 18 | M5 | Combined dataset and dictionary 2018-2025 | Blocked on 15-17 |
 | 19 | M6 | Master Excel export | Blocked on 18 |
@@ -164,3 +165,12 @@ These are QC findings from the Phase 5 live run that require Price's input befor
 
 ### Phase 15 progress (15-03, 2026-11-16)
 - 15-03 complete: `sas/15c_new_import.sas` lint-clean (0 errors), 192 pytest pass. **PENDING SAS RUN** (15c, Gerard, after 15b spec is committed). Gates (NEW-04 1:1, PDD-D-29 item 3 pairwise, old-source overlap) write QC first and stop at **PENDING DECISION** if triggered; no choice applied. Datasets named `pdd.nsrc_s21..s23` (A11). State commands not used (v2.0 frontmatter kept).
+
+### Phase 15 closed (2026-11-16)
+- Masked summary: GUARD MATCH x3; ROWCOUNTS MATCH x3 (10772/13029/12689); ONE_TO_ONE PASS x3; PAIRWISE_NEW 0/0/142 DECIDED (PDD-D-30); SPINE 0 x3; OLD20_UNION 0 x3; TYPE_CHANGES 138; NONASCII cells 0/18/26; GATE PDD-D-29 item 3 PASS; GATE OLD20_UNION PASS; GATE 1:1 PASS.
+- Full detail in `phases/15-new-source-intake/15-05-SUMMARY.md`.
+
+## Cleanup backlog
+1. 15c PASS message prints `65370.65511`: needs a double dot after the macro variable (`&var..`) so the range shows `65370-65511` style text correctly.
+2. Cache the 20 old sources' `norm_psid` set once, so 15c does not re-read every old dataset from P: on each run (s06 alone takes about 45 s).
+3. Narrow lint rule C30 to plain `%put` text, so the masked semicolons in `00_config.sas`, `02_source_guard.sas` and `05_build_pcnr_macros.sas` stop being flagged.

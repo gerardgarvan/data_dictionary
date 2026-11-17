@@ -319,7 +319,7 @@ run;
 |------------|------------|-----------|---------|----------|
 | SAS 9.4 (UTF-8 cfg) | all `sas/16*.sas` runs | No (this machine); Gerard's machine yes | n/a | none: steps end `PENDING SAS RUN` |
 | P: drive (`pdd` library) | frozen map, `pdd.src_s01..s20`, `pdd.nsrc_s21..s23` | No (this machine) | n/a | none |
-| Phase 15 SAS reruns (15c, `run_pipeline.cmd 15`) | `pdd.nsrc_s21..s23`, type-change CSV | Not yet done | n/a | blocks 16b value distributions and coverage; 16a (names) needs only the committed spec and the frozen map |
+| Phase 15 SAS reruns (15c, `run_pipeline.cmd 15`) | `pdd.nsrc_s21..s23`, type-change CSV | DONE 2026-11-16 (15c PASS, pipeline 15 passed) | n/a | formerly blocked 16b value distributions and coverage; 16a (names) needs only the committed spec and the frozen map |
 | `.venv` Python | ruff, pytest, writers | Yes (per Phase 15 research) | 3.14.2 | n/a |
 | `sasjs` CLI | lint gate | Not probed here | n/a | `tools\sas_lint.py` is pure Python; report if `sasjs` absent |
 

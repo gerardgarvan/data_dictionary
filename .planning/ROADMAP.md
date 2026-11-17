@@ -136,14 +136,14 @@ Phases 8-13 (v1.x) stay gated and independent; v2.0 depends only on the complete
   4. Header variants (Braden columns by year, `Fraility_Score`, `SleepApnea_YN`, `Preop_Edu_Years`) are mapped, not renamed at source; type changes (`Death_Days_After_Surgery`, five frailty components) go to the map review.
   5. Each new file is checked 1:1 per case; any non-1:1 file stops at a decision gate.
   6. Era-overlap counts and conflicting shared-column values are reported to QC; the probe found 0 overlap with the spine, so PDD-D-25 (precedence) is CLOSED - NOT NEEDED. **Gate (PDD-D-29 item 3):** also count normalized case IDs shared between each pair of the 2023, 2024 and 2025 files; if any are shared, stop at a decision gate (do not stack) and list the counts per pair.
-- **Plans:** 2/5 plans executed
+- **Plans:** 5/5 plans executed - **COMPLETE 2026-11-16** (15a/15b/15c and `run_pipeline.cmd 15` passed)
 
 Plans:
 - [x] 15-01-PLAN.md — docs/new_source_files.csv, header-variant seed (NEW-03a), sas/15a_new_source_guard.sas: 20-file check unchanged + approval-gated 3-file baseline (wave 1)
 - [x] 15-02-PLAN.md — sas/15b_new_inventory_spec.sas: header inventory + matrix (NEW-02), per-encoding pre-pass and docs/import_spec_new_generated.csv (NEW-03) (wave 2)
-- [x] 15-03-PLAN.md — sas/15c_new_import.sas: import to pdd.nsrc_s21..s23 + norm_psid, reconcile, type changes, 1:1 gate (NEW-04), overlap + PDD-D-29 item 3 gate (NEW-05) (wave 3) (written, PENDING SAS RUN)
+- [x] 15-03-PLAN.md — sas/15c_new_import.sas: import to pdd.nsrc_s21..s23 + norm_psid, reconcile, type changes, 1:1 gate (NEW-04), overlap + PDD-D-29 item 3 gate (NEW-05) (wave 3) (run 2026-11-16: PASS after PDD-D-30)
 - [x] 15-04-PLAN.md — Python QC writer qc\new_source_intake.xlsx + exchange_schema rows + <11-masked summary (wave 1)
-- [ ] 15-05-PLAN.md — wire phase 15 into 99_run_all.sas and run_pipeline.cmd, run sheet 15-SAS-RUN.md, STATE markers, SAS-run checkpoint (wave 4)
+- [x] 15-05-PLAN.md — wire phase 15 into 99_run_all.sas and run_pipeline.cmd, run sheet 15-SAS-RUN.md, STATE markers, SAS-run checkpoint (wave 4)
 
 ### Phase 16 (M3): Name map extension
 - **Goal:** Map new headers to PCNR_ names under the Phase 4 rules and record year coverage per variable.
@@ -159,7 +159,7 @@ Plans:
   - [ ] 16-01-PLAN.md — Wave 1: exchange contract, `docs/name_map_decisions_new.csv` seed, offline expectation test, review workbook writer (MAP-01..04)
   - [ ] 16-02-PLAN.md — Wave 1: naming/collision/Stage 2 macros + synthetic SAS test (MAP-01, MAP-03)
   - [ ] 16-03-PLAN.md — Wave 2: `sas/16a_name_map_ext.sas` frozen-map extension, candidate gate, naming (MAP-01..03; PENDING SAS RUN / PENDING DECISION)
-  - [ ] 16-04-PLAN.md — Wave 2: `sas/16b_name_map_values_cov.sas` value distributions and year coverage (MAP-02, MAP-04; PENDING SAS RUN, needs 15c rerun)
+  - [ ] 16-04-PLAN.md — Wave 2: `sas/16b_name_map_values_cov.sas` value distributions and year coverage (MAP-02, MAP-04; PENDING SAS RUN; Phase 15 prerequisites done)
   - [ ] 16-05-PLAN.md — Wave 3: pipeline wiring (token 16), run sheet `16-SAS-RUN.md`, STATE.md, Gerard checkpoint
 
 ### Phase 17 (M4): PECAN_ID

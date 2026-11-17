@@ -1,6 +1,6 @@
 # Phase 15 SAS run sheet (for Gerard)
 
-**Status:** 15a done (baseline approved and committed). 15b done (spec committed). 15c run 1 stopped at PDD-D-29 item 3 (s22-s23 = 142 shared cases), now resolved by PDD-D-30. **Next: rerun 15c (Step 4), then `run_pipeline.cmd 15` (Step 5).**
+**Status: COMPLETE 2026-11-16.** 15a done (baseline approved and committed). 15b done (spec committed). 15c PASS after PDD-D-30 (s22-s23 = 142 shared cases, DECIDED). `run_pipeline.cmd 15` passed (Pipeline PASSED 2026-11-16 17:11). No steps pending.
 **Decision:** PDD-D-30 DECIDED (s22 wins, s23 gap-fills, applied in Phase 18). Any other gate that fires is still PENDING DECISION.
 
 Claude has no SAS and no P: drive and chose nothing at any gate.
