@@ -24,10 +24,12 @@ Earlier note (superseded, Phase 15 closed): Phase 15 (M2) could be planned: the 
 |-------|-----------------|-------|--------|
 | 14 | M1 | Probe and headless setup | Complete (PRB-01..03, RUN-01 satisfied) |
 | 15 | M2 | New-source intake | Complete 2026-11-16 (NEW-01..NEW-05, NEW-03a satisfied; 15a/15b/15c and pipeline 15 run and passed) |
-| 16 | M3 | Name map extension | Plans written (16-01..16-05); Phase 15 done, so SAS runs are unblocked |
+| 16 | M3 | Name map extension | Plans 16-01..16-05 written; PENDING SAS RUN (16 test, 16a, 16b; run sheet 16-SAS-RUN.md); PENDING DECISION (near-match candidates, TYPE_CONFLICT_EXACT confirm); 16b prerequisites (Phase 15) done |
 | 17 | M4 | PECAN_ID | Blocked on 15-16 (PDD-D-28 DECIDED) |
 | 18 | M5 | Combined dataset and dictionary 2018-2025 | Blocked on 15-17 |
 | 19 | M6 | Master Excel export | Blocked on 18 |
+
+**Phase 16 next step:** run `.planning/phases/16-name-map-extension/16-SAS-RUN.md` Step 2 (16a and 16b can both run now; Phase 15 is closed), then decide the candidates in `docs/name_map_decisions_new.csv`. Price naming sign-off remains PENDING.
 
 Decisions (`docs/DECISIONS.md`): PDD-D-26 DECIDED (separate K2 PECAN_IDs via append-only registry, linkage deferred). PDD-D-28 DECIDED 2026-11-16 (PECAN_ID = master-merge `pecan_ID`; K1 seed from `g.pecan_id_xwalk`; K2 = 1000000 + rank). PDD-D-29 DECIDED 2026-11-16 (D-19 rule applies to 2023-2025; no cross-era overlap; Phase 15 must check overlap between the three new files). PDD-D-30 DECIDED 2026-11-16 (142 shared s22 x s23 cases are the same surgeries: s22 wins, s23 gap-fills, applied in Phase 18). PDD-D-25 CLOSED - NOT NEEDED (per PDD-D-29 item 2). PENDING DECISION, default not applied: PDD-D-27 dictionary sheet in master xlsx. Price naming sign-off still pending.
 
@@ -41,6 +43,7 @@ Decisions (`docs/DECISIONS.md`): PDD-D-26 DECIDED (separate K2 PECAN_IDs via app
 - `CLAUDE_md_addition.md` no longer exists: its content was merged into CLAUDE.md in 73881aa. CLAUDE.md already contains the probe-first, headless and SAS-pitfall sections, so it was not changed.
 
 - Phase 15 (A11): new-file datasets are `pdd.nsrc_s21..s23`, not `pdd.src_s2N`, because 03_import `_norm_psid_loop` sweeps `SRC_S__`. Baseline approval (A2) is env var `PDD_APPROVE_NEW_BASELINE=1`, set only by Gerard.
+- Phase 16 (A1, A2, A11): extension datasets pdd.name_map_ext / pdd.name_map_vars_ext, frozen pdd.name_map read-only; decisions in docs/name_map_decisions_new.csv; 16a writes outputs and a PENDING DECISION NOTE, Phase 18 must hard-stop on n_new_pending_decision > 0.
 
 ---
 
@@ -189,6 +192,10 @@ These are QC findings from the Phase 5 live run that require Price's input befor
 ### Phase 16 progress (16-03, 2026-11-16)
 
 - 16-03 complete: `sas/16a_name_map_ext.sas` lint-clean (sas_lint and sasjs lint 0 errors), `python/tests/test_phase16a_static.py` (13 tests; full suite 260 pass). Frozen map read-only and asserted; exact reuse by lookup; candidate union; decisions file applied; undecided stay PENDING_DECISION with blank names. **PENDING SAS RUN** (16a, Gerard) and **PENDING DECISION** (near-match candidates in `docs/name_map_decisions_new.csv`). Price sign-off **PENDING**. State advance commands not used (v2.0 frontmatter kept).
+
+### Phase 16 progress (16-05, 2026-11-16)
+
+- 16-05 tasks 1-2 complete: Phase 16 wired into `99_run_all.sas` (token 16) and `run_pipeline.cmd`; run sheet `16-SAS-RUN.md` written; 265 pytest pass. Task 3 checkpoint is **PENDING SAS RUN** (Gerard) and **PENDING DECISION** (near-match candidates; TYPE_CONFLICT_EXACT confirm). Price sign-off **PENDING**. Phase 16 not closed. State advance commands not used (v2.0 frontmatter kept).
 
 ### Phase 16 progress (16-01, 2026-11-16)
 
