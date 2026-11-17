@@ -61,3 +61,44 @@ def test_16b_forbidden():
     for sql in re.findall(r"proc\s+sql.*?quit\s*;", src, flags=re.S | re.I):
         assert "??" not in sql
     assert "name_map_ext_values.csv" in src
+
+
+# ---- Task 2: year coverage --------------------------------------------------
+
+def test_16b_coverage_contract():
+    src = _text()
+    for tok in ("name_map_coverage.csv", "name_map_vars_coverage.csv", "NO_YEAR",
+                "NO_DATA", "years_present", "s_codes_with_data", "PENDING:"):
+        assert tok in src, tok
+
+
+def test_16b_null_rule():
+    src = _text()
+    assert "'NULL'" in src
+    assert "type_conflict" in src
+
+
+def test_16b_array_order():
+    src = _text()
+    i_set = src.index("put \"  set ")
+    i_arr_n = src.index("array _an[*] _numeric_")
+    i_arr_c = src.index("array _ac[*] _character_")
+    i_len = src.index("length _p16_yr")
+    assert i_set < i_arr_n < i_arr_c < i_len
+
+
+def test_16b_reconcile():
+    src = _text()
+    m = re.search(r"%fail_out\(msg=%str\([^)]*reconcile", src)
+    assert m
+
+
+def test_16b_spine_year():
+    src = _text()
+    assert "pdd.src_s09" in src
+    assert re.search(r"defineKey\('norm_psid'\)", src)
+
+
+def test_16b_no_retain_length():
+    src = _strip_comments(_text())
+    assert not re.search(r"retain[^;]*\$\s*\d", src, flags=re.I)
