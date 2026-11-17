@@ -26,6 +26,12 @@ C31 DATA step with SET ... POINT= (or %p16_shorten / %p16_assign_names call),
     no plain SET/MERGE/INFILE and no STOP -- loops forever
 C32 PROC SQL reserved word (case, when, then, else, as, on) used as a bare
     column name in a file that also uses PROC SQL
+C33 SAS member name longer than 32 bytes (literal libref.member, or a
+    stem= argument whose stem plus the 16-char _YYYYMMDD_HHMMSS stamp exceeds 32)
+C34 %if &cond with a quoted macro parameter and no %unquote -- character
+    operand ERROR when the caller passes cond=%str(...)
+C35 PROC SQL GROUP BY with no summary function and no HAVING -- WARNING
+    'GROUP BY clause has been transformed into an ORDER BY clause'
 C20 TRIMMED keyword in PROC SQL SELECT list -- valid only after INTO targets
 W2  Assert-style count query: reports dataset name and WHERE-clause columns for reviewer
 
@@ -636,6 +642,66 @@ def check_sql_reserved_column(path, lines):
             hits.append((path, ln, 'C32',
                 'PROC SQL reserved word used as a column name (case, when, '
                 'then, else, as, on) -- rename the column (e.g. tcase)'))
+    return hits
+
+
+# ── C33: member name longer than 32 bytes ────────────────────────────────────
+
+_C33_STAMP = 16  # "_" + YYYYMMDD_HHMMSS (b8601dt15 with T replaced by _)
+
+
+def check_member_name_length(path, lines):
+    hits = []
+    for i, raw in enumerate(lines, 1):
+        code = re.sub(r'/\*.*?\*/', '', raw)
+        for m in re.finditer(r'\b[A-Za-z_]\w*\.([A-Za-z_]\w{32,})\b', code):
+            hits.append((path, i, 'C33',
+                f'dataset member name {m.group(1)[:20]}... is {len(m.group(1))} bytes; '
+                'SAS member names are max 32 (ERROR 307-185)'))
+        for m in re.finditer(r'\bstem\s*=\s*([A-Za-z_]\w*)', code, CI):
+            total = len(m.group(1)) + _C33_STAMP
+            if total > 32:
+                hits.append((path, i, 'C33',
+                    f'backup stem {m.group(1)} plus the {_C33_STAMP}-char timestamp is '
+                    f'{total} bytes; member names are max 32 -- use a stem of at most 16 chars'))
+    return hits
+
+
+# ── C34: %if &cond without %unquote ──────────────────────────────────────────
+
+_C34_PARAMS = r'(?:cond|condition|expr|expression|test)'
+
+
+def check_if_quoted_param(path, lines):
+    hits = []
+    for i, raw in enumerate(lines, 1):
+        code = re.sub(r'/\*.*?\*/', '', raw)
+        if re.search(r'%(?:else\s+)?if\s+&' + _C34_PARAMS + r'\b(?!\.)', code, CI):
+            hits.append((path, i, 'C34',
+                '%if &cond on a parameter that callers pass as %str(...) raises a '
+                'character-operand ERROR -- use %if %unquote(&cond)'))
+    return hits
+
+
+# ── C35: GROUP BY without a summary function ─────────────────────────────────
+
+_C35_AGG = re.compile(
+    r'\b(?:count|sum|min|max|avg|mean|std|stderr|var|css|cv|uss|range|nmiss|freq|n)\s*\(',
+    CI)
+
+
+def check_group_by_no_summary(path, lines):
+    hits = []
+    text = _c31_strip_literals(strip_block_comments('\n'.join(lines)))
+    for m in re.finditer(r'\bproc\s+sql\b(.*?)\bquit\s*;', text, CI | re.S):
+        pos = m.start(1)
+        for stmt in m.group(1).split(';'):
+            g = re.search(r'\bgroup\s+by\b', stmt, CI)
+            if g and not re.search(r'\bhaving\b', stmt, CI) and not _C35_AGG.search(stmt):
+                hits.append((path, text.count('\n', 0, pos + g.start()) + 1, 'C35',
+                    'GROUP BY without a summary function is turned into ORDER BY '
+                    '(WARNING) -- use SELECT DISTINCT ... ORDER BY'))
+            pos += len(stmt) + 1
     return hits
 
 
@@ -1595,6 +1661,9 @@ CHECKS = [
     check_semicolon_in_put_text,
     check_set_point_no_stop,
     check_sql_reserved_column,
+    check_member_name_length,
+    check_if_quoted_param,
+    check_group_by_no_summary,
 ]
 
 

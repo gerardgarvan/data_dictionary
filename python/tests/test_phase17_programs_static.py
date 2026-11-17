@@ -137,7 +137,7 @@ def test_link_program_rules():
     macros = _code("17_pecan_id_link_macros.sas")
     assert 'PDD_APPROVE_NEW_BASELINE" ne "1"' in macros
     assert "pecan_id_registry_next" in macros
-    assert macros.index("%p17_backup_table(ds=&reg, stem=pecan_id_registry_prelink)") < macros.index("data &reg;")
+    assert macros.index("%p17_backup_table(ds=&reg, stem=pidreg_prelink)") < macros.index("data &reg;")
     t = (SAS / "17_pecan_id_link_test.sas").read_text(encoding="utf-8")
     for tag in ("T1_DRYRUN_REGISTRY_UNCHANGED", "T2_APPLY_WITHOUT_APPROVAL_FAILS", "T4_REAPPLY_LINKS_0",
                 "T5_K2_MRN_TO_TWO_K1_MRNS_REFUSED", "T5_K1_MRN_NOT_IN_K1_REGISTRY_REFUSED",

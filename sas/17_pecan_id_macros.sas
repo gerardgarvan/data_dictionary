@@ -157,24 +157,31 @@
 %mend p17_stamp;
 
 /* dated copy of any pdd table: &stem._yyyymmdd_hhmmss in the backup folder.
-   Sets global _p17_last_backup (member name only). */
+   Sets global _p17_last_backup (member name only). SAS member names are max
+   32 bytes and the stamp adds 16, so a stem is at most 16 chars (pidreg,
+   piddup, pidmap, pidreg_prelink). A too long stem fails fast here. */
 %macro p17_backup_table(ds=, stem=);
   %global _p17_last_backup;
   %p17_bak_lib;
   %p17_stamp;
   %let _p17_last_backup = &stem._&_p17_stamp;
-  data p17bak.&_p17_last_backup;
-    set &ds;
-  run;
-  %put NOTE: [p17] backup written - &_p17_last_backup;
+  %if %length(&_p17_last_backup) > 32 %then %do;
+    %p17_fail(msg=%str(backup member name &_p17_last_backup is longer than 32 bytes));
+  %end;
+  %else %do;
+    data p17bak.&_p17_last_backup;
+      set &ds;
+    run;
+    %put NOTE: [p17] backup written - &_p17_last_backup;
+  %end;
 %mend p17_backup_table;
 
 %macro p17_backup;
-  %p17_backup_table(ds=pdd.pecan_id_registry, stem=pecan_id_registry);
+  %p17_backup_table(ds=pdd.pecan_id_registry, stem=pidreg);
 %mend p17_backup;
 
 %macro p17_backup_link;
-  %p17_backup_table(ds=pdd.pecan_id_dup_link, stem=pecan_id_dup_link);
+  %p17_backup_table(ds=pdd.pecan_id_dup_link, stem=piddup);
 %mend p17_backup_link;
 
 /* latest backup member of a stem into global _p17_latest (blank when none) */
@@ -194,7 +201,7 @@
 %macro p17_assert_backup_current;
   %local _n_reg _n_bak _n_d1 _n_d2 _n_diff;
   %let _n_bak = 0; %let _n_d1 = 0; %let _n_d2 = 0;
-  %p17_latest_backup(stem=pecan_id_registry);
+  %p17_latest_backup(stem=pidreg);
   %p17_nobs(ds=pdd.pecan_id_registry, mv=_n_reg);
   %if %length(&_p17_latest) = 0 %then %do;
     %if "&PDD_APPROVE_NEW_BASELINE" = "1" %then %do;
@@ -512,9 +519,9 @@
   %let p17_n_pairs = 0;
   proc sql noprint;
     create table work._p17_mi as
-      select ENCRYPTED_MRN as mrn, PECAN_ID as pid from &in
+      select distinct ENCRYPTED_MRN as mrn, PECAN_ID as pid from &in
       where mrn_usable = 1 and not missing(PECAN_ID)
-      group by ENCRYPTED_MRN, PECAN_ID;
+      order by mrn, pid;
     create table work._p17_pn as
       select PECAN_ID as pid, count(*) as n_surg from &in
       where not missing(PECAN_ID) group by PECAN_ID;

@@ -148,7 +148,7 @@ def test_synthetic_test_covers_plan_cases():
         "T9_SECOND_RUN_APPENDS_0", "T9_NEW_MRN_GETS_MAX_PLUS_1", "T9_K2_IDS_1000000_PLUS_RANK",
         "T10_DUPLICATE_PECAN_ID_FAILS", "T10_DUPLICATE_MRN_K2_FAILS", "T10_K2_ID_BELOW_1000001_FAILS",
         "T10_K1_ID_AT_OR_ABOVE_1000000_FAILS", "T11_UNMAPPED_USABLE_MRN_CASE_FAILS",
-        "T12_DIFFERING_REGISTRY_FAILS_WITHOUT_APPROVAL", "T13_NO_WARNINGS_IN_LOG",
+        "T12_DIFFERING_REGISTRY_FAILS_WITHOUT_APPROVAL", "T13_NO_WARNINGS_OR_ERRORS_IN_LOG",
     ]:
         assert tag in t, tag
     assert "TESTRESULT SUMMARY" in t
@@ -165,3 +165,28 @@ def test_test_norm_psid_copy_matches_config():
         return re.sub(r"\s+", " ", m.group(0))
 
     assert body("17_pecan_id_test.sas") == body("00_config.sas")
+
+
+def test_backup_member_names_at_most_32_chars():
+    """Every backup stem used anywhere, plus the 16-char timestamp, fits 32 bytes."""
+    import re
+    stems = set()
+    for f in (ROOT / "sas").glob("17*.sas"):
+        code = f.read_text(encoding="utf-8")
+        stems.update(re.findall(r"stem\s*=\s*([A-Za-z_]\w*)", code))
+    assert {"pidreg", "piddup", "pidmap", "pidreg_prelink"} <= stems, stems
+    stamp = "_20260101_010101"
+    assert len(stamp) == 16
+    for s in stems:
+        assert len(s + stamp) <= 32, f"{s}{stamp} is {len(s + stamp)} chars"
+    macros = (ROOT / "sas" / "17_pecan_id_macros.sas").read_text(encoding="utf-8")
+    assert "stem=pecan_id" not in macros
+    assert "b8601dt15." in macros and "%length(&_p17_last_backup) > 32" in macros
+
+
+def test_test_harness_chk_uses_unquote_and_fails_on_error():
+    for name in ("17_pecan_id_test.sas", "17_pecan_id_link_test.sas"):
+        code = (ROOT / "sas" / name).read_text(encoding="utf-8")
+        assert "%if %unquote(&cond)" in code, name
+        assert "%if &cond" not in code, name
+        assert "'ERROR:'" in code, name

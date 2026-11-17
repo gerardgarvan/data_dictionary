@@ -789,3 +789,48 @@ def test_c31_fires_when_only_if0_set_present():
              "  %p16_shorten(nm=nm, abbrev=work.a)", "  output;", "run;"]
     hits = sas_lint.check_set_point_no_stop("<test>", lines)
     assert any(h[2] == "C31" for h in hits), hits
+
+
+# ---------------------------------------------------------------------------
+# C33 member name length, C34 %if &cond without %unquote, C35 GROUP BY no summary
+# ---------------------------------------------------------------------------
+
+def test_c33_fires_on_long_stem_and_long_member():
+    long_stem = ["%p17_backup_table(ds=pdd.x, stem=pecan_id_registry);"]
+    long_member = ["data pdd.pecan_id_registry_prelink_20260101_010101;"]
+    for lines in (long_stem, long_member):
+        hits = sas_lint.check_member_name_length("<test>", lines)
+        assert any(h[2] == "C33" for h in hits), lines
+
+
+def test_c33_clean_cases():
+    for lines in (["%p17_backup_table(ds=pdd.x, stem=pidreg);"],
+                  ["%p17_backup_table(ds=pdd.x, stem=pidreg_prelink);"],
+                  ["data pdd.pecan_id_registry_next;"],
+                  ["data p17bak.&_p17_last_backup;"]):
+        assert sas_lint.check_member_name_length("<test>", lines) == [], lines
+
+
+def test_c34_fires_without_unquote():
+    hits = sas_lint.check_if_quoted_param("<test>", ["  %if &cond %then %put x;"])
+    assert any(h[2] == "C34" for h in hits), hits
+
+
+def test_c34_clean_cases():
+    for lines in (["  %if %unquote(&cond) %then %put x;"],
+                  ["  %if &_res = PASS %then %put x;"]):
+        assert sas_lint.check_if_quoted_param("<test>", lines) == [], lines
+
+
+def test_c35_fires_on_group_by_without_summary():
+    lines = ["proc sql;", "  create table w as select a, b from t group by a, b;", "quit;"]
+    hits = sas_lint.check_group_by_no_summary("<test>", lines)
+    assert any(h[2] == "C35" for h in hits), hits
+
+
+def test_c35_clean_cases():
+    ok1 = ["proc sql;", "  select a, count(*) as n from t group by a;", "quit;"]
+    ok2 = ["proc sql;", "  select a from t group by a having count(*) > 1;", "quit;"]
+    ok3 = ["proc sql;", "  select distinct a, b from t order by a;", "quit;"]
+    for lines in (ok1, ok2, ok3):
+        assert sas_lint.check_group_by_no_summary("<test>", lines) == [], lines

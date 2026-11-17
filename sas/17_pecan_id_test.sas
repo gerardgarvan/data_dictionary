@@ -20,7 +20,7 @@
             T12 backup-current assertion: no backup, approval, differing registry
             T14 registry baseline guard: no approval / value 2 = proposal + masked
                 summary, no registry; approval 1 = registry + current backup
-            T13 no WARNING lines in this log (runs last)
+            T13 no WARNING or ERROR lines in this log (runs last)
   Run     : sas 17_pecan_id_test.sas  (no pipeline setup required)
             Bring back the log and look for the TESTRESULT SUMMARY line.
   Status  : PENDING SAS RUN (Gerard).
@@ -72,8 +72,11 @@ options nodlcreatedir;
 
 /* expression must be true; cond is evaluated with %eval */
 %macro _chk(case=, cond=, detail=);
-  %if &cond %then %_record(case=&case, result=PASS);
-  %else %_record(case=&case, result=FAIL, detail=%str(&detail));
+  %local _res;
+  %let _res = FAIL;
+  %if %unquote(&cond) %then %let _res = PASS;
+  %if &_res = PASS %then %_record(case=&case, result=PASS);
+  %else %_record(case=&case, result=FAIL, detail=%str(&detail - or the check could not be evaluated));
 %mend _chk;
 
 %macro _expect_fail(case=);
@@ -297,7 +300,7 @@ options nodlcreatedir;
                where pecan_id_a = 101 and pecan_id_b = 102 and n_surgeries_a = 2 and n_surgeries_b = 1;
   quit;
   %_chk(case=T8_EXISTING_ROW_UNCHANGED, cond=%str(&_q = 1), detail=%str(existing pair changed));
-  %p17_latest_backup(stem=pecan_id_dup_link);
+  %p17_latest_backup(stem=piddup);
   %_chk(case=T8_LINK_BACKUP_TAKEN, cond=%str(%length(&_p17_latest) > 0), detail=%str(no link backup));
 
   /* ---- T9 registry creation and K2 append ---------------------------------- */
@@ -378,32 +381,39 @@ options nodlcreatedir;
   /* ---- T10 registry gate negatives -------------------------------------------- */
   %p17_gate_registry(reg=pdd.pecan_id_registry);
   %_expect_ok(case=T10_REGISTRY_GATE_PASSES);
-  data work.t10a;
-    set pdd.pecan_id_registry;
+  /* self-contained valid base registry so each negative differs by exactly one row */
+  data work.t10_base;
+    %p17_reg_attrs;
+    PECAN_ID = 101; ENCRYPTED_MRN = 'MRN_A'; KEY_ERA = 'K1'; ASSIGNED_RUN = today(); SOURCE = 'test'; STATUS = 'ACTIVE'; output;
+    PECAN_ID = 1000001; ENCRYPTED_MRN = 'K2_M1'; KEY_ERA = 'K2'; ASSIGNED_RUN = today(); SOURCE = 'test'; STATUS = 'ACTIVE'; output;
+    PECAN_ID = 1000002; ENCRYPTED_MRN = 'K2_M2'; KEY_ERA = 'K2'; ASSIGNED_RUN = today(); SOURCE = 'test'; STATUS = 'ACTIVE'; output;
   run;
+  %p17_gate_registry(reg=work.t10_base);
+  %_expect_ok(case=T10_BASE_REGISTRY_PASSES);
   data work.t10a;
-    set work.t10a end=_e;
+    set work.t10_base end=_e;
     output;
     if _e then do; PECAN_ID = 101; ENCRYPTED_MRN = 'ZZ'; KEY_ERA = 'K1'; output; end;
   run;
   %p17_gate_registry(reg=work.t10a);
   %_expect_fail(case=T10_DUPLICATE_PECAN_ID_FAILS);
+  /* same ENCRYPTED_MRN on a second K2 row under a new, valid K2 ID */
   data work.t10b;
-    set pdd.pecan_id_registry end=_e;
+    set work.t10_base end=_e;
     output;
     if _e then do; PECAN_ID = 1009999; ENCRYPTED_MRN = 'K2_M1'; KEY_ERA = 'K2'; output; end;
   run;
   %p17_gate_registry(reg=work.t10b);
   %_expect_fail(case=T10_DUPLICATE_MRN_K2_FAILS);
   data work.t10c;
-    set pdd.pecan_id_registry end=_e;
+    set work.t10_base end=_e;
     output;
     if _e then do; PECAN_ID = 1000000; ENCRYPTED_MRN = 'ZZ'; KEY_ERA = 'K2'; output; end;
   run;
   %p17_gate_registry(reg=work.t10c);
   %_expect_fail(case=T10_K2_ID_BELOW_1000001_FAILS);
   data work.t10d;
-    set pdd.pecan_id_registry end=_e;
+    set work.t10_base end=_e;
     output;
     if _e then do; PECAN_ID = 1000500; ENCRYPTED_MRN = 'ZZ'; KEY_ERA = 'K1'; output; end;
   run;
@@ -520,27 +530,30 @@ options nodlcreatedir;
 %mend _run_tests;
 %_run_tests;
 
-/* ---- T13 no WARNING lines in this log ------------------------------------------ */
+/* ---- T13 no WARNING or ERROR lines in this log ------------------------------------------ */
 proc printto; run;
 
 data work._t13_warn_check;
-  length _n_warn 8;
-  retain _n_warn 0;
+  length _n_warn 8 _n_err 8;
+  retain _n_warn 0 _n_err 0;
   infile "&_test_log_path" lrecl=32767 end=_eof;
   input;
   if index(upcase(_infile_), 'WARNING:') > 0 then _n_warn + 1;
+  if index(upcase(_infile_), 'ERROR:') > 0
+     and index(upcase(_infile_), 'TESTRESULT SUMMARY') = 0 then _n_err + 1;
   if index(upcase(_infile_), '[FAIL]') > 0 or index(upcase(_infile_), '[PASS]') > 0 then
     put _infile_;
   if _eof then do;
     call symputx('_t13_n_warn', _n_warn);
+    call symputx('_t13_n_err', _n_err);
     output;
   end;
 run;
 
 %macro _t13_check;
-  %if &_t13_n_warn = 0 %then %_record(case=T13_NO_WARNINGS_IN_LOG, result=PASS);
-  %else %_record(case=T13_NO_WARNINGS_IN_LOG, result=FAIL,
-         detail=%str(&_t13_n_warn WARNING lines found in test log));
+  %if &_t13_n_warn = 0 and &_t13_n_err = 0 %then %_record(case=T13_NO_WARNINGS_OR_ERRORS_IN_LOG, result=PASS);
+  %else %_record(case=T13_NO_WARNINGS_OR_ERRORS_IN_LOG, result=FAIL,
+         detail=%str(&_t13_n_warn WARNING and &_t13_n_err ERROR lines found in test log));
 %mend _t13_check;
 %_t13_check;
 

@@ -159,14 +159,14 @@
               %p17_fail(msg=%str(new registry failed verification - rows &_n_reg. vs &_n_nxt., changed keys &_d1. and &_d2.. Registry untouched));
             %end;
             %else %do;
-              %p17_backup_table(ds=&reg, stem=pecan_id_registry_prelink);
+              %p17_backup_table(ds=&reg, stem=pidreg_prelink);
               data &reg;
                 set pdd.pecan_id_registry_next;
               run;
               %p17_gate_registry(reg=&reg);
               %p17_backup;
               /* case map: back up, then rebuild from its own K1 and K2 rows */
-              %p17_backup_table(ds=&map, stem=pecan_id_case_map);
+              %p17_backup_table(ds=&map, stem=pidmap);
               data work.p17l_k1;
                 set &map(where=(KEY_ERA = 'K1'));
               run;

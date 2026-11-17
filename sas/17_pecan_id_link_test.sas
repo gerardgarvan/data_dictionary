@@ -45,8 +45,11 @@ options nodlcreatedir;
 %mend _record;
 
 %macro _chk(case=, cond=, detail=);
-  %if &cond %then %_record(case=&case, result=PASS);
-  %else %_record(case=&case, result=FAIL, detail=%str(&detail));
+  %local _res;
+  %let _res = FAIL;
+  %if %unquote(&cond) %then %let _res = PASS;
+  %if &_res = PASS %then %_record(case=&case, result=PASS);
+  %else %_record(case=&case, result=FAIL, detail=%str(&detail - or the check could not be evaluated));
 %mend _chk;
 
 %macro _expect_fail(case=);
@@ -110,7 +113,7 @@ options nodlcreatedir;
   %p17l_run(xw=work.xw_ok, mode=DRYRUN);
   %_expect_ok(case=T1_DRYRUN_NO_FAILURE);
   %_chk(case=T1_DRYRUN_COUNTS_2, cond=%str(&p17l_n_changed = 2), detail=%str(would link &p17l_n_changed));
-  %p17_latest_backup(stem=pecan_id_registry);
+  %p17_latest_backup(stem=pidreg);
   proc sql noprint;
     select count(*) into :_q trimmed from
       (select * from pdd.pecan_id_registry except select * from p17bak.&_p17_latest);
@@ -224,23 +227,26 @@ options nodlcreatedir;
 proc printto; run;
 
 data work._t7_warn_check;
-  length _n_warn 8;
-  retain _n_warn 0;
+  length _n_warn 8 _n_err 8;
+  retain _n_warn 0 _n_err 0;
   infile "&_test_log_path" lrecl=32767 end=_eof;
   input;
   if index(upcase(_infile_), 'WARNING:') > 0 then _n_warn + 1;
+  if index(upcase(_infile_), 'ERROR:') > 0
+     and index(upcase(_infile_), 'TESTRESULT SUMMARY') = 0 then _n_err + 1;
   if index(upcase(_infile_), '[FAIL]') > 0 or index(upcase(_infile_), '[PASS]') > 0 then
     put _infile_;
   if _eof then do;
     call symputx('_t7_n_warn', _n_warn);
+    call symputx('_t7_n_err', _n_err);
     output;
   end;
 run;
 
 %macro _t7_check;
-  %if &_t7_n_warn = 0 %then %_record(case=T7_NO_WARNINGS_IN_LOG, result=PASS);
-  %else %_record(case=T7_NO_WARNINGS_IN_LOG, result=FAIL,
-         detail=%str(&_t7_n_warn WARNING lines found in test log));
+  %if &_t7_n_warn = 0 and &_t7_n_err = 0 %then %_record(case=T7_NO_WARNINGS_OR_ERRORS_IN_LOG, result=PASS);
+  %else %_record(case=T7_NO_WARNINGS_OR_ERRORS_IN_LOG, result=FAIL,
+         detail=%str(&_t7_n_warn WARNING and &_t7_n_err ERROR lines found in test log));
 %mend _t7_check;
 %_t7_check;
 
