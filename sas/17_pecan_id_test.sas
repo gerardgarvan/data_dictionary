@@ -131,6 +131,7 @@ options nodlcreatedir;
 %_init_q;
 
 %macro _run_tests;
+  %local _i;
 
   /* ---- T1 K2 rank ------------------------------------------------------ */
   data work.t1_in;
@@ -346,6 +347,7 @@ options nodlcreatedir;
   run;
   %p17_k1_reg_rows(in=work.t9_k1cases, out=work.t9_regk1);
   %_chk(case=T9_K1_ID_ONLY_ON_BLANK_MRN_REPORTED, cond=%str(&p17_n_only_blank = 1), detail=%str(only blank &p17_n_only_blank));
+  %p17_flush_qc;
   proc sql noprint;
     select count(*) into :_q trimmed from pdd.qc_pecan_id_k1
                where item like 'PENDING_DECISION%' and n > 0;
@@ -596,6 +598,66 @@ options nodlcreatedir;
   %_expect_fail(case=T16_GATE_MISSING_REGISTRY_FAILS);
   %p17_gate_casemap(map=pdd.pecan_id_case_map_none, reg=pdd.pecan_id_registry);
   %_expect_fail(case=T16_GATE_CASEMAP_MISSING_TABLE_FAILS);
+
+  /* ---- T17 QC staging: many qadd calls, one pdd write ----------------------------- */
+  %_drop(ds=pdd.qc_pecan_id_tq);
+  %p17_qinit(ds=pdd.qc_pecan_id_tq);
+  %do _i = 1 %to 25;
+    %p17_qadd(ds=pdd.qc_pecan_id_tq, item=ROW_&_i, n=&_i, fail=%sysevalf(&_i = 25));
+  %end;
+  %_chk(case=T17_NO_PDD_WRITE_BEFORE_FLUSH, cond=%str(%sysfunc(exist(pdd.qc_pecan_id_tq)) = 0),
+        detail=%str(qadd wrote to pdd before the flush));
+  %p17_nobs(ds=work.qc_pecan_id_tq, mv=_q);
+  %_chk(case=T17_STAGED_25_ROWS_IN_WORK, cond=%str(&_q = 25), detail=%str(staged rows &_q));
+  %p17_flush_qc;
+  %_chk(case=T17_FLUSH_WROTE_PDD_TABLE, cond=%str(%sysfunc(exist(pdd.qc_pecan_id_tq)) = 1),
+        detail=%str(flush did not write the table));
+  %p17_nobs(ds=pdd.qc_pecan_id_tq, mv=_q);
+  %_chk(case=T17_PDD_HAS_25_ROWS, cond=%str(&_q = 25), detail=%str(pdd rows &_q));
+  proc sql noprint;
+    select count(*) into :_q trimmed from pdd.qc_pecan_id_tq
+      where item = cats('ROW_', n) and isfail = (n = 25);
+  quit;
+  %_chk(case=T17_PDD_ROWS_VALUES_RIGHT, cond=%str(&_q = 25), detail=%str(matching rows &_q));
+  %_drop(ds=pdd.qc_pecan_id_tq);
+
+  /* ---- T18 dup link backup check -------------------------------------------------- */
+  %_drop(ds=pdd.pecan_id_dup_link);
+  %p17_append_dup_link(pairs=work.t7_pairs);
+  %p17_latest_backup(stem=piddup);
+  %let _t18_b1 = &_p17_latest;
+  %_chk(case=T18_LINK_CREATED_WITH_BACKUP, cond=%str(&p17_n_link_new = 1 and %length(&_t18_b1) > 0),
+        detail=%str(link or backup missing));
+  /* rerun with the link present: 0 new pairs, no failure, nothing appended */
+  %p17_append_dup_link(pairs=work.t7_pairs);
+  %_expect_ok(case=T18_RERUN_NO_FAILURE);
+  %_chk(case=T18_RERUN_APPENDS_0, cond=%str(&p17_n_link_new = 0), detail=%str(appended &p17_n_link_new));
+  /* link changed behind the backup: refused without approval */
+  data work.t18_extra;
+    set work.t7_pairs;
+    pecan_id_a = 900; pecan_id_b = 901;
+  run;
+  proc append base=pdd.pecan_id_dup_link data=work.t18_extra;
+  run;
+  %let PDD_APPROVE_NEW_BASELINE = 0;
+  %p17_append_dup_link(pairs=work.t7_pairs);
+  %_expect_fail(case=T18_LINK_DIFFERS_FROM_BACKUP_FAILS);
+  %let PDD_APPROVE_NEW_BASELINE = 1;
+  %p17_append_dup_link(pairs=work.t7_pairs);
+  %_expect_ok(case=T18_APPROVED_LINK_BASELINE_OK);
+  %let PDD_APPROVE_NEW_BASELINE = 0;
+  %p17_append_dup_link(pairs=work.t7_pairs);
+  %_expect_ok(case=T18_AFTER_APPROVAL_LINK_CURRENT);
+  /* link present but no backup at all: first run takes one */
+  %p17_bak_lib;
+  proc datasets lib=p17bak nolist;
+    delete piddup_: ;
+  quit;
+  %p17_append_dup_link(pairs=work.t7_pairs);
+  %_expect_ok(case=T18_NO_LINK_BACKUP_FIRST_RUN_OK);
+  %p17_latest_backup(stem=piddup);
+  %_chk(case=T18_FIRST_LINK_BACKUP_WRITTEN, cond=%str(%length(&_p17_latest) > 0),
+        detail=%str(no link backup written on the re-run));
 
 %mend _run_tests;
 %_run_tests;

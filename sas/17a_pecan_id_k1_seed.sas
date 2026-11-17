@@ -55,6 +55,7 @@
 %macro fail_out(msg=);
   %put ERROR: [17a_pecan_id_k1_seed] &msg;
   %p17_dump_qc(tables=k1, file=&qc_path.\pecan_id_k1.csv);
+  %p17_flush_qc;
   %restore_log;
   %if &in_pipeline = 0 %then %put ERROR: [17a_pecan_id_k1_seed] &msg;
   %abort cancel;
@@ -110,6 +111,7 @@
 
   /* QC outputs, counts only */
   %p17_dump_qc(tables=k1, file=&qc_path.\pecan_id_k1.csv);
+  %p17_flush_qc;
   proc sql noprint;
     create table work.p17a_by_year as
       select YEAR, count(*) as n_surgeries_with_dup_pair_id

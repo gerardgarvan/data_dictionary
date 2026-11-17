@@ -50,6 +50,7 @@
 %macro p17b_dump;
   %p17_dump_qc(tables=d30 gate casemap_gate, file=&qc_path.\pecan_id_gate.csv);
   %p17_dump_qc(tables=k2, file=&qc_path.\pecan_id_k2_summary.csv);
+  %p17_flush_qc;
 %mend p17b_dump;
 
 %macro fail_out(msg=);

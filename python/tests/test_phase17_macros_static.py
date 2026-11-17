@@ -105,7 +105,22 @@ def test_append_dup_link_never_deletes():
     body = _macro_body("17_pecan_id_macros.sas", "p17_append_dup_link")
     assert not re.search(r"proc\s+delete|drop\s+table|\bdelete\b", body, flags=re.I)
     assert "proc append base=pdd.pecan_id_dup_link" in body
-    assert body.index("%p17_backup_link") < body.index("proc append base=pdd.pecan_id_dup_link")
+    # existing link must equal its latest backup before the append, new backup after it
+    app = body.index("proc append base=pdd.pecan_id_dup_link")
+    assert body.index("%p17_assert_link_backup_current") < app < body.index("%p17_backup_link")
+
+
+def test_qadd_stages_in_work_and_flush_writes_pdd_once():
+    t = _code("17_pecan_id_macros.sas")
+    assert "proc append base=work.%scan(&ds, -1, .)" in _macro_body("17_pecan_id_macros.sas", "p17_qadd")
+    flush = _macro_body("17_pecan_id_macros.sas", "p17_flush_qc")
+    assert "data pdd.&_fl_t" in flush and "set work.&_fl_t" in flush
+    assert "base=pdd" not in _macro_body("17_pecan_id_macros.sas", "p17_qadd")
+    assert "%p17_flush_qc" in _code("17a_pecan_id_k1_seed.sas")
+    assert "%p17_flush_qc" in _code("pecan_id_link.sas")
+    assert "%p17_flush_qc" in _macro_body("17b_pecan_id_k2.sas", "p17b_dump")
+    assert "filelockwait=10" in _code("00_config.sas")
+    assert t
 
 
 def test_k1_join_copies_pecan_id_unchanged_and_uses_globals():

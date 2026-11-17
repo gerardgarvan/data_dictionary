@@ -60,8 +60,12 @@
 %mend p17_fail;
 
 /* ---- tiny QC table helpers: columns item, n, isfail ------------------- */
+/* QC rows are STAGED in WORK (work.<member of ds=>) and written to pdd once
+   by %p17_flush_qc. One proc append per row to the P: network share failed
+   intermittently with "A lock is not available" (previous write not yet
+   released). ds= is still given as pdd.qc_pecan_id_<name>. */
 %macro p17_qinit(ds=);
-  data &ds;
+  data work.%scan(&ds, -1, .);
     length item $80 n 8 isfail 8;
     stop;
   run;
@@ -74,9 +78,35 @@
     n = &n;
     isfail = &fail;
   run;
-  proc append base=&ds data=work._p17_q1 force;
+  proc append base=work.%scan(&ds, -1, .) data=work._p17_q1 force;
   run;
 %mend p17_qadd;
+
+/* One write of every staged work.qc_pecan_id_* table to pdd (data step, full
+   replace). Called at the end of each production program and in fail_out
+   before the abort, so QC is complete on success and on failure. */
+%macro p17_flush_qc;
+  %local _fl_list _fl_i _fl_t _fl_n;
+  %let _fl_list = ;
+  %if %sysfunc(libref(pdd)) ne 0 %then %do;
+    %put NOTE: [p17] flush skipped - pdd not assigned;
+    %return;
+  %end;
+  proc sql noprint;
+    select memname into :_fl_list separated by ' '
+    from dictionary.tables
+    where libname = 'WORK' and memtype = 'DATA'
+      and memname like 'QC_PECAN_ID_%';
+  quit;
+  %let _fl_n = %sysfunc(countw(&_fl_list, %str( )));
+  %do _fl_i = 1 %to &_fl_n;
+    %let _fl_t = %scan(&_fl_list, &_fl_i, %str( ));
+    data pdd.&_fl_t;
+      set work.&_fl_t;
+    run;
+  %end;
+  %put NOTE: [p17] QC flush - &_fl_n table(s) written to pdd;
+%mend p17_flush_qc;
 
 /* Number of rows of a dataset into the global named by mv= */
 %macro p17_nobs(ds=, mv=);
@@ -99,7 +129,17 @@
   %let _n = %sysfunc(countw(&tables));
   %do _i = 1 %to &_n;
     %let _t = %scan(&tables, &_i);
-    %if %sysfunc(exist(pdd.qc_pecan_id_&_t)) %then %do;
+    /* staged work copy wins over an older pdd table */
+    %if %sysfunc(exist(work.qc_pecan_id_&_t)) %then %do;
+      data work._p17_dump1;
+        length source $24;
+        set work.qc_pecan_id_&_t;
+        source = "&_t";
+      run;
+      proc append base=work._p17_dump data=work._p17_dump1 force;
+      run;
+    %end;
+    %else %if %sysfunc(exist(pdd.qc_pecan_id_&_t)) %then %do;
       data work._p17_dump1;
         length source $24;
         set pdd.qc_pecan_id_&_t;
@@ -198,41 +238,57 @@
 %mend p17_latest_backup;
 
 /* ---- registry must equal its latest backup before any append ---------- */
-%macro p17_assert_backup_current;
+/* Generic check: table ds must equal the latest backup of its stem.
+   first_ok=0 (registry): no backup needs approval. first_ok=1 (dup link):
+   no backup means first run, a backup is taken. A difference always needs
+   PDD_APPROVE_NEW_BASELINE=1 (then a new backup is taken). */
+%macro p17_assert_current(ds=, stem=, label=, first_ok=0);
   %local _n_reg _n_bak _n_d1 _n_d2 _n_diff;
   %let _n_bak = 0; %let _n_d1 = 0; %let _n_d2 = 0;
-  %p17_latest_backup(stem=pidreg);
-  %p17_nobs(ds=pdd.pecan_id_registry, mv=_n_reg);
+  %p17_latest_backup(stem=&stem);
+  %p17_nobs(ds=&ds, mv=_n_reg);
   %if %length(&_p17_latest) = 0 %then %do;
-    %if "&PDD_APPROVE_NEW_BASELINE" = "1" %then %do;
+    %if "&first_ok" = "1" %then %do;
+      %put NOTE: [p17] &label has no backup yet - first run, taking one;
+      %p17_backup_table(ds=&ds, stem=&stem);
+    %end;
+    %else %if "&PDD_APPROVE_NEW_BASELINE" = "1" %then %do;
       %put NOTE: [p17] APPROVED NEW BASELINE - no backup existed, taking one;
-      %p17_backup;
+      %p17_backup_table(ds=&ds, stem=&stem);
     %end;
     %else %do;
-      %p17_fail(msg=%str(registry exists but no backup found, registry rows &_n_reg. Approve with PDD_APPROVE_NEW_BASELINE=1 to take a first backup));
+      %p17_fail(msg=%str(&label exists but no backup found, &label rows &_n_reg. Approve with PDD_APPROVE_NEW_BASELINE=1 to take a first backup));
     %end;
   %end;
   %else %do;
     %p17_nobs(ds=p17bak.&_p17_latest, mv=_n_bak);
     proc sql noprint;
       select count(*) into :_n_d1 trimmed from
-        (select * from pdd.pecan_id_registry except select * from p17bak.&_p17_latest);
+        (select * from &ds except select * from p17bak.&_p17_latest);
       select count(*) into :_n_d2 trimmed from
-        (select * from p17bak.&_p17_latest except select * from pdd.pecan_id_registry);
+        (select * from p17bak.&_p17_latest except select * from &ds);
     quit;
     %let _n_diff = %eval(&_n_d1 + &_n_d2);
     %if &_n_diff > 0 or &_n_reg ne &_n_bak %then %do;
       %if "&PDD_APPROVE_NEW_BASELINE" = "1" %then %do;
-        %put NOTE: [p17] APPROVED NEW BASELINE - registry rows &_n_reg, backup rows &_n_bak, differing rows &_n_diff;
-        %p17_backup;
+        %put NOTE: [p17] APPROVED NEW BASELINE - &label rows &_n_reg, backup rows &_n_bak, differing rows &_n_diff;
+        %p17_backup_table(ds=&ds, stem=&stem);
       %end;
       %else %do;
-        %p17_fail(msg=%str(registry differs from its latest backup - registry rows &_n_reg., backup rows &_n_bak., differing rows &_n_diff.. Nothing appended. Approve with PDD_APPROVE_NEW_BASELINE=1 only if you accept the registry as the new baseline));
+        %p17_fail(msg=%str(&label differs from its latest backup - &label rows &_n_reg., backup rows &_n_bak., differing rows &_n_diff.. Nothing appended. Approve with PDD_APPROVE_NEW_BASELINE=1 only if you accept the current table as the new baseline));
       %end;
     %end;
-    %else %put NOTE: [p17] registry equals its latest backup (&_n_reg rows);
+    %else %put NOTE: [p17] &label equals its latest backup (&_n_reg rows);
   %end;
+%mend p17_assert_current;
+
+%macro p17_assert_backup_current;
+  %p17_assert_current(ds=pdd.pecan_id_registry, stem=pidreg, label=registry, first_ok=0);
 %mend p17_assert_backup_current;
+
+%macro p17_assert_link_backup_current;
+  %p17_assert_current(ds=pdd.pecan_id_dup_link, stem=piddup, label=dup link, first_ok=1);
+%mend p17_assert_link_backup_current;
 
 /* ---- registry gate ------------------------------------------------------ */
 %macro p17_gate_registry(reg=pdd.pecan_id_registry);
@@ -574,12 +630,21 @@
     run;
   %end;
   %p17_nobs(ds=work._p17_newpairs, mv=p17_n_link_new);
-  %if &p17_n_link_new > 0 %then %do;
-    %if %sysfunc(exist(pdd.pecan_id_dup_link)) %then %do;
-      %p17_backup_link;
+  /* an existing link must equal its latest backup (first run creates one).
+     A failed check (FLAG mode) appends nothing. */
+  %if %sysfunc(exist(pdd.pecan_id_dup_link)) %then %do;
+    %p17_assert_link_backup_current;
+    %if &_p17_failed ne 0 %then %do;
+      %let p17_n_link_new = 0;
+      %put NOTE: [p17] dup link append skipped after a failed backup check;
+      %return;
     %end;
+  %end;
+  %if &p17_n_link_new > 0 %then %do;
     proc append base=pdd.pecan_id_dup_link data=work._p17_newpairs;
     run;
+    /* backup of the state just written, so the next run finds it current */
+    %p17_backup_link;
   %end;
   %put NOTE: [p17] dup link rows appended - &p17_n_link_new;
 %mend p17_append_dup_link;

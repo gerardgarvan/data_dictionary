@@ -57,7 +57,8 @@ options nodlcreatedir;
    ===================================================================== */
 %macro pdd_lib;
   options dlcreatedir;
-  libname pdd "&out_root.";
+  /* filelockwait=10: wait up to 10 s for a lock on the P: network share */
+  libname pdd "&out_root." filelockwait=10;
   options nodlcreatedir;
 %mend pdd_lib;
 

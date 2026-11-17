@@ -43,6 +43,7 @@
 %macro fail_out(msg=);
   %put ERROR: [pecan_id_link] &msg;
   %p17_dump_qc(tables=link, file=&qc_path.\pecan_id_link.csv);
+  %p17_flush_qc;
   %restore_log;
   %if &in_pipeline = 0 %then %put ERROR: [pecan_id_link] &msg;
   %abort cancel;
@@ -66,6 +67,7 @@
   %p17l_load(csv=&PDD_LINK_XWALK_CSV, out=work.p17l_xw);
   %p17l_run(xw=work.p17l_xw, mode=&PDD_LINK_MODE);
   %p17_dump_qc(tables=link, file=&qc_path.\pecan_id_link.csv);
+  %p17_flush_qc;
   %if %sysfunc(exist(work.p17l_chg)) %then %do;
     proc export data=work.p17l_chg
                 outfile="&qc_path.\pecan_id_link_changes.csv"
