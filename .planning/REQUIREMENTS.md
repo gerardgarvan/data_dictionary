@@ -62,6 +62,8 @@ headless steps via `pdd_sdk_run.py`; SAS runs and human gates are marked `PENDIN
 - **DD-01** One combined case-level PCNR_ dataset for 2018–2025 in the `pdd` library on P: (never in git), with PECAN_ID and PRECEDE_STUDY_ID first. Apply PDD-D-30: s22 wins, s23 gap-fills for the 142 shared cases (YEAR = 2024); QC the conflicts.
 - **DD-02** Values are kept exactly as in source (no recoding), as in the existing PCNR_ layer.
 - **DD-03** The data dictionary workbook is regenerated for 2018–2025: KEY sheet leftmost, PECAN_ID first, then PCNR_ variables alphabetically, with distributions over all 2018–2025 cases plus the year coverage and source columns from MAP-04.
+- **DD-01a** Apply the PDD-D-31 combined types for the TYPE_CONFLICT_EXACT variables (numeric, text, text with each era's coding, text with `#Error` verbatim). Record which way ASA_Anesth_Record and CPT1_Class went.
+- **DD-03a** The dictionary carries the PDD-D-31 notes: era coding of the five frailty indicator flags, the Death_Days_After_Surgery `#Error` meaning (116 death-flagged rows), and Sleep_Apnea_YN recording only Y or blank before 2023. QC reports the count of death-flagged `#Error` Death_Days rows per source file (expected 43 / 43 / 30 for s21 / s22 / s23).
 - **DD-04** Reconciliation: dictionary row count equals combined dataset column count; per-variable non-missing counts match the dataset; 2018–2022 distributions match the previous dictionary except where new data adds cases.
 
 ### Master Excel export (Phase 19, M6)
