@@ -18,6 +18,8 @@
 !docs/pcnr_source_override.csv
 # Exception: Phase 5 exchange CSV contract, no PHI -- committed per plan 05-fix
 !docs/exchange_schema.csv
+# Exception: Phase 18 PDD-D-31 type and note seed, no data -- committed per plan 18-01
+!docs/combined_type_decisions.csv
 # Exception: PCNR value equivalence pairs for CODING_EQUIV conflict_class, no PHI -- D-QC-01
 !docs/pcnr_value_equiv.csv
 # Exception: Phase 6 suppression and categorical override lists, no PHI -- D-09 D-11

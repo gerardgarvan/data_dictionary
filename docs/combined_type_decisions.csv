@@ -1,0 +1,19 @@
+pcnr_name,combined_type,note_kind,note_text,decision_ref
+Age_at_Encounter,N,TYPE,"Numeric in the combined layer; the old side was text only because s19 uses NULL, read as missing (D-02b).",PDD-D-31(1)
+Admit_BMI,N,TYPE,"Numeric in the combined layer; the old side was text only because s19 uses NULL, read as missing (D-02b).",PDD-D-31(1)
+rt_INCISE_to_DRESS_mins,N,TYPE,"Numeric in the combined layer; the old side was text only because s19 uses NULL, read as missing (D-02b).",PDD-D-31(1)
+rt_RMS_to_RM_END_mins,N,TYPE,"Numeric in the combined layer; the old side was text only because s19 uses NULL, read as missing (D-02b).",PDD-D-31(1)
+rt_RMS_to_INCISION_mins,N,TYPE,"Numeric in the combined layer; the old side was text only because s19 uses NULL, read as missing (D-02b).",PDD-D-31(1)
+Cognitive_Score,N,TYPE,"Numeric in the combined layer; the old side was text only because s19 uses NULL, read as missing (D-02b).",PDD-D-31(1)
+Frailty_Score,N,TYPE,"Numeric in the combined layer; the old side was text only because s19 uses NULL, read as missing (D-02b).",PDD-D-31(1)
+YEAR,C,TYPE,Text; old values include 2018_2019.,PDD-D-31(2)
+Base_Procedure_Code_1,C,TYPE,Text code; new numeric values written as text with no decimals or exponent.,PDD-D-31(2)
+ASA_Anesth_Record,N,CONDITIONAL,Numeric per STATE carry; PDD-D-31 says text unless both sides are numeric apart from NULL. 18a measures both sides and the Phase 18 SUMMARY records which.,PDD-D-31(2) conditional
+CPT1_Class,N,CONDITIONAL,Numeric per STATE carry; PDD-D-31 says text unless both sides are numeric apart from NULL. 18a measures both sides and the Phase 18 SUMMARY records which.,PDD-D-31(2) conditional
+Feels_Exausted,C,ERA_CODING,"Text, each era coding kept: 0/1 in 2023-2025; Y/N/YES/NO before.",PDD-D-31(3)
+Low_Physical_Activity,C,ERA_CODING,"Text, each era coding kept: 0/1 in 2023-2025; Y/N/YES/NO before.",PDD-D-31(3)
+Slow_Walking_Speed,C,ERA_CODING,"Text, each era coding kept: 0/1 in 2023-2025; Y/N/YES/NO before.",PDD-D-31(3)
+Unint_Weight_Loss,C,ERA_CODING,"Text, each era coding kept: 0/1 in 2023-2025; Y/N/YES/NO before.",PDD-D-31(3)
+Week_Grip_Strength,C,ERA_CODING,"Text, each era coding kept: 0/1 in 2023-2025; Y/N/YES/NO before.",PDD-D-31(3)
+Death_Days_After_Surgery,C,HASH_ERROR,"Text, #Error kept verbatim. In 2023-2025 #Error means the days calculation failed in the delivered extract; it usually means no death recorded, but 116 rows have Death_Date_Y_N = Y (43 / 43 / 30 in s21 / s22 / s23). A blank days value with a death flag means a death with no days value (likely beyond 365 days; 524 / 329 / 46). Recoding belongs in a later derived layer.",PDD-D-31(4)
+Sleep_Apnea_YN,,NOTE,Before 2023 the source records only Y or blank.,PDD-D-31(5)

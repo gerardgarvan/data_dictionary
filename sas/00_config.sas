@@ -87,6 +87,25 @@ options nodlcreatedir;
 %mend _set_approve_default;
 %_set_approve_default;
 
+/* ---- Phase 18: combined dataset names (backup stem 7 chars + 16 = 23 bytes, C33) ---- */
+%let comb_ds          = pcnr_2018_2025;
+%let comb_backup_stem = pcnrcmb;
+
+/* PDD-D-33 DECIDED (Gerard, 2026-11-17): PRECEDE_STUDY_ID on K2 rows is the
+   normalized Precede##### form, same as K1 and norm_psid. Default NORM. An
+   OS env var set with -set PDD_K2_PSID_MODE (NORM, DELIVERED or BLANK) may
+   override it; Phase 18 validates the value. */
+%macro _set_k2_psid_default;
+  %if not %symexist(PDD_K2_PSID_MODE) %then %do;
+    %global PDD_K2_PSID_MODE;
+    %let PDD_K2_PSID_MODE = NORM;
+  %end;
+  %if %sysfunc(envlen(PDD_K2_PSID_MODE)) > 0 %then %do;
+    %let PDD_K2_PSID_MODE = %upcase(%sysget(PDD_K2_PSID_MODE));
+  %end;
+%mend _set_k2_psid_default;
+%_set_k2_psid_default;
+
 /* ===== 5. EARLY GUARD MACROS ============================================
    %check_encoding -- aborts if SAS session is not UTF-8.
      Call immediately after %include "00_config.sas" in each program.
