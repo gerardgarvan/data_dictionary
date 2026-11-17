@@ -13,6 +13,9 @@
             Non-missing follows Phase 5: not missing, and NULL (any case)
             counts as missing for char columns of type-conflict variables.
             Placeholders count as data. No value is printed to the log.
+            Generated coverage step declares one numeric and one char
+            placeholder before the _numeric_/_character_ arrays so a source
+            with only one column type does not warn (zero-element array).
   Inputs  : pdd.name_map_ext, pdd.name_map_vars_ext,
             pdd.qc_map_ext_candidates (16a), pdd.src_s01..s20,
             pdd.nsrc_s21..s23 (15c)
@@ -434,6 +437,11 @@ options validvarname=any nomprint nosymbolgen;
       put "    YEAR";
 %end;
       put "    ) end=_eof;";
+      /* One placeholder of each type so neither array can be empty
+         (WARNING: Defining an array with zero elements). Their names are
+         not in hash u, so they are never flagged or counted. */
+      put "  length _p16_dn 8 _p16_dc $1;";
+      put "  call missing(_p16_dn, _p16_dc);";
       put "  array _an[*] _numeric_;";
       put "  array _ac[*] _character_;";
       put "  length _p16_yr 8 _yr 8 _n 8 _j 8 _rc 8 _tcv 8 _vn $32;";
