@@ -158,7 +158,7 @@ Plans:
 - **Plans:** 2/5 plans executed
   - [x] 16-01-PLAN.md — Wave 1: exchange contract, `docs/name_map_decisions_new.csv` seed, offline expectation test, review workbook writer (MAP-01..04)
   - [x] 16-02-PLAN.md — Wave 1: naming/collision/Stage 2 macros + synthetic SAS test (MAP-01, MAP-03)
-  - [ ] 16-03-PLAN.md — Wave 2: `sas/16a_name_map_ext.sas` frozen-map extension, candidate gate, naming (MAP-01..03; PENDING SAS RUN / PENDING DECISION)
+  - [x] 16-03-PLAN.md — Wave 2: `sas/16a_name_map_ext.sas` frozen-map extension, candidate gate, naming (MAP-01..03; PENDING SAS RUN / PENDING DECISION)
   - [x] 16-04-PLAN.md — Wave 2: `sas/16b_name_map_values_cov.sas` value distributions and year coverage (MAP-02, MAP-04; PENDING SAS RUN; Phase 15 prerequisites done)
   - [ ] 16-05-PLAN.md — Wave 3: pipeline wiring (token 16), run sheet `16-SAS-RUN.md`, STATE.md, Gerard checkpoint
 
