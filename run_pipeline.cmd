@@ -15,6 +15,8 @@ REM         run_pipeline.cmd 3         (dev: phase 3 only, requires prior full r
 REM         run_pipeline.cmd 2 3       (explicit: space-separated, no quotes needed)
 REM         run_pipeline.cmd 15        (v2.0 new-source intake; needs a prior v1.0 run)
 REM         run_pipeline.cmd 16        (v2.0 name map extension; needs Phase 15 outputs)
+REM         run_pipeline.cmd 17        (v2.0 PECAN_ID: 17a K1 join, 17b K2 and case map, 17c summary; no Python step;
+REM                                     needs Phase 15 outputs, set PDD_K1_* and PDD_APPROVE_NEW_BASELINE as in 17-SAS-RUN.md)
 REM  Log:   %LOGS_PATH%\99_run_all.log  (master log with per-program summary)
 REM
 REM  Machine override: create config.local.cmd at repo root to set SAS_EXE.

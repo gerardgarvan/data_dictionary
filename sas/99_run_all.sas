@@ -14,6 +14,7 @@
     Phase 7  07_dictionary_xlsx.sas -- workbook writer
     Phase 15 15a/15b/15c            -- new-source intake 2023-2025 (v2.0)
     Phase 16 16a/16b                -- name map extension 2023-2025 (v2.0)
+    Phase 17 17a/17b/17c            -- PECAN_ID registry, K1 join, K2, case map (v2.0)
 
   Usage (batch -- canonical):
     run_pipeline.cmd  (at repo root)
@@ -244,7 +245,7 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
 
 %macro _validate_phases;
   %local _valid _i _tok;
-  %let _valid = 2 3 4 5 6 7 15 16;
+  %let _valid = 2 3 4 5 6 7 15 16 17;
   %if %length(%superq(pdd_phases_run)) = 0 %then %do;
     %put ERROR: [99_run_all] PDD_PHASES is empty -- cannot run pipeline;
     %abort cancel;
@@ -438,6 +439,27 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
   %end;
   %else
     %put NOTE: [99_run_all] Phase 16 skipped (not in PDD_PHASES=&pdd_phases_run);
+
+  /* =========================================================================
+     PHASE 17 -- PECAN_ID (v2.0 M4). pecan_id_link.sas and the probes are NOT here.
+     ========================================================================= */
+  %_check_pipeline_ok(phase=17);
+  %if %_phase_in(17) %then %do;
+    %let _ts = %sysfunc(datetime(), datetime20.);
+    %put NOTE: [timing] phase 17 start &_ts;
+    %put NOTE: ---- Phase 17: PECAN_ID --------------------;
+    %include "&sas_path.\17a_pecan_id_k1_seed.sas";
+    %_check_pipeline_ok(phase=17);
+    %include "&sas_path.\17b_pecan_id_k2.sas";
+    %_check_pipeline_ok(phase=17);
+    %include "&sas_path.\17c_pecan_id_summary.sas";
+    %put NOTE: ---- Phase 17 SAS orchestrator complete -------------------;
+    %let pdd_phases_done = &pdd_phases_done 17;
+    %let _ts = %sysfunc(datetime(), datetime20.);
+    %put NOTE: [timing] phase 17 end &_ts;
+  %end;
+  %else
+    %put NOTE: [99_run_all] Phase 17 skipped (not in PDD_PHASES=&pdd_phases_run);
 
 %mend _run_phases;
 %_run_phases;

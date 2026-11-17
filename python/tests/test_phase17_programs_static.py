@@ -1,0 +1,148 @@
+"""Static checks for Phase 17 programs 17a, 17b, 17c, the link program and the wiring (no SAS here)."""
+import re
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[2]
+SAS = ROOT / "sas"
+PROGRAMS = [
+    "17a_pecan_id_k1_seed.sas",
+    "17b_pecan_id_k2.sas",
+    "17c_pecan_id_summary.sas",
+    "pecan_id_link.sas",
+    "17_pecan_id_macros.sas",
+    "17_pecan_id_link_macros.sas",
+]
+DEL = re.compile(r"(proc\s+delete|drop\s+table|\bdelete\b)[^;]*pecan_id_(registry|dup_link)", re.I | re.S)
+
+
+def _code(name):
+    return re.sub(r"/\*.*?\*/", "", (SAS / name).read_text(encoding="utf-8"), flags=re.S)
+
+
+def _all_code(names=PROGRAMS):
+    return "\n".join(_code(n) for n in names)
+
+
+def test_no_control_characters_in_phase17_files():
+    files = list(SAS.glob("17*.sas")) + [SAS / "pecan_id_link.sas", SAS / "99_run_all.sas", SAS / "00_config.sas"]
+    for f in files:
+        for ch in f.read_text(encoding="utf-8"):
+            assert ch in "\n\r\t" or ord(ch) >= 32, f.name
+
+
+@pytest.mark.parametrize("name", PROGRAMS)
+def test_g_is_never_written(name):
+    code = _code(name)
+    assert not re.search(r"(\bdata|out=|base=|create\s+table|modify)\s+g\.", code, flags=re.I)
+    assert not re.search(r"proc\s+(append|datasets|delete)[^;]*\bg\b", code, flags=re.I)
+
+
+@pytest.mark.parametrize("name", PROGRAMS)
+def test_registry_and_link_never_deleted(name):
+    assert not DEL.search(_code(name))
+
+
+@pytest.mark.parametrize("name", PROGRAMS)
+def test_xwalk_is_not_an_input(name):
+    assert "pecan_id_xwalk" not in _code(name).lower()
+
+
+def test_17a_structure():
+    code = _code("17a_pecan_id_k1_seed.sas")
+    assert "%pdd_lib_g;" in code
+    assert "exist(pdd.pecan_id_registry)" in code
+    assert "registry exists, K1 build skipped" in code
+    assert re.search(r"proc\s+append|%p17_append_dup_link", code)
+    # QC written before the gate verdict, join before the gate
+    j = code.index("%p17_k1_join(")
+    d = code.index("%p17_dump_qc(tables=k1", j)
+    g = code.index("%p17_gate_k1;")
+    assert j < d < g
+    # k1_cases only after the gate, registry only after k1_cases
+    assert g < code.index("data pdd.pecan_id_k1_cases") < code.index("data pdd.pecan_id_registry;")
+    assert "%p17_backup;" in code
+    assert "PRECEDE_Study_ID" in code and "PRECEDE_STUDY_ID" in code and "norm" in code
+    assert re.search(r"pecan_id_dup_pairs_by_year\.csv", code) and "pecan_id_k1.csv" in code
+    assert "BLANK_SPINE_MRN_ROWS" in code
+
+
+def test_link_table_only_touched_by_proc_append():
+    for n in PROGRAMS:
+        code = _code(n)
+        assert not re.search(r"\bdata\s+pdd\.pecan_id_dup_link\b", code, flags=re.I)
+        assert not re.search(r"create\s+table\s+pdd\.pecan_id_dup_link\b", code, flags=re.I)
+
+
+def test_no_pecan_id_arithmetic_in_17a():
+    code = _code("17a_pecan_id_k1_seed.sas")
+    assert not re.search(r"pecan_id\s*=\s*[^;]*[-+*/]", code, flags=re.I)
+
+
+def test_17b_structure():
+    code = _code("17b_pecan_id_k2.sas")
+    assert not re.search(r"data\s+pdd\.pecan_id_registry\b", code, flags=re.I)
+    d30 = code.index("%p17_pdd_d30_cases(")
+    k2 = code.index("%p17_k2_append(")
+    cm = code.index("%p17_casemap(")
+    gate = code.index("%p17_gate_casemap(")
+    assert d30 < k2 < cm < gate
+    assert "base=&PDD_K2_BASE" in code and "%let PDD_K2_BASE = 1000000;" in code
+    assert "%p17_gate_registry" in code[k2:]
+    assert "pecan_id_k2_summary.csv" in code and "pecan_id_gate.csv" in code
+    assert "PENDING DECISION" in code
+    assert "PDD_EXPECT_SHARED" in code
+
+
+def test_17c_structure():
+    code = _code("17c_pecan_id_summary.sas")
+    assert "pecan_id_cases_per_patient.csv" in code
+    assert "pdd.pecan_id_dup_link" in code
+    assert "does not reconcile" in code
+    assert not re.search(r"\b(data|out=)\s*pdd\.", code, flags=re.I)
+
+
+def test_no_hardcoded_expected_counts_in_code():
+    for n in ("17a_pecan_id_k1_seed.sas", "17c_pecan_id_summary.sas", "17_pecan_id_macros.sas"):
+        code = _code(n)
+        for num in ("41150", "41,150", "1895", "1,895", "33031", "33,031", "31136", "31137"):
+            assert num not in code, (n, num)
+    b = _code("17b_pecan_id_k2.sas")
+    assert "36348" in b  # orientation row only, isfail 0
+    assert "142" in b
+
+
+def test_link_program_rules():
+    prog = (SAS / "pecan_id_link.sas").read_text(encoding="utf-8")
+    assert "written and tested, NOT RUN" in prog
+    assert "PDD_LINK_MODE = DRYRUN" in prog
+    macros = _code("17_pecan_id_link_macros.sas")
+    assert 'PDD_APPROVE_NEW_BASELINE" ne "1"' in macros
+    assert "pecan_id_registry_next" in macros
+    assert macros.index("%p17_backup_table(ds=&reg, stem=pecan_id_registry_prelink)") < macros.index("data &reg;")
+    t = (SAS / "17_pecan_id_link_test.sas").read_text(encoding="utf-8")
+    for tag in ("T1_DRYRUN_REGISTRY_UNCHANGED", "T2_APPLY_WITHOUT_APPROVAL_FAILS", "T4_REAPPLY_LINKS_0",
+                "T5_K2_MRN_TO_TWO_K1_MRNS_REFUSED", "T5_K1_MRN_NOT_IN_K1_REGISTRY_REFUSED",
+                "T5_K2_MRN_NOT_IN_K2_REGISTRY_REFUSED", "TESTRESULT SUMMARY"):
+        assert tag in t, tag
+
+
+def test_wiring():
+    s = (SAS / "99_run_all.sas").read_text(encoding="utf-8", errors="replace")
+    cmd = (ROOT / "run_pipeline.cmd").read_text(encoding="utf-8", errors="replace")
+    assert "%let _valid = 2 3 4 5 6 7 15 16 17;" in s
+    a = s.index('%include "&sas_path.\\17a_pecan_id_k1_seed.sas";')
+    b = s.index('%include "&sas_path.\\17b_pecan_id_k2.sas";')
+    c = s.index('%include "&sas_path.\\17c_pecan_id_summary.sas";')
+    end = s.index("%mend _run_phases;")
+    assert s.index("16b_name_map_values_cov.sas") < a < b < c < end
+    head = s.rfind("%if %_phase_in(17) %then %do;", 0, a)
+    assert "%_check_pipeline_ok(phase=17);" in s[head - 80:head]
+    assert "%_check_pipeline_ok(phase=17);" in s[a:b] and "%_check_pipeline_ok(phase=17);" in s[b:c]
+    includes = " ".join(re.findall(r"%include[^;]*;", s))
+    for banned in ("pecan_id_link", "probe_xwalk", "_test.sas"):
+        assert banned not in includes
+    assert "%let pdd_phases_run = 2 3 4;" in s
+    assert 'if "%PDD_PHASES%"=="" set PDD_PHASES=2 3 4' in cmd
+    assert 'findstr /i "\\<17\\>"' not in cmd

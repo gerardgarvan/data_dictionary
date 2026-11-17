@@ -33,6 +33,10 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
 %let out_path      = &out_root.\out;
 %let exchange_path = &out_root.\exchange;
 
+/* ---- Phase 17: read-only master-merge library and registry backups ---- */
+%let g_path      = P:\PeCAN Master Data\Gerard\Master_Renamed_same_format_accross\merge;
+%let backup_path = &out_root.\backup;
+
 /* ===== 3. OUTPUT FOLDER AUTO-CREATION ===================================
    options dlcreatedir causes each libname assignment to create the target
    folder if it does not already exist. Temporary librefs _pdd* are used
@@ -44,6 +48,7 @@ libname _pddqc   "&qc_path.";
 libname _pddlogs "&logs_path.";
 libname _pddout2 "&out_path.";
 libname _pddexch "&exchange_path.";
+libname _pddbak  "&backup_path.";
 options nodlcreatedir;
 
 /* ===== 4. %PDD_LIB MACRO ================================================
@@ -55,6 +60,25 @@ options nodlcreatedir;
   libname pdd "&out_root.";
   options nodlcreatedir;
 %mend pdd_lib;
+
+/* ===== 4b. %PDD_LIB_G MACRO (Phase 17, PID-08) ==========================
+   Assigns libname g to the master-merge folder READ-ONLY. No PDD program
+   writes to g. Usage: %pdd_lib_g;
+   ===================================================================== */
+%macro pdd_lib_g;
+  libname g base "&g_path." access=readonly;
+%mend pdd_lib_g;
+
+/* Approval option for a new registry baseline (Phase 17, assumption A1).
+   Default 0. Never overwrites a value given on the command line. Only the
+   value 1 approves. */
+%macro _set_approve_default;
+  %if not %symexist(PDD_APPROVE_NEW_BASELINE) %then %do;
+    %global PDD_APPROVE_NEW_BASELINE;
+    %let PDD_APPROVE_NEW_BASELINE = 0;
+  %end;
+%mend _set_approve_default;
+%_set_approve_default;
 
 /* ===== 5. EARLY GUARD MACROS ============================================
    %check_encoding -- aborts if SAS session is not UTF-8.
@@ -74,7 +98,7 @@ options nodlcreatedir;
   %put NOTE: [00_config] sysencoding = &sysencoding;
   /* Quote both sides: unquoted utf-8 causes %EVAL to parse - as subtraction */
   %if "%lowcase(&sysencoding)" ne "utf-8" %then %do;
-    %fail_out(msg=%str(SESSION ENCODING ERROR -- sysencoding=&sysencoding expected utf-8. Add -config %".../nls/u8/sasv9.cfg%" to the sas.exe call; run_pipeline.cmd does this automatically));
+    %fail_out(msg=%str(SESSION ENCODING ERROR -- sysencoding=&sysencoding expected utf-8. Add -config %".../nls/u8/sasv9.cfg%" to the sas.exe call - run_pipeline.cmd does this automatically));
   %end;
   %put NOTE: [00_config] sysencoding check passed (UTF-8 confirmed);
 %mend check_encoding;

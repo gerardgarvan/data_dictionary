@@ -2,7 +2,7 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: PCNR_ raw layer and dictionary framework
-status: Phase 16 complete; next Phase 17
+status: Phase 17 programs written; SAS runs pending
 last_updated: "2026-11-17T00:19:56.099Z"
 progress:
   total_phases: 8
@@ -25,7 +25,7 @@ Earlier note (superseded, Phase 15 closed): Phase 15 (M2) could be planned: the 
 | 14 | M1 | Probe and headless setup | Complete (PRB-01..03, RUN-01 satisfied) |
 | 15 | M2 | New-source intake | Complete 2026-11-16 (NEW-01..NEW-05, NEW-03a satisfied; 15a/15b/15c and pipeline 15 run and passed) |
 | 16 | M3 | Name map extension | Complete 2026-11-17 (MAP-01..04 satisfied; test T1-T9 passed, 16a PASS, 16b 1297 variables / 56 NO_DATA, `run_pipeline.cmd 16` PASSED, 0 WARNING) |
-| 17 | M4 | PECAN_ID | Planned 2026-11-17, revised for PDD-D-32 (5 plans in .planning/phases/17-pecan-id; execution next; SAS runs PENDING SAS RUN; PR-1 and PR-2 run 2026-11-17; PROBE REQUEST PR-3 sas/17_probe_xwalk3.sas PENDING SAS RUN (confirms the surgery key); registry K1 representation PENDING PR-3, see 17-CONTEXT) |
+| 17 | M4 | PECAN_ID | Programs written 2026-11-17 (17_pecan_id_macros/test, 17a, 17b, 17c, pecan_id_link + test; lint and pytest green): **PENDING SAS RUN** (17_pecan_id_test, 17_pecan_id_link_test, 17a, 17b x2, 17c; see 17-SAS-RUN.md). PR-3 key hand-off PRECEDE_Study_ID / PRECEDE_STUDY_ID / norm taken from Gerard review; commit probe_xwalk2/3 reports. No PENDING DECISION open |
 | 18 | M5 | Combined dataset and dictionary 2018-2025 | Blocked on 15-17 |
 | 19 | M6 | Master Excel export | Blocked on 18 |
 

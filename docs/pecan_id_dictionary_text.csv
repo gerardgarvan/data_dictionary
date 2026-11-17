@@ -1,0 +1,4 @@
+item,text
+PECAN_ID dictionary row,"Patient key. Same values as pecan_ID in g.pecan_id_xwalk (master-merge v2.0) for 2018-2022 (K1); 2023-2025 MRNs use a different encryption key and get IDs from 1,000,001 (K2). Patients with surgeries in both eras currently have two PECAN_IDs."
+PECAN_ID_KEY_ERA dictionary row,"Key era of the PECAN_ID on the row: K1 (2018-2022 master-merge pecan_ID, taken row by row from MASTER_DATA_HARMONIZED, PDD-D-32) or K2 (2023-2025, 1,000,000 + rank). K2 patients linked to a K1 patient carry the K1 ID once a link is applied."
+KEY sheet caveat,"PECAN_ID counts patients only within one key era. Patients with surgeries in both eras have two PECAN_IDs, and some K1 patients carry two IDs (listed in pecan_id_dup_link, not merged), so distinct PECAN_ID counts overestimate patients until they are linked."
