@@ -32,13 +32,9 @@ Out of scope: PCND_/PCNC_ families, linking PECAN_IDs (`pecan_id_link.sas` stays
 - **D18-6 Datasets:** `pdd.pcnr_2018_2025` (replaced on rerun; the previous copy is backed up first with stem `pcnrcmb` + `_YYYYMMDD_HHMMSS`, 7 + 16 = 23 bytes, lint C33), QC tables `pdd.qc_comb_*` written once per program with a WORK staging flush, profile `pdd.prf_pcnr_2018_2025`. v1.0 outputs (`pdd.pcnr`, `pdd.prf_pcnr`, `pdd_v1_0.xlsx`, `profile_PCNR.csv`) are never overwritten.
 - **D18-7 The only append-only tables touched** are none: `pdd.pecan_id_registry`, `pdd.pecan_id_dup_link`, `pdd.pecan_id_case_map` are opened read-only in logic; each program records their row counts at start and end and fails if they changed. Backups are taken for the replaced combined dataset.
 
-## PENDING DECISION (not applied as a locked choice; default is a run parameter)
+## DECIDED: PDD-D-33 (Gerard, 2026-11-17)
 
-**PDD-D-33 (proposed): value of `PRECEDE_STUDY_ID` on K2 rows.** The case map carries it blank for K2 (17 assumption: the nsrc ID column is read as numeric, probe lists "PRECEDE Study ID", Num). Options:
-1. `NORM`: `Precede#####` (= `norm_psid`) on K2 rows, same shape as the K1 normalized key.
-2. `DELIVERED`: the 5-digit number as delivered, as text. Keeps source form, but two shapes in one column.
-3. `BLANK`: as the case map. Breaks "PRECEDE_STUDY_ID first" usefulness for 36,348 rows.
-Evidence: probe_master_data_20261116.md (ID value shapes: new files 5-digit, spine `Precede#####`/numeric). The K1 value is always the delivered spine value from the case map. **No choice is applied and there is no default:** the global `PDD_K2_PSID_MODE` is empty in the repo, and 18b (and the test macro `%p18_psid_mode`) stop at PENDING DECISION unless Gerard sets it to exactly NORM, DELIVERED or BLANK on the run command. 18a, 18_combine_test, 18c and 18d do not need it except that 18c and the dictionary report the chosen mode in the KEY facts. STATE.md marks this PENDING DECISION; 18-SAS-RUN.md lays out the options.
+`PCNR_PRECEDE_STUDY_ID` on K2 (2023-2025) rows uses the normalized `Precede#####` form (PDD-D-19), same as K1 rows and the `norm_psid` join key. `PDD_K2_PSID_MODE` defaults to NORM in `sas/00_config.sas`; the stop for it in 18b and `%p18_psid_mode` is removed (only an invalid explicit value, not NORM, DELIVERED or BLANK, still stops). The KEY facts report the mode used.
 
 ## Assumptions (headless run)
 
@@ -49,7 +45,7 @@ Evidence: probe_master_data_20261116.md (ID value shapes: new files 5-digit, spi
 - A8 The ENCRYPTED_MRN scan (`18d_comb_scan.sas`) is a fourth production program, run last in its own fresh session, so it can scan the closed 18a, 18b and 18c logs; no program scans a log it still holds open.
 - A5 Counts only in QC and logs; counts 1-10 exported as `<11`. No raw values in type-failure QC (Phase 5's `raw_value` column is not copied).
 - A6 Python: new module and script; v1.0 `write_dictionary.py` untouched and its tests keep passing.
-- A7 No new PDD-D numbers other than the proposed PDD-D-33; Price naming sign-off remains PENDING and is stated on the KEY sheet.
+- A7 No new PDD-D numbers other than PDD-D-33 (decided); Price naming sign-off remains PENDING and is stated on the KEY sheet.
 
 </decisions>
 

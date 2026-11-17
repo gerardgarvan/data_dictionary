@@ -57,6 +57,8 @@ New source files for 2023–2025 are in the same shared folder as the current 20
 
 **PDD-D-32 (Gerard, 2026-11-17) - K1 source.** K1 `PECAN_ID` = existing `pecan_ID` of `g.MASTER_DATA_HARMONIZED`, taken row by row through a surgery-level key (key confirmed by `sas/17_probe_xwalk3.sas`), not by MRN lookup in `g.pecan_id_xwalk`. IDs unchanged. Patients with two K1 IDs (one per MRN encryption) are kept as is and recorded in the append-only link table `pdd.pecan_id_dup_link` (`pecan_id_a`, `pecan_id_b`, `link_basis`, `n_surgeries_a`, `n_surgeries_b`, `decided_on`) for a later merge; no merge now. K2 unchanged (`1000000 + rank`, PDD-D-26). The old wording "K1 seeded from `g.pecan_id_xwalk`" (PDD-D-28, PID-03) is superseded.
 
+**PDD-D-33 (Gerard, 2026-11-17) - K2 PRECEDE_STUDY_ID.** `PCNR_PRECEDE_STUDY_ID` on K2 (2023-2025) rows uses the normalized `Precede#####` form (PDD-D-19), same as K1 rows and the `norm_psid` join key. `PDD_K2_PSID_MODE` defaults to NORM in `sas/00_config.sas`.
+
 ### Combined dataset and dictionary 2018–2025 (M5)
 - **DD-01** One combined case-level PCNR_ dataset for 2018–2025 in the `pdd` library on P: (never in git), with PECAN_ID and PRECEDE_STUDY_ID first. Apply PDD-D-30: s22 wins, s23 gap-fills for the 142 shared cases (YEAR = 2024); QC the conflicts.
 - **DD-02** Values are kept exactly as in source (no recoding), as in the existing PCNR_ layer.
