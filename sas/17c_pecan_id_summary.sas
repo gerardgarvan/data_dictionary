@@ -8,11 +8,11 @@
             IDs are listed in the dup link, so ALL overestimates patients
             until they are linked.
   Reads   : pdd.pecan_id_case_map, pdd.pecan_id_dup_link
-  Writes  : qc\pecan_id_cases_per_patient.csv (counts only, no IDs or MRNs)
+  Writes  : qc\pecan_id_cases_per_patient.csv (counts only, no IDs or MRNs; counts 1-10 written as <11)
   Gate    : the summary reconciles to the case map (cases with an ID plus
             cases without an ID = case map rows, per scope and in total).
-  Never   : changes any dataset in pdd. Counts 1-10 must be shown as <11 if
-            copied into .planning/ (A5); the qc file itself holds real counts.
+  Never   : changes any dataset in pdd. Counts 1-10 are written as <11 in the
+            qc file itself (n_ids and n_cases are text columns).
   Status  : PENDING SAS RUN (Gerard).
 ==========================================================================*/
 
@@ -123,9 +123,19 @@
     scope = 'K1'; metric = 'DUP_LINK_PAIRS'; bucket = ''; n_ids = &_n_dupids; n_cases = &_n_pairs; note = 'n_ids = PECAN_IDs in a pair, n_cases = pairs (K1 patients with two IDs)'; output;
   run;
 
+  /* counts 1-10 are shown as <11 in the qc file (privacy rule); 0 and 11+ stay */
   data work.p17c_all;
-    set work.p17c_out work.p17c_tot;
+    length scope $8 metric $40 bucket $4 n_ids $12 n_cases $12 note $200;
+    set work.p17c_out(rename=(n_ids=_ni n_cases=_nc)) work.p17c_tot(rename=(n_ids=_ni n_cases=_nc));
+    if _ni = . then n_ids = '';
+    else if 1 <= _ni <= 10 then n_ids = '<11';
+    else n_ids = strip(put(_ni, best12.));
+    if _nc = . then n_cases = '';
+    else if 1 <= _nc <= 10 then n_cases = '<11';
+    else n_cases = strip(put(_nc, best12.));
+    keep scope metric bucket n_ids n_cases note;
   run;
+
 
   %if &_bad = 1 %then
     %fail_out(msg=%str(summary does not reconcile to the case map - with ID &_n_id., without ID &_n_noid., K1 &_n_k1., K2 &_n_k2., rows &_n_map.));

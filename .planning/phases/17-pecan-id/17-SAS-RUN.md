@@ -1,6 +1,6 @@
 # Phase 17 SAS run sheet (for Gerard)
 
-**Status: PENDING SAS RUN.** Nothing below has been run. Programs written and lint-clean 2026-11-17 (PDD-D-32). Claude has no SAS and no P: drive and applied no decision.
+**Status: RUN 2026-11-17 by Gerard (see 17-SUMMARY.md). Remaining: rerun `17_pecan_id_test.sas` (adds T19) and `17c_pecan_id_summary.sas` (counts 1-10 now written as `<11`), each in a fresh session.** Programs written and lint-clean 2026-11-17 (PDD-D-32). Claude has no SAS and no P: drive and applied no decision.
 **PENDING DECISION:** none open. One arises only if a gate stops (see "If a gate stops the run").
 **Price naming sign-off:** still pending, unrelated to this phase.
 

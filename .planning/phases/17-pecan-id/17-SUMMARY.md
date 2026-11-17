@@ -1,6 +1,30 @@
 # Phase 17 Summary (execution, headless, 2026-11-17)
 
-**Status: programs written, lint and pytest green, SAS runs PENDING SAS RUN (Gerard).** No SAS or P: access here; no data read.
+**Status: COMPLETE 2026-11-17.** Programs written headless; SAS runs done by Gerard on the SAS machine (results below, masked). No SAS or P: access on the writing machine; no data read there.
+
+## SAS run results (Gerard, 2026-11-17, masked)
+Synthetic tests `17_pecan_id_test` (T1-T18) and `17_pecan_id_link_test` (T0-T7): ALL TESTS PASSED, no WARNING or ERROR lines. (T19 was added at close, see "Close-out fixes"; rerun the test once to include it.)
+
+| Step | Result |
+|---|---|
+| 17a (approved) | Approved by Gerard with `PDD_APPROVE_NEW_BASELINE=1` after reviewing the masked proposal 33031 / 33031 / 33031 / 31136. K1 join gate PASS: 41150 rows 1:1 on `PRECEDE_Study_ID` -> `PRECEDE_STUDY_ID` (norm), 0 missing pecan_ID. Registry created with 33031 K1 IDs. 1895 dup pairs appended to `pdd.pecan_id_dup_link`. Blank spine MRN rows 1. |
+| 17b | PDD-D-30 shared s22 x s23 = 142 (read from `docs/new_overlap_decisions.csv`). K2 distinct MRNs 26474 appended (IDs from 1000001). K2 cases without MRN 0. Registry 59505 rows, case map 77498 rows. Registry and case map gates PASS. Rerun: 0 appended. |
+| 17a rerun (after fix_17e) | Registry not re-seeded, 0 pairs appended, first `piddup_` backup taken. |
+| 17c | `qc\pecan_id_cases_per_patient.csv` written, no ERROR or WARNING. |
+| Backups | `pidreg_20261117_152323` (33031, K1 only), `pidreg_20261117_152929` (59505, current), `piddup_20261117_161437` (1895). |
+
+## Run history (honest record)
+- An early 17a run inherited FLAG mode from the test session and wrote the dup link without approval. No backup of the link existed. Gerard deleted `pdd.pecan_id_dup_link` before the approved run. Fixed in **fix_17d**: production programs force `p17_fail_mode = ABORT`, the registry and case map gates fail on a missing table, and nothing registry- or link-related runs after a failed guard.
+- QC lock errors on the P: share (`A lock is not available for PDD.<table>.DATA`) came from per-row QC writes. Fixed in **fix_17e**: QC rows staged in WORK and written once with `%p17_flush_qc`, `filelockwait=10` in `%pdd_lib`.
+
+## Close-out fixes (close_17)
+- **17b no-op rerun**: the rerun printed no "registry equals its latest backup" line because `%p17_k2_append` ran `%p17_assert_backup_current` only inside the `new > 0` branch (confirmed by reading the macro). Now the assertion runs on every run before any append decision, also when 0 rows will be appended; after a failed check nothing is appended. The dup link check (`%p17_append_dup_link`) already ran outside the new-rows branch (an existing link is always checked), so no change there. New synthetic test T19 in `17_pecan_id_test.sas` (no-op rerun passes with equal backup; registry differing from backup fails with 0 appended) and a static test.
+- **17c masking**: `qc\pecan_id_cases_per_patient.csv` held real counts (the old header comment said so). `n_ids` and `n_cases` are now text columns and counts 1-10 are written as `<11` (0 and 11+ unchanged, blanks stay blank). Reconciliation still uses the numeric counts. Static test added. The file on P: from the 17c run above has the old unmasked format; rerun 17c (fresh session) before copying anything from it.
+- `qc\pecan_id_registry_proposed.csv` holds encrypted MRNs. It is gitignored (`*.csv`) and must never be committed; Gerard deletes it after approval.
+
+## Assumptions (headless run, close-out)
+- T19 numbering follows T18. The tests Gerard ran (T1-T18) did not include it, so the PASS list on the SAS machine stays T1-T18 until the test is rerun.
+- Counts quoted are from Gerard's run report in the close_17 prompt, not from a probe file or log in the repo.
 
 ## Delivered
 | Plan | Files |
@@ -29,5 +53,6 @@
 - `run_pipeline.cmd`: documentation lines only; no Python step for phase 17.
 
 ## Not done / pending
-- All SAS runs (17-SAS-RUN.md). Nothing pushed.
-- No new PDD-D decisions; both pending cases (A13) are 0 per user.
+- `pecan_id_link.sas` is written and tested but not run (needs a crosswalk and a PDD decision).
+- Rerun `17_pecan_id_test.sas` (T19) and `17c_pecan_id_summary.sas` (masked output), each in a fresh session.
+- Nothing pushed. No new PDD-D decisions.

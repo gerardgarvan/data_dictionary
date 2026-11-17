@@ -172,6 +172,22 @@ def test_17c_structure():
     assert not re.search(r"\b(data|out=)\s*pdd\.", code, flags=re.I)
 
 
+def test_17c_masks_counts_1_to_10():
+    code = _code("17c_pecan_id_summary.sas")
+    assert "'<11'" in code
+    assert "1 <= _ni <= 10" in code and "1 <= _nc <= 10" in code
+    assert "work.p17c_all" in code[code.index("proc export"):]
+
+
+def test_17b_k2_append_asserts_backup_before_zero_row_rerun():
+    m = _code("17_pecan_id_macros.sas")
+    body = m[m.index("%macro p17_k2_append"):m.index("%mend p17_k2_append")]
+    # assertion sits before (outside) the 'new > 0' branch
+    assert body.index("%p17_assert_backup_current") < body.index("p17_n_k2_new > 0 %then")
+    t = (SAS / "17_pecan_id_test.sas").read_text(encoding="utf-8")
+    assert "T19_NOOP_RERUN_FAILS_WHEN_REGISTRY_DIFFERS_FROM_BACKUP" in t
+
+
 def test_no_hardcoded_expected_counts_in_code():
     for n in ("17a_pecan_id_k1_seed.sas", "17c_pecan_id_summary.sas", "17_pecan_id_macros.sas"):
         code = _code(n)

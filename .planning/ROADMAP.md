@@ -173,7 +173,7 @@ Plans:
   4. Combined dataset carries `PECAN_ID` and `PECAN_ID_KEY_ERA`; dictionary and master KEY sheet state that patients in both eras have two PECAN_IDs until linked.
   5. `sas/pecan_id_link.sas` is written and tested but not run; a QC report lists every ID that would change.
   6. Cases-per-patient summary (PECAN_ID vs PRECEDE_STUDY_ID) exists per era and combined with the caveat.
-- **Plans:** TBD
+- **Plans:** 5/5 plans executed - **COMPLETE 2026-11-17** (17a approved: 41150 rows 1:1, 33031 K1 IDs, 1895 dup pairs; 17b: 26474 K2 MRNs, registry 59505, case map 77498; synthetic tests passed; details in `17-SUMMARY.md`)
 
 ### Phase 18 (M5): Combined dataset and dictionary 2018-2025
 - **Goal:** One combined case-level PCNR_ dataset and the regenerated dictionary workbook.

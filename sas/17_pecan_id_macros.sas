@@ -810,9 +810,10 @@
   %p17_nobs(ds=work._p17_k2m, mv=p17_n_k2_distinct);
   %p17_nobs(ds=work._p17_k2new, mv=p17_n_k2_new);
   %let p17_n_k2_known = %eval(&p17_n_k2_distinct - &p17_n_k2_new);
-  %if &p17_n_k2_new > 0 %then %do;
-    %p17_assert_backup_current;
-    %if &_p17_failed = 0 %then %do;
+  /* the backup-current assertion runs on every run, also when 0 rows will be
+     appended (a no-op rerun must still prove registry = latest backup) */
+  %p17_assert_backup_current;
+  %if &_p17_failed = 0 and &p17_n_k2_new > 0 %then %do;
       %p17_rank_k2(in=work._p17_k2new, out=work._p17_k2rk, base=&_mx);
       data work._p17_k2rows;
         %p17_reg_attrs;
@@ -832,7 +833,6 @@
       %let p17_n_k2_appended = &p17_n_k2_new;
       %p17_gate_registry(reg=pdd.pecan_id_registry);
       %p17_backup;
-    %end;
   %end;
   %put NOTE: [p17] K2 distinct MRNs &p17_n_k2_distinct, known &p17_n_k2_known, new &p17_n_k2_new, rows appended &p17_n_k2_appended;
 %mend p17_k2_append;

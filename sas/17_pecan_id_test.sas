@@ -22,6 +22,7 @@
                 summary, no registry; approval 1 = registry + current backup
             T15 17a registry and link step with FLAG mode: baseline not approved
                 -> no registry, dup link not written, no link backup; approved -> both
+            T19 K2 append runs the backup-current assertion on a no-op rerun too
             T16 registry and case map gates FAIL when their table does not exist
             T13 no WARNING or ERROR lines in this log (runs last)
   Run     : sas 17_pecan_id_test.sas  (no pipeline setup required)
@@ -532,6 +533,26 @@ options nodlcreatedir;
   %let PDD_APPROVE_NEW_BASELINE = 0;
   %p17_assert_backup_current;
   %_expect_ok(case=T12_REGISTRY_EQUALS_NEW_BACKUP);
+
+  /* ---- T19 K2 append asserts backup-current also when 0 rows are appended ------ */
+  %let PDD_APPROVE_NEW_BASELINE = 0;
+  %p17_k2_append(cases=work.t9_k2b);
+  %_expect_ok(case=T19_NOOP_RERUN_NO_FAILURE);
+  %_chk(case=T19_NOOP_RERUN_APPENDS_0, cond=%str(&p17_n_k2_appended = 0), detail=%str(appended &p17_n_k2_appended));
+  data work.t19_extra;
+    %p17_reg_attrs;
+    PECAN_ID = 1000778; ENCRYPTED_MRN = 'K2_Y'; KEY_ERA = 'K2'; ASSIGNED_RUN = today();
+    SOURCE = 'test'; STATUS = 'ACTIVE';
+  run;
+  proc append base=pdd.pecan_id_registry data=work.t19_extra;
+  run;
+  %p17_k2_append(cases=work.t9_k2b);
+  %_expect_fail(case=T19_NOOP_RERUN_FAILS_WHEN_REGISTRY_DIFFERS_FROM_BACKUP);
+  %_chk(case=T19_NOTHING_APPENDED_AFTER_FAILED_CHECK, cond=%str(&p17_n_k2_appended = 0), detail=%str(appended &p17_n_k2_appended));
+  %let PDD_APPROVE_NEW_BASELINE = 1;
+  %p17_assert_backup_current;
+  %let PDD_APPROVE_NEW_BASELINE = 0;
+  %_expect_ok(case=T19_REBASELINED);
 
   /* ---- T14 registry baseline guard (17a rule, same pattern as 15a) -------------- */
   /* test-only: WORK registry removed so the absent-registry path can run */
