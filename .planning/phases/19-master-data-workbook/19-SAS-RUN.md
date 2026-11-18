@@ -70,3 +70,7 @@ Select-String -Path logs\19a_xlsx_preflight.log -Pattern 'PASS - preflight compl
 
 ## Time (unmeasured estimate)
 Step 1 under 2 minutes. Step 2: one pass over the dataset plus one grouped read, 5-20 minutes.
+
+## Update 2026-11-18 (decide_19)
+
+Decisions PDD-D-35..44 and PDD-D-27 are DECIDED and the `PDD_XLS_*` defaults are set in `sas/00_config.sas` (PDD_XLS_APPROVE stays empty). The Wave 1 run order above is unchanged. 19a will now report `1 of 11 PDD_XLS decisions` empty (APPROVE, by design). For Wave 2 Gerard sets `PDD_XLS_APPROVE` at run time only (`options set=PDD_XLS_APPROVE 1`), never in config. Backlog: the INT_IN_DATE_RANGE probe range was too broad to be informative; the export masks flags/timings 1-10 (change to mask only person/cell counts).

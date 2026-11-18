@@ -182,6 +182,18 @@
   %end;
 %mend p19_need_decision;
 
+/* ---- PDD-D-43 key set: code -> blank separated column list in mv (caller declares it).
+   K3 = PECAN_ID PRECEDE_STUDY_ID KEY_ERA. K4 adds PECAN_ID_KEY_ERA. Any
+   other code fails. NORM_PSID is never exported. ------------------------- */
+%macro p19_keyset(code=, mv=_p19_keycols);
+  %local _c;
+  %let _c = %upcase(%sysfunc(strip(&code)));
+  %let &mv = ;
+  %if "&_c" = "K3" %then %let &mv = PECAN_ID PRECEDE_STUDY_ID KEY_ERA;
+  %else %if "&_c" = "K4" %then %let &mv = PECAN_ID PRECEDE_STUDY_ID PECAN_ID_KEY_ERA KEY_ERA;
+  %else %p19_fail(msg=%str(unknown PDD_XLS_KEYS value: &code));
+%mend p19_keyset;
+
 /* ---- mask for exports: 1-10 becomes <11. A count within 10 of its total
    (total - n between 1 and 10) is top-coded as >(total-11), because the
    complement would otherwise give the small count back. MAXLEN is a length,

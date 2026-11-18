@@ -1,9 +1,19 @@
 # Phase 19: Master data workbook PCNR_Master_Data_Nov_2026.xlsx - Context
 
 **Gathered:** 2026-11-18 (headless planning run; no SAS, no P:, no data read)
-**Status:** PLANNED, execution blocked on PENDING DECISIONs PDD-D-35..44 (section "Open design choices") for the tasks that depend on them. Tasks that do not depend on a decision can start (see 19-PLAN.md waves).
+**Status:** decisions DECIDED 2026-11-18 (Wave 2 unblocked; see the Decisions resolved block below). Historical text: execution was blocked on PENDING DECISIONs PDD-D-35..44 (section "Open design choices") for the tasks that depend on them. Tasks that do not depend on a decision can start (see 19-PLAN.md waves).
 **Requirements:** XLS-01, XLS-02, XLS-03, XLS-04 (`.planning/REQUIREMENTS.md` lines 70-73).
 **Inputs read:** `18-SUMMARY.md`, `18-CONTEXT.md`, `18-SAS-RUN.md`, `docs/DECISIONS.md`, `.planning/STATE.md`, `.planning/ROADMAP.md` (Phase 19 block), `docs/combined_type_decisions.csv`, `docs/exchange_schema.csv`, `docs/pecan_id_dictionary_text.csv`, `sas/18_combine_macros.sas`, `sas/00_config.sas`, `run_pipeline.cmd`, `python/requirements.txt`, `.planning/schemas/probe_master_data_20261116.md`.
+
+## Decisions resolved (2026-11-18, task 19-01b done)
+
+Gerard decided PDD-D-35..44 and PDD-D-27 on 2026-11-18 using the 19a probe results (`docs/DECISIONS.md`). Audience: PeCAN team only, under the current IRB protocol. Values: ROUTE=STAGE_CSV, NODATA=INCLUDE, ORDER=DICT, DATES=SERIAL (probe: no numeric date format; char dates stay text), NUMTEXT=TEXT with one override (`PCNR_Death_Days_After_Surgery` numeric; `#` and other non-numeric text blank; 34,057 `#` cells in the probe; blanked count is a masked QC item), SPECIAL=BLANK (probe: 0 special missings), SHEETS=ONE, COMPANION=NONE, KEYS=K3 (PECAN_ID, PRECEDE_STUDY_ID, KEY_ERA; PECAN_ID_KEY_ERA and norm_psid are identical copies per probe), DICT=NO (KEY sheet points to `out\pdd_2018_2025.xlsx`). PDD-D-44: `PDD_XLS_APPROVE` stays empty in config and is set by Gerard at run time only. Lat/long, free-text notes, staff names and ages are kept unaltered; the KEY sheet states the workbook contains identifiable fields for approved PeCAN team use only.
+
+Code for these: defaults in `sas/00_config.sas`; `%p19_keyset` (SAS, K3/K4); `python/pdd/master_rules.py` (K3, Death_Days override, KEY notice, masking, approval gate) with `python/tests/test_master_rules.py`; stage contract `docs/xlsx_stage_contract.md` (override applied in the Python writer, SAS stage writes Death_Days as delivered text).
+
+**Wave 2 is unblocked** (19-04, 19-05 writer, 19-07). Wave 2 still needs the PENDING SAS RUN results of Wave 1 (19_xlsx_test, 19a) to be brought back and PASS.
+
+**Backlog (from the 19a probe review):** (1) the INT_IN_DATE_RANGE probe range was too broad to be informative; narrow it if a date check is still wanted. (2) The export masks flags and timings of 1-10 to `<11`; change it to mask only person/cell counts.
 
 ## 1. Facts this plan stands on (all from files in the repo)
 

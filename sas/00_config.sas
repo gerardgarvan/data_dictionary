@@ -110,11 +110,12 @@ options nodlcreatedir;
 /* ---- Phase 19: master data workbook (PCNR_Master_Data_Nov_2026.xlsx) ------
    Paths: stage folder (row-level CSV, deleted after the verifier passes) and
    backup folder stay under out_root. The PDD_XLS_* choices (PDD-D-35..44 and
-   PDD-D-27) are PENDING DECISION: every default is EMPTY on purpose. An empty
-   value makes a production program stop with PENDING DECISION. Gerard sets
-   the values after deciding (task 19-01b), or overrides one with an OS env var
-   of the same name. Only PDD_XLS_MIN_FREE_GB (free disk gate, GB) has a
-   default. */
+   PDD-D-27) were DECIDED by Gerard on 2026-11-18 (docs/DECISIONS.md); the
+   defaults below are those values. An OS env var of the same name overrides a
+   default. PDD_XLS_APPROVE (PDD-D-44) stays EMPTY here on purpose: Gerard sets
+   it at run time only (options set=PDD_XLS_APPROVE 1), like
+   PDD_APPROVE_NEW_BASELINE; never store it in this file. PDD_XLS_MIN_FREE_GB
+   is the free disk gate in GB. */
 %let xls_final      = PCNR_Master_Data_Nov_2026.xlsx;
 %let xls_stage_path = &out_root.\stage;
 %let xls_bak_path   = &backup_path;
@@ -128,17 +129,17 @@ options nodlcreatedir;
     call symputx("&name", "&_v", 'G');
   run;
 %mend _xls_def;
-%_xls_def(name=PDD_XLS_ROUTE);
-%_xls_def(name=PDD_XLS_NODATA);
-%_xls_def(name=PDD_XLS_ORDER);
-%_xls_def(name=PDD_XLS_DATES);
-%_xls_def(name=PDD_XLS_NUMTEXT);
-%_xls_def(name=PDD_XLS_SPECIAL);
-%_xls_def(name=PDD_XLS_SHEETS);
-%_xls_def(name=PDD_XLS_COMPANION);
-%_xls_def(name=PDD_XLS_KEYS);
+%_xls_def(name=PDD_XLS_ROUTE, default=STAGE_CSV);
+%_xls_def(name=PDD_XLS_NODATA, default=INCLUDE);
+%_xls_def(name=PDD_XLS_ORDER, default=DICT);
+%_xls_def(name=PDD_XLS_DATES, default=SERIAL);
+%_xls_def(name=PDD_XLS_NUMTEXT, default=TEXT);
+%_xls_def(name=PDD_XLS_SPECIAL, default=BLANK);
+%_xls_def(name=PDD_XLS_SHEETS, default=ONE);
+%_xls_def(name=PDD_XLS_COMPANION, default=NONE);
+%_xls_def(name=PDD_XLS_KEYS, default=K3);
 %_xls_def(name=PDD_XLS_APPROVE);
-%_xls_def(name=PDD_XLS_DICT);
+%_xls_def(name=PDD_XLS_DICT, default=NO);
 %_xls_def(name=PDD_XLS_MIN_FREE_GB, default=15);
 
 /* ===== 5. EARLY GUARD MACROS ============================================

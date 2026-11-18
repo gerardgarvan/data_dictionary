@@ -27,12 +27,28 @@ def test_all_macros_defined():
         assert re.search(rf"%macro {m}\b", code), m
 
 
-def test_config_decisions_empty_except_min_free_gb():
+def test_config_decisions_decided_2026_11_18():
     code = _code("00_config.sas")
-    for v in XLS_VARS:
-        assert re.search(rf"%_xls_def\(name=PDD_XLS_{v}\);", code), v
+    want = {
+        "ROUTE": "STAGE_CSV", "NODATA": "INCLUDE", "ORDER": "DICT", "DATES": "SERIAL",
+        "NUMTEXT": "TEXT", "SPECIAL": "BLANK", "SHEETS": "ONE", "COMPANION": "NONE",
+        "KEYS": "K3", "DICT": "NO",
+    }
+    for v, val in want.items():
+        assert re.search(rf"%_xls_def\(name=PDD_XLS_{v}, default={val}\);", code), v
+    # PDD-D-44: sign-off is run-time only, never a config default
+    assert re.search(r"%_xls_def\(name=PDD_XLS_APPROVE\);", code)
     assert re.search(r"%_xls_def\(name=PDD_XLS_MIN_FREE_GB, default=15\);", code)
-    assert len(re.findall(r"%_xls_def\(name=PDD_XLS_\w+, default=", code)) == 1
+    assert len(re.findall(r"%_xls_def\(name=PDD_XLS_\w+, default=", code)) == 11
+
+
+def test_keyset_macro():
+    code = _code("19_xlsx_macros.sas")
+    m = re.search(r"%macro p19_keyset\(.*?%mend p19_keyset;", code, flags=re.S)
+    assert m
+    body = m.group(0)
+    assert "PECAN_ID PRECEDE_STUDY_ID KEY_ERA;" in body
+    assert "NORM_PSID" not in body.replace("NORM_PSID is never", "")
 
 
 def test_config_paths_under_out_root():

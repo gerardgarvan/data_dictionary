@@ -3,10 +3,20 @@
 **Planned:** 2026-11-18, headless, planning only (no SAS, no Python implementation, no P:).
 **Goal:** write `P:\PeCAN Master Data\Gerard\data_dictionary\out\PCNR_Master_Data_Nov_2026.xlsx` from `pdd.pcnr_2018_2025` and prove it round-trips (XLS-01..XLS-04).
 **Context and decisions:** `19-CONTEXT.md` (route comparison, PDD-D-35..44 options, probes P19-1..8, layout, disclosure, QC gates, safety, assumptions). Read it first.
-**Status:** PENDING DECISION for PDD-D-35..44 and PDD-D-27; PENDING SAS RUN for probes P19-1..8. Waves 1-2 below do not depend on a decision.
+**Status:** decisions DECIDED 2026-11-18 (see "Decisions resolved"), Wave 2 unblocked; PENDING SAS RUN for probes P19-1..8. Waves 1-2 below do not depend on a decision.
 
 ## Recommended route (not decided)
 (b1): SAS writes a typed stage CSV plus a schema CSV under `out_root\stage\`; Python `openpyxl` write_only builds the workbook (KEY first, then DATA); a separate Python verifier re-reads it. See `19-CONTEXT.md` section 3.
+
+## Decisions resolved (2026-11-18, task 19-01b done)
+
+Gerard decided PDD-D-35..44 and PDD-D-27 on 2026-11-18 using the 19a probe results (`docs/DECISIONS.md`). Audience: PeCAN team only, under the current IRB protocol. Values: ROUTE=STAGE_CSV, NODATA=INCLUDE, ORDER=DICT, DATES=SERIAL (probe: no numeric date format; char dates stay text), NUMTEXT=TEXT with one override (`PCNR_Death_Days_After_Surgery` numeric; `#` and other non-numeric text blank; 34,057 `#` cells in the probe; blanked count is a masked QC item), SPECIAL=BLANK (probe: 0 special missings), SHEETS=ONE, COMPANION=NONE, KEYS=K3 (PECAN_ID, PRECEDE_STUDY_ID, KEY_ERA; PECAN_ID_KEY_ERA and norm_psid are identical copies per probe), DICT=NO (KEY sheet points to `out\pdd_2018_2025.xlsx`). PDD-D-44: `PDD_XLS_APPROVE` stays empty in config and is set by Gerard at run time only. Lat/long, free-text notes, staff names and ages are kept unaltered; the KEY sheet states the workbook contains identifiable fields for approved PeCAN team use only.
+
+Code for these: defaults in `sas/00_config.sas`; `%p19_keyset` (SAS, K3/K4); `python/pdd/master_rules.py` (K3, Death_Days override, KEY notice, masking, approval gate) with `python/tests/test_master_rules.py`; stage contract `docs/xlsx_stage_contract.md` (override applied in the Python writer, SAS stage writes Death_Days as delivered text).
+
+**Wave 2 is unblocked** (19-04, 19-05 writer, 19-07). Wave 2 still needs the PENDING SAS RUN results of Wave 1 (19_xlsx_test, 19a) to be brought back and PASS.
+
+**Backlog (from the 19a probe review):** (1) the INT_IN_DATE_RANGE probe range was too broad to be informative; narrow it if a date check is still wanted. (2) The export masks flags and timings of 1-10 to `<11`; change it to mask only person/cell counts.
 
 ## Decision gates (config variables, empty default, each program stops with `PENDING DECISION: <name>` when empty)
 
@@ -17,10 +27,10 @@
 | PDD-D-37 order | `PDD_XLS_ORDER` | `DICT` |
 | PDD-D-38 dates | `PDD_XLS_DATES` | `SERIAL` (numeric dates only; char dates stay text) |
 | PDD-D-39 NUM_TEXT | `PDD_XLS_NUMTEXT` | `TEXT` |
-| PDD-D-40 special missing | `PDD_XLS_SPECIAL` | `BOTH` |
+| PDD-D-40 special missing | `PDD_XLS_SPECIAL` | `BLANK` (decided) |
 | PDD-D-41 sheets | `PDD_XLS_SHEETS` | `ONE` |
 | PDD-D-42 companion | `PDD_XLS_COMPANION` | `NONE` |
-| PDD-D-43 key columns | `PDD_XLS_KEYS` | `K4` |
+| PDD-D-43 key columns | `PDD_XLS_KEYS` | `K3` (decided) |
 | PDD-D-44 disclosure sign-off | `PDD_XLS_APPROVE` | none (must be set to 1 by Gerard) |
 | PDD-D-27 dictionary sheet | `PDD_XLS_DICT` | `NO` |
 
@@ -108,7 +118,7 @@ First full run about 1.5-4.5 h; the benchmark and 19a replace this range with me
 
 ## PENDING lists
 
-- **PENDING DECISION:** PDD-D-35, 36, 37, 38, 39, 40, 41, 42, 43, 44 and the existing PDD-D-27 (options, evidence and recommendations in `19-CONTEXT.md` section 4; none applied). Price naming sign-off (carried).
+- **(resolved 2026-11-18, kept for history) PDD-D-35, 36, 37, 38, 39, 40, 41, 42, 43, 44 and the existing PDD-D-27 (options, evidence and recommendations in `19-CONTEXT.md` section 4; none applied). Price naming sign-off (carried).
 - **PENDING SAS RUN:** `19_xlsx_test.sas`, `19a_xlsx_preflight.sas` (probes P19-1..8), then after decisions `19b`, writer, verifier.
 
 ## Assumptions (headless run)
