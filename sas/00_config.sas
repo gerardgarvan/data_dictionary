@@ -106,6 +106,38 @@ options nodlcreatedir;
 %mend _set_k2_psid_default;
 %_set_k2_psid_default;
 
+/* ---- Phase 19: master data workbook (PCNR_Master_Data_Nov_2026.xlsx) ------
+   Paths: stage folder (row-level CSV, deleted after the verifier passes) and
+   backup folder stay under out_root. The PDD_XLS_* choices (PDD-D-35..44 and
+   PDD-D-27) are PENDING DECISION: every default is EMPTY on purpose. An empty
+   value makes a production program stop with PENDING DECISION. Gerard sets
+   the values after deciding (task 19-01b), or overrides one with an OS env var
+   of the same name. Only PDD_XLS_MIN_FREE_GB (free disk gate, GB) has a
+   default. */
+%let xls_final      = PCNR_Master_Data_Nov_2026.xlsx;
+%let xls_stage_path = &out_root.\stage;
+%let xls_bak_path   = &backup_path;
+
+%macro _xls_def(name=, default=);
+  %if not %symexist(&name) %then %do;
+    %global &name;
+    %let &name = &default;
+  %end;
+  %if %sysfunc(envlen(&name)) > 0 %then %let &name = %upcase(%sysget(&name));
+%mend _xls_def;
+%_xls_def(name=PDD_XLS_ROUTE);
+%_xls_def(name=PDD_XLS_NODATA);
+%_xls_def(name=PDD_XLS_ORDER);
+%_xls_def(name=PDD_XLS_DATES);
+%_xls_def(name=PDD_XLS_NUMTEXT);
+%_xls_def(name=PDD_XLS_SPECIAL);
+%_xls_def(name=PDD_XLS_SHEETS);
+%_xls_def(name=PDD_XLS_COMPANION);
+%_xls_def(name=PDD_XLS_KEYS);
+%_xls_def(name=PDD_XLS_APPROVE);
+%_xls_def(name=PDD_XLS_DICT);
+%_xls_def(name=PDD_XLS_MIN_FREE_GB, default=15);
+
 /* ===== 5. EARLY GUARD MACROS ============================================
    %check_encoding -- aborts if SAS session is not UTF-8.
      Call immediately after %include "00_config.sas" in each program.
