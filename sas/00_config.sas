@@ -119,11 +119,13 @@ options nodlcreatedir;
 %let xls_bak_path   = &backup_path;
 
 %macro _xls_def(name=, default=);
-  %if not %symexist(&name) %then %do;
-    %global &name;
-    %let &name = &default;
-  %end;
-  %if %sysfunc(envlen(&name)) > 0 %then %let &name = %upcase(%sysget(&name));
+  %local _v;
+  %let _v = &default;
+  %if %symexist(&name) %then %let _v = %superq(&name);
+  %if %sysfunc(envlen(&name)) > 0 %then %let _v = %upcase(%sysget(&name));
+  data _null_;
+    call symputx("&name", "&_v", 'G');
+  run;
 %mend _xls_def;
 %_xls_def(name=PDD_XLS_ROUTE);
 %_xls_def(name=PDD_XLS_NODATA);

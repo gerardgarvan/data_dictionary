@@ -513,6 +513,10 @@
     select count(*) into :_nunl trimmed from work._p19_al where colrole = 'UNLISTED';
     select count(*) into :_nhost trimmed from work._p19_al where ishost = 1;
   quit;
+  data _null_;
+    set &out;
+    put 'NOTE: [p19] flagged column name ' colname ' role ' colrole;
+  run;
   %p19_qadd(ds=&qc, item=columns_not_key_and_not_mapped, n=&_nunl, fail=%eval(&_nunl > 0));
   %p19_qadd(ds=&qc, item=columns_with_mrn_encrypt_encounter_in_name, n=&_nhost, fail=%eval(&_nhost > 0));
   %if &_nunl > 0 or &_nhost > 0 %then

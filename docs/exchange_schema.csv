@@ -237,3 +237,7 @@ profile_PCNR_2018_2025_manifest.csv,pcnr_modate,str,Y
 profile_PCNR_2018_2025_manifest.csv,pcnr_nobs,int,Y
 profile_PCNR_2018_2025_manifest.csv,run_dttm,str,Y
 comb_recon.csv,n_special_comb_all,str,Y
+xlsx_master_probe_summary.csv,chk,str,Y
+xlsx_master_probe_summary.csv,vtype,str,Y
+xlsx_master_probe_summary.csv,n_variables,str,Y
+xlsx_master_probe_summary.csv,max_n,str,Y
