@@ -27,9 +27,11 @@ Earlier note (superseded, Phase 15 closed): Phase 15 (M2) could be planned: the 
 | 16 | M3 | Name map extension | Complete 2026-11-17 (MAP-01..04 satisfied; test T1-T9 passed, 16a PASS, 16b 1297 variables / 56 NO_DATA, `run_pipeline.cmd 16` PASSED, 0 WARNING) |
 | 17 | M4 | PECAN_ID | Complete 2026-11-17 (PID-01..08; tests T1-T18 and T0-T7 passed; 17a approved 41150 rows 1:1 / 33031 K1 IDs / 1895 dup pairs; 17b 26474 K2 MRNs, registry 59505, case map 77498; see 17-SUMMARY.md) |
 | 18 | M5 | Combined dataset and dictionary 2018-2025 | Complete 2026-11-18 (DD-01..DD-04; test, 18a-18d and writer PASS on real data; see 18-SUMMARY.md) |
-| 19 | M6 | Master Excel export | Next (unblocked 2026-11-18) |
+| 19 | M6 | Master Excel export | Planned 2026-11-18 (19-PLAN.md); decisions PDD-D-35..44 PENDING; code not started |
 
 **Phase 18 COMPLETE (2026-11-18).** Verified by Gerard: test ALL TESTS PASSED; 18a PASS; 18b PASS (77,498 x 1,302; backup path also PASS); 18c PASS (19 QC items clean); 18d PASS (0 hits); writer exit 0 (`out\pdd_2018_2025.xlsx`). PDD-D-33 and PDD-D-34 CONFIRMED 2026-11-18. See `18-SUMMARY.md`.
+
+**Phase 19 PLANNED (2026-11-18, headless, docs only):** `.planning/phases/19-master-data-workbook/19-PLAN.md` + `19-CONTEXT.md`. Recommended route (b1): SAS stage CSV + schema -> Python openpyxl write_only -> separate Python verifier. **PENDING DECISION:** PDD-D-35..44 (route, NO_DATA, order, dates, NUM_TEXT, special missing, sheets, companion files, key columns, disclosure sign-off) and PDD-D-27; rows added to `docs/DECISIONS.md`. **PENDING SAS RUN:** `19_xlsx_test.sas` and `19a_xlsx_preflight.sas` (probes P19-1..8) once those programs are implemented; then 19b, writer, verifier. Waves 1 (config, macros, test, 19a, writer, verifier code) can start now.
 
 **Phase 19 handoff:** Phase 19 builds `PCNR_Master_Data_Nov_2026.xlsx`. Any percentages must come from the scrubbed exchange profile or be recomputed with the same masking, never from `pdd.prf_PCNR_2018_2025` directly. Output only under `P:\PeCAN Master Data\Gerard\data_dictionary`.
 

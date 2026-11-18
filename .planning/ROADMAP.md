@@ -204,7 +204,7 @@ Plans:
   3. Round-trip QC in `qc\` matches row count, column names in order, and per-column non-missing counts with the SAS dataset.
   4. Whether the dictionary is a sheet in this file follows PDD-D-27 (OPEN, default no).
 - **Handoff from 18:** percentages must come from the scrubbed exchange profile or be recomputed with the same masking, never from `pdd.prf_PCNR_2018_2025` directly. Output only under `P:\PeCAN Master Data\Gerard\data_dictionary`.
-- **Plans:** TBD
+- **Plans:** planned 2026-11-18 (headless): `.planning/phases/19-master-data-workbook/19-PLAN.md` and `19-CONTEXT.md` (19-01a..19-08; route (b1) recommended; PDD-D-35..44 PENDING DECISION; probes P19-1..8 and `19_xlsx_test`/`19a` PENDING SAS RUN)
 
 ## Milestone v1.x: Remaining families (each gated on its open decision)
 Each phase repeats Phases 2–7 for its family: source guard, import, name map, build, profile, sheet.
