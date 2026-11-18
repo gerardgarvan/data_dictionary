@@ -185,7 +185,7 @@ Plans:
   2. Values equal source values (no recoding).
   3. Dictionary workbook: KEY sheet leftmost, PECAN_ID first, PCNR_ variables alphabetical, distributions over all 2018-2025 cases, plus year coverage and source columns (MAP-04); UF colors.
   4. Reconciliation: dictionary rows = dataset columns; per-variable non-missing counts match; 2018-2022 distributions match the v1.0 dictionary except where new cases add rows.
-- **Plans:** 7 plans (planned and written 2026-11-17, headless; code complete, SAS runs PENDING, Phase not closed)
+- **Plans:** 7 plans (planned and written 2026-11-17, headless; **COMPLETE 2026-11-18**, SAS runs verified by Gerard, see `18-SUMMARY.md`)
   - [x] 18-01-PLAN.md: PDD-D-31 type seed (`docs/combined_type_decisions.csv`), config additions, exchange schema (wave 1)
   - [x] 18-02-PLAN.md: macros and synthetic test `18_combine_test.sas` (wave 2)
   - [x] 18-03-PLAN.md: `18a_comb_preflight.sas` probe and type delta (wave 3)
@@ -203,6 +203,7 @@ Plans:
   2. Pre-export checks stop the run at rows >= 1,048,575, columns >= 16,384, or any text cell > 32,767 characters.
   3. Round-trip QC in `qc\` matches row count, column names in order, and per-column non-missing counts with the SAS dataset.
   4. Whether the dictionary is a sheet in this file follows PDD-D-27 (OPEN, default no).
+- **Handoff from 18:** percentages must come from the scrubbed exchange profile or be recomputed with the same masking, never from `pdd.prf_PCNR_2018_2025` directly. Output only under `P:\PeCAN Master Data\Gerard\data_dictionary`.
 - **Plans:** TBD
 
 ## Milestone v1.x: Remaining families (each gated on its open decision)

@@ -1,6 +1,6 @@
 # Phase 18 SAS run sheet (for Gerard)
 
-**Status: PENDING SAS RUN.** All programs are written and lint-clean here (no SAS, no P: on the build machine). Nothing has been run.
+**Status: COMPLETE 2026-11-18.** All steps run and verified by Gerard; see `18-SUMMARY.md`. (Originally written lint-clean on a machine with no SAS and no P:.)
 **PDD-D-33 is DECIDED** (Gerard, 2026-11-17): K2 `PRECEDE_STUDY_ID` is the normalized `Precede#####` form. `PDD_K2_PSID_MODE` defaults to NORM in `sas/00_config.sas`; no parameter is needed on any run command.
 **Price naming sign-off:** still pending, unrelated to this phase.
 
@@ -8,7 +8,7 @@
 Only the Python writer changed (`reconcile()` now checks NUM_TEXT as N + N_UNPARSED). No SAS code changed, so **re-run the writer only**: `.venv\Scripts\python.exe python\scripts\write_dictionary_2018_2025.py` (exit 0 expected). The existing 18c outputs are reused.
 Bring back: the console line and `logs\write_dictionary_2018_2025.log`.
 **Do not close SAS until 18c's PASS line is in the log** (a previous run was interrupted mid-step).
-Known and not changed: Phase 6 (`06_profile_macros.sas`, NUM_TEXT stat rows, ~line 2185-2230) sets `pct_total` on N_UNPARSED and never resets it, so the MEAN..MAX rows output after it inherit that value. 18c's `p18_pct_scrub` blanks it on every row whose n is blank. Fixing it at source would change the v1.0 `pdd.prf_pcnr` on a Phase 6 re-run, so it is left as PENDING DECISION.
+Known and not changed: Phase 6 (`06_profile_macros.sas`, NUM_TEXT stat rows, ~line 2185-2230) sets `pct_total` on N_UNPARSED and never resets it, so the MEAN..MAX rows output after it inherit that value. 18c's `p18_pct_scrub` blanks it on every row whose n is blank. Deferred to the cleanup backlog in `.planning/STATE.md` (item 6): fixing it at source would re-run Phase 6 and change the v1.0 `pdd.prf_pcnr`.
 If a SAS re-run of 18c is ever needed, order is: 18_combine_test, 18c, 18d (fresh sessions), then the writer.
 
 ## Re-run after fix_18c (PDD-D-34)

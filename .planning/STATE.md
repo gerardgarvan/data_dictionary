@@ -2,7 +2,7 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: PCNR_ raw layer and dictionary framework
-status: Phase 18 written (7 plans, lint and pytest clean); PENDING SAS RUN (Gerard)
+status: Phase 18 COMPLETE 2026-11-18; next Phase 19
 last_updated: "2026-11-17T00:19:56.099Z"
 progress:
   total_phases: 8
@@ -26,10 +26,16 @@ Earlier note (superseded, Phase 15 closed): Phase 15 (M2) could be planned: the 
 | 15 | M2 | New-source intake | Complete 2026-11-16 (NEW-01..NEW-05, NEW-03a satisfied; 15a/15b/15c and pipeline 15 run and passed) |
 | 16 | M3 | Name map extension | Complete 2026-11-17 (MAP-01..04 satisfied; test T1-T9 passed, 16a PASS, 16b 1297 variables / 56 NO_DATA, `run_pipeline.cmd 16` PASSED, 0 WARNING) |
 | 17 | M4 | PECAN_ID | Complete 2026-11-17 (PID-01..08; tests T1-T18 and T0-T7 passed; 17a approved 41150 rows 1:1 / 33031 K1 IDs / 1895 dup pairs; 17b 26474 K2 MRNs, registry 59505, case map 77498; see 17-SUMMARY.md) |
-| 18 | M5 | Combined dataset and dictionary 2018-2025 | Executed (code) 2026-11-17: plans 18-01..18-07 written, lint and pytest clean; SAS steps PENDING SAS RUN (18-SAS-RUN.md); not closed |
-| 19 | M6 | Master Excel export | Blocked on 18 |
+| 18 | M5 | Combined dataset and dictionary 2018-2025 | Complete 2026-11-18 (DD-01..DD-04; test, 18a-18d and writer PASS on real data; see 18-SUMMARY.md) |
+| 19 | M6 | Master Excel export | Next (unblocked 2026-11-18) |
 
-**Phase 18 planned (2026-11-17, headless):** plans 18-01 (type seed, config, exchange schema), 18-02 (macros + synthetic test), 18-03 (18a preflight/probe), 18-04 (18b build), 18-05 (18c profile/recon, 18d MRN scan), 18-06 (dictionary workbook writer), 18-07 (wiring, 18-SAS-RUN, checkpoint). **PENDING SAS RUN:** 18_combine_test, 18a, 18b, 18c, 18d, writer (after execution of the plans). **PDD-D-33 DECIDED (Gerard, 2026-11-17):** K2 PRECEDE_STUDY_ID = normalized `Precede#####` (default `PDD_K2_PSID_MODE`=NORM, no stop). 18a is also the probe for the pdd.pcnr 1298-vs-1297 column question and the ASA/CPT1 numeric check (PDD-D-31 item 2, conditional). Research subagent skipped for budget; plan checker run once (3 blockers fixed: split 18-01, no PDD-D-33 default, CONDITIONAL ASA/CPT1).
+**Phase 18 COMPLETE (2026-11-18).** Verified by Gerard: test ALL TESTS PASSED; 18a PASS; 18b PASS (77,498 x 1,302; backup path also PASS); 18c PASS (19 QC items clean); 18d PASS (0 hits); writer exit 0 (`out\pdd_2018_2025.xlsx`). PDD-D-33 and PDD-D-34 CONFIRMED 2026-11-18. See `18-SUMMARY.md`.
+
+**Phase 19 handoff:** Phase 19 builds `PCNR_Master_Data_Nov_2026.xlsx`. Any percentages must come from the scrubbed exchange profile or be recomputed with the same masking, never from `pdd.prf_PCNR_2018_2025` directly. Output only under `P:\PeCAN Master Data\Gerard\data_dictionary`.
+
+**Open items carried forward:** Price naming sign-off; PDD-D-27 (dictionary as a sheet in the master file, default no); cleanup backlog 1, 2, 3, 5, 6; DSS question on the 116 `#Error` deaths with Death_Date_Y_N = Y; future cross-era link (loosen the 17c total check for superseded IDs).
+
+(Historical, superseded by the close above.) **Phase 18 planned (2026-11-17, headless):** plans 18-01 (type seed, config, exchange schema), 18-02 (macros + synthetic test), 18-03 (18a preflight/probe), 18-04 (18b build), 18-05 (18c profile/recon, 18d MRN scan), 18-06 (dictionary workbook writer), 18-07 (wiring, 18-SAS-RUN, checkpoint). **PENDING SAS RUN:** 18_combine_test, 18a, 18b, 18c, 18d, writer (after execution of the plans). **PDD-D-33 DECIDED (Gerard, 2026-11-17):** K2 PRECEDE_STUDY_ID = normalized `Precede#####` (default `PDD_K2_PSID_MODE`=NORM, no stop). 18a is also the probe for the pdd.pcnr 1298-vs-1297 column question and the ASA/CPT1 numeric check (PDD-D-31 item 2, conditional). Research subagent skipped for budget; plan checker run once (3 blockers fixed: split 18-01, no PDD-D-33 default, CONDITIONAL ASA/CPT1).
 
 **Phase 18 executed, headless (2026-11-17):** 18-01 (seed `docs/combined_type_decisions.csv`, config `comb_ds`, `comb_backup_stem`, `PDD_K2_PSID_MODE` default NORM, exchange schema), 18-02 (`sas/18_combine_macros.sas`, `sas/18_combine_test.sas`), 18-03 (`18a_comb_preflight.sas`), 18-04 (`18b_comb_build.sas`), 18-05 (`18c_comb_profile_qc.sas`, `18d_comb_scan.sas`), 18-06 (`python/pdd/dictionary_2018_2025_workbook.py`, `python/scripts/write_dictionary_2018_2025.py`), 18-07 (token 18 in `99_run_all.sas` and `run_pipeline.cmd`, `18-SAS-RUN.md`, `18-VALIDATION.md`). PDD-D-33 DECIDED (K2 PRECEDE_STUDY_ID = normalized Precede#####, default NORM, stop removed). ASA_Anesth_Record and CPT1_Class stay conditional numeric: 18a measures both sides and stops at PENDING DECISION on any non-numeric value. Plan-checker items applied (KEY sheet states the DD-04 limit: counts and distinct values, not level-by-level frequencies; tests in `python/tests/`; `test_phase17_programs_static.py` and the phase 15/16 wiring tests updated for token 18). **PENDING SAS RUN (Gerard):** `18_combine_test.sas`, then 18a, 18b, 18c, 18d (each in a fresh session), then the writer. **PENDING DECISION:** none open; one arises only if a gate stops (see the table in 18-SAS-RUN.md). Price naming sign-off still pending. Assumptions: `18-CONTEXT.md` section Assumptions (headless run), A9-A15.
 
@@ -228,6 +234,8 @@ un_pipeline.cmd 16`: PIPELINE PASSED, 0 WARNING lines, review workbook written. 
 3. Narrow lint rule C30 to plain `%put` text, so the masked semicolons in `00_config.sas`, `02_source_guard.sas` and `05_build_pcnr_macros.sas` stop being flagged.
 4. DONE 2026-11-17: 16b zero-element array warnings removed (generated coverage step declares placeholders `_p16_dn 8` and `_p16_dc $1` before the `_numeric_`/`_character_` arrays).
 5. 16b re-reads s06 (3,987 columns) for every value pair, about 45 s each: use the same cache fix as backlog item 2 (read each source once per run).
+6. `06_profile_macros.sas` ~L2185-2230: `pct_total` not reset on NUM_TEXT MEAN..MAX rows. Deferred (fixing re-runs Phase 6 and changes v1.0 `pdd.prf_pcnr`). First check, read-only: does the published `pdd_v1_0.xlsx` show pct on those rows? If yes, raise priority - masked counts are back-calculable in a delivered workbook.
+7. RESOLVED 2026-11-18: the "unexplained blank-n rows" item. They are the NUM_TEXT MEAN..MAX stat rows (n blank by design).
 
 
 **Phase 17 planned (2026-11-17, headless):** plans 17-01 (config g read-only, macros, synthetic test), 17-02 (xwalk probe + K1 seed), 17-03 (PDD-D-30 dedupe + K2 assign + case map + gates), 17-04 (pecan_id_link.sas written/tested/not run), 17-05 (summary, wiring, SAS-RUN). Approval option PDD_APPROVE_NEW_BASELINE (default 0). Open facts: xwalk never probed (MRN length $40 in D-28 vs spine 41); spine MRN levels 31,137 (probe) vs 31,136 (D-28), gate compares at run time. Assumptions in 17-CONTEXT.md. Research/checker subagents skipped for budget.
