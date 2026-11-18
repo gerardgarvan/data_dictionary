@@ -8,3 +8,5 @@ EXCHANGE_PATH: Path = OUT_ROOT / "exchange"
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[2]
 DOCS_PATH: Path = REPO_ROOT / "docs"
+STAGE_PATH: Path = OUT_ROOT / "stage"
+BACKUP_PATH: Path = OUT_ROOT / "backup"

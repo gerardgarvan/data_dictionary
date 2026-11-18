@@ -134,3 +134,47 @@ Expected: `stage_csv_records_incl_header` equals `dataset_rows` + 1 in the QC CS
 
 ## Time (estimate, unmeasured)
 Step 1 under 2 minutes. 19b: one probe pass, one stage pass, one expected-count pass plus a read of the CSV: 10-40 minutes (the 19a benchmark gives the pass time to scale from).
+
+---
+
+# Wave 2, part B: Python writer and verifier (after 19b PASS) - PENDING RUN
+
+No SAS needed. Run from `C:\data_dictionary` in PowerShell on the machine that sees `P:`. Needs 19b to have PASSed (stage files present) and `pandas`/`openpyxl` from `python\requirements.txt` (`read_sas` is part of pandas; no extra package). The approval flag is set for this PowerShell session only; clear it at the end.
+
+## Run order
+| Step | Command | Expect | Bring back |
+|---|---|---|---|
+| 0 | `$env:PDD_XLS_APPROVE='1'` | - | - |
+| 1 (bench first) | `.venv\Scripts\python.exe python\scripts\write_master_workbook.py --bench-rows 20000` | `BENCH rows=20000 rows_per_s=<n> extrapolated_full_minutes=<m>`; throwaway `stage\xlsx_bench.xlsx` is deleted at once | the BENCH line and `logs\write_master_workbook.log` |
+| 2 | `.venv\Scripts\python.exe python\scripts\write_master_workbook.py` | `PASS - master workbook written`; `out\PCNR_Master_Data_Nov_2026.xlsx`; an older final file is first moved to `backup\PCNR_Master_Data_Nov_2026_<stamp>.xlsx` | `logs\write_master_workbook.log`; `qc\xlsx_master_write.csv` |
+| 3 | `.venv\Scripts\python.exe python\scripts\verify_master_workbook.py` | `PASS - master workbook verified` and `stage files deleted: ...`; exit code 0 | `logs\verify_master_workbook.log`; `exchange\xlsx_master_verify_summary.csv` (masked, safe) |
+| 4 | `Remove-Item Env:PDD_XLS_APPROVE` | - | - |
+
+If the bench extrapolation looks too long, send the BENCH line back before step 2 (backlog: XlsxWriter). The writer takes minutes to hours depending on rows x columns; the output file is large, check free disk first (the gate wants 15 GB).
+
+## What the writer does
+KEY sheet first (UF header colors, identifiable-fields notice, pointer to `out\pdd_2018_2025.xlsx`, facts, ID text, missing-value convention, Price sign-off PENDING, era notes), then DATA with the K3 keys and the PCNR_ variables. `PCNR_Death_Days_After_Surgery` is numeric; non-numeric text there is blank and counted (`death_days_nonnumeric_blanked`, `<11` if 1-10). Text beginning `=` or `#` is stored as text. The file is written to `<name>.tmp` and renamed only on success; on any failure no file is left at the final name (the previous file is already in `backup\`). It also writes `stage\xlsx_write_counts.csv` (exact counts for the verifier; deleted on PASS). Log lines carry counts and column names only.
+
+## What the verifier checks (items in `qc\xlsx_master_verify.csv`, counts 1-10 shown `<11`)
+sheet order (KEY, DATA); header equals the stage schema and the K3 keys come first; row count; per-column non-blank counts equal `stage\xlsx_expected.csv` exactly (Death_Days: expected minus blanked) and agree with `exchange\comb_recon.csv` (masked `<11` tolerated; text columns that hold numbers compare as text counts; NO_DATA variables from `comb_nodata.csv` must be 0); 2,000-row sample equality with the stage CSV and a type tally; no formula element or error cell anywhere in the sheet XML; KEY notice lines, DATA_ROWS, DATA_COLUMNS, facts equal `comb_key_facts.csv`, and K1/K2 row and distinct-ID facts agree with the DATA sheet; disclosure scan: flagged header names, and every text cell token against the registry ENCRYPTED_MRN values read in memory from `pecan_id_registry.sas7bdat` (hit count only; expect 0). Exit 0 only if every item is PASS; on PASS the four stage files are deleted (PDD-D-42 = NONE). On FAIL the stage files are kept: send `qc\xlsx_master_verify.csv` rows with `status=FAIL` (names and masked counts) and the log.
+
+## PowerShell checks (counts only, from `P:\PeCAN Master Data\Gerard\data_dictionary`)
+```
+Select-String -Path logs\write_master_workbook.log -Pattern 'PASS - master workbook written'
+Select-String -Path logs\verify_master_workbook.log -Pattern 'PASS - master workbook verified'
+Import-Csv qc\xlsx_master_verify.csv | Where-Object { $_.status -ne 'PASS' }
+Import-Csv exchange\xlsx_master_verify_summary.csv | Format-Table -AutoSize
+Get-ChildItem stage\xlsx_*.csv    # expect nothing after PASS
+Get-Item out\PCNR_Master_Data_Nov_2026.xlsx | Select-Object Name,Length
+```
+
+## If a step stops
+| Stop text | Meaning |
+|---|---|
+| `PENDING DECISION: PDD_XLS_APPROVE is not 1` | step 0 not done in this session |
+| `data CSV header differs from xlsx_schema.csv` / `unexpected non-PCNR_ column` / `column name flagged` | stage and schema disagree or an MRN-like column slipped in: re-run 19b, do not edit the CSV |
+| `illegal control character in N column(s): <names>` / `text over 32767 characters in column <name>` | a cell cannot be stored: PENDING DECISION (strip or abort), no value is shown |
+| `unparseable numeric text in column <name>` | a numeric column holds text: fix upstream |
+| `stage record count differs from xlsx_expected ROWS` | stage CSV and expected counts are out of step: re-run 19b |
+| `free disk ... below` | free space on the out folder |
+| verifier exit 1 with `FAIL <check> <column>` lines | see the check table above; stage kept |
