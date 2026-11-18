@@ -44,6 +44,9 @@ C39 LENGTH statement (also generated via put "..." text) declaring a character
     length above 32767 -- ERROR 353-185, the step never compiles
 C40 INFILE lrecl above 32767 in a step that references _INFILE_ -- run-time
     ERROR (_INFILE_ holds at most 32767 bytes); read raw blocks instead
+C41 ifc() used as an operand of || -- IFC pads the result to the longest
+    argument, so ifc(missing(x), '', ...) yields one blank, not an empty field
+    (error: silently corrupts CSV output); assign to a variable with IF/THEN
 C20 TRIMMED keyword in PROC SQL SELECT list -- valid only after INTO targets
 W2  Assert-style count query: reports dataset name and WHERE-clause columns for reviewer
 
@@ -830,6 +833,30 @@ def check_infile_large_lrecl(path, lines):
                         f'INFILE lrecl={lr.group(1)} exceeds 32767 in a step that uses _INFILE_ '
                         f'-- read raw blocks (recfm=f, $char32767.) instead, see p19_csv_scan'))
         pos = end
+    return hits
+
+
+# ── C41: ifc() as an operand of || ──────────────────────────────────────────
+
+_C41_IFC = re.compile(r'\bifc\s*\(', CI)
+
+
+def check_ifc_in_concat(path, lines):
+    """IFC returns a value padded to the longest argument, so an empty-string
+    branch becomes a blank when concatenated with ||."""
+    text = strip_block_comments(chr(10).join(lines))
+    hits = []
+    for m in _C41_IFC.finditer(text):
+        depth, i = 1, m.end()
+        while i < len(text) and depth:
+            depth += {'(': 1, ')': -1}.get(text[i], 0)
+            i += 1
+        after = text[i:].lstrip()
+        before = text[:m.start()].rstrip()
+        if after.startswith('||') or before.endswith('||'):
+            hits.append((path, text.count(chr(10), 0, m.start()) + 1, 'C41',
+                'ifc() is an operand of || -- the result is padded to the longest '
+                'argument (empty branch becomes a blank); use IF/THEN into a variable'))
     return hits
 
 
@@ -1842,6 +1869,7 @@ CHECKS = [
     check_where_param_no_unquote,
     check_char_length_over_max,
     check_infile_large_lrecl,
+    check_ifc_in_concat,
 ]
 
 

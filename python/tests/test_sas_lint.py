@@ -915,3 +915,16 @@ def test_c38_clean_cases():
                   ["%_val(ds=x, where=&where);"],
                   ["%let where = a;"]):
         assert sas_lint.check_where_param_no_unquote("<test>", lines) == [], lines
+
+
+def test_c41_fires_on_ifc_in_concat():
+    for lines in (["_l = a || ',' || ifc(missing(x), '', strip(put(x, best12.))) || ',';"],
+                  ["_l = ifc(missing(x), '', 'a') || b;"]):
+        hits = sas_lint.check_ifc_in_concat("<test>", lines)
+        assert any(h[2] == "C41" for h in hits), lines
+
+
+def test_c41_clean_cases():
+    for lines in (["_a = ifc(missing(x), 'a', 'b');", "_l = strip(_a) || ',';"],
+                  ["_l = cats(ifc(missing(x), '', 'a'), ',');"]):
+        assert sas_lint.check_ifc_in_concat("<test>", lines) == [], lines

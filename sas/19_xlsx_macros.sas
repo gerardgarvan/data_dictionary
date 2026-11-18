@@ -955,12 +955,16 @@
   data _null_;
     set work._p19_ex work._p19_smp;
     file "&out" encoding='utf-8' lrecl=32767 termstr=crlf;
-    length _l $400;
+    length _l $400 _a _b _c $12;
     if _n_ = 1 then put 'kind,variable,n_rows,n_nonblank,n_special';
-    _l = strip(p19_kind) || ',' || strip(p19_var) || ','
-         || ifc(missing(p19_nrows), '', strip(put(p19_nrows, best12.))) || ','
-         || ifc(missing(p19_nonblank), '', strip(put(p19_nonblank, best12.))) || ','
-         || ifc(missing(p19_special), '', strip(put(p19_special, best12.)));
+    _a = '';
+    _b = '';
+    _c = '';
+    if not missing(p19_nrows) then _a = strip(put(p19_nrows, best12.));
+    if not missing(p19_nonblank) then _b = strip(put(p19_nonblank, best12.));
+    if not missing(p19_special) then _c = strip(put(p19_special, best12.));
+    _l = strip(p19_kind) || ',' || strip(p19_var) || ',' || strip(_a) || ','
+         || strip(_b) || ',' || strip(_c);
     put _l;
   run;
 %mend p19_expected;

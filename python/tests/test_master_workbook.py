@@ -170,3 +170,20 @@ def test_write_counts_file(tmp_path):
     assert rows["PCNR_Death_Days_After_Surgery"]["n_nonblank"] == "2"
     assert rows["PCNR_Empty"]["n_nonblank"] == "0"
     assert master_rules.NUMERIC_OVERRIDES
+
+
+def test_read_expected_empty_fields_are_missing(tmp_path):
+    f = tmp_path / "xlsx_expected.csv"
+    crlf = chr(13) + chr(10)
+    f.write_bytes(crlf.join([
+        "kind,variable,n_rows,n_nonblank,n_special",
+        "ROWS,,6,,",
+        "COL,A,,5,",
+        "COL,B,,4,2",
+        "SAMPLE,,1,,",
+        "",
+    ]).encode())
+    exp = mw.read_expected(f)
+    assert exp["rows"] == 6
+    assert exp["cols"] == {"A": (5, 0), "B": (4, 2)}
+    assert exp["sample"] == [1]
