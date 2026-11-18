@@ -33,6 +33,8 @@ Earlier note (superseded, Phase 15 closed): Phase 15 (M2) could be planned: the 
 
 **Phase 19 PLANNED (2026-11-18, headless, docs only):** `.planning/phases/19-master-data-workbook/19-PLAN.md` + `19-CONTEXT.md`. Recommended route (b1): SAS stage CSV + schema -> Python openpyxl write_only -> separate Python verifier. **PENDING DECISION:** PDD-D-35..44 (route, NO_DATA, order, dates, NUM_TEXT, special missing, sheets, companion files, key columns, disclosure sign-off) and PDD-D-27; rows added to `docs/DECISIONS.md`. **PENDING SAS RUN:** `19_xlsx_test.sas` and `19a_xlsx_preflight.sas` (probes P19-1..8) once those programs are implemented; then 19b, writer, verifier. Waves 1 (config, macros, test, 19a, writer, verifier code) can start now.
 
+**Phase 19 Wave 1 code written (2026-11-18, headless):** sas/19_xlsx_macros.sas, 19_xlsx_test.sas, 19a_xlsx_preflight.sas, config block in 00_config.sas, 19-SAS-RUN.md. Lint clean, pytest 461 passed. **PENDING SAS RUN:** 19_xlsx_test.sas then 19a_xlsx_preflight.sas (bring back the log, qc\xlsx_master_pre.csv, qc\xlsx_master_probe.csv, exchange\xlsx_master_probe_summary.csv). Python writer (19-05) and verifier (19-06) not started.
+
 **Phase 19 handoff:** Phase 19 builds `PCNR_Master_Data_Nov_2026.xlsx`. Any percentages must come from the scrubbed exchange profile or be recomputed with the same masking, never from `pdd.prf_PCNR_2018_2025` directly. Output only under `P:\PeCAN Master Data\Gerard\data_dictionary`.
 
 **Open items carried forward:** Price naming sign-off; PDD-D-27 (dictionary as a sheet in the master file, default no); cleanup backlog 1, 2, 3, 5, 6; DSS question on the 116 `#Error` deaths with Death_Date_Y_N = Y; future cross-era link (loosen the 17c total check for superseded IDs).
