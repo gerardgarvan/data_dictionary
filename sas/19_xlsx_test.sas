@@ -695,6 +695,35 @@ o_such_file.csv);
     end;
   run;
   %_chk(case=T18_STAGE_LINES_MATCH_HAND_WRITTEN_CSV, cond=%str(&_s1_bad = 0 and &_s1_n = 8), detail=%str(a stage line differs));
+  /* a 32,767 character cell that also holds quotes: five quotes, adjacent at the
+     start, one inside, one at the very end -> each is doubled, cell is enclosed.
+     expected line length = 10 prefix + 2 enclosing + 32767 + 5 doubled + 4 suffix */
+  data work.s1q;
+    set work.s1(obs=1);
+    PECAN_ID = 'P7'; PRECEDE_STUDY_ID = 'Pr7';
+    PCNR_A = repeat('y', 32766);
+    substr(PCNR_A, 1, 2) = '""';
+    substr(PCNR_A, 16000, 1) = '"';
+    substr(PCNR_A, 20000, 1) = '"';
+    substr(PCNR_A, 32767, 1) = '"';
+    PCNR_B = 4; PCNR_DT = .; PCNR_DD = '';
+  run;
+  %let _f4 = &_wk\s1q_data.csv;
+  %let _f5 = &_wk\s1q_schema.csv;
+  %p19_stage(ds=work.s1q, cols=work.s1c, out=&_f4, schema=&_f5);
+  %global _q_len _q_quotes _q_n;
+  data _null_;
+    infile "&_f4" encoding='utf-8' lrecl=1048576 termstr=crlf truncover end=_e length=_ln;
+    input;
+    if _n_ = 2 then do;
+      call symputx('_q_len', _ln, 'G');
+      call symputx('_q_quotes', countc(_infile_, '22'x), 'G');
+    end;
+    if _e then call symputx('_q_n', _n_, 'G');
+  run;
+  %_chk(case=T18_QUOTED_MAX_CELL_ONE_RECORD_LINE, cond=%str(&_q_n = 2), detail=%str(lines));
+  %_chk(case=T18_QUOTED_MAX_CELL_LINE_LENGTH, cond=%str(&_q_len = 32788), detail=%str(line length));
+  %_chk(case=T18_QUOTED_MAX_CELL_QUOTES_DOUBLED, cond=%str(&_q_quotes = 12), detail=%str(quote count));
   data work.s1s;
     infile "&_f2" encoding='utf-8' dsd firstobs=2 truncover;
     length ix 8 nm $64 st $1 ek $8;

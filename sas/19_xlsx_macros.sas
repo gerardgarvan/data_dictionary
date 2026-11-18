@@ -743,11 +743,33 @@
     _nm = "'" || strip(colname) || "'n";
     if idx > 1 then put "put ',' @;";
     if excel_kind = 'C' then do;
-      put "_pv = trimn(" _nm +(-1) ");";
-      put "_pl = lengthn(_pv);";
+      /* cell written in pieces with PUT, no variable above 32767 and no
+         truncation: quote, each segment between quotes then a doubled quote,
+         quote. $VARYING writes the segment with its own length. */
+      put "_pl = lengthn(" _nm +(-1) ");";
       put "if _pl > 0 then do;";
-      put "  if findc(_pv, '222C0A0D'x) > 0 then _pv = '22'x || trimn(tranwrd(_pv, '22'x, '2222'x)) || '22'x;";
-      put "  put _pv +(-1) @;";
+      put "  if findc(" _nm +(-1) ", '222C0A0D'x) > 0 then do;";
+      put "    put '22'x @;";
+      put "    _pp = 1;";
+      put "    do while (_pp <= _pl);";
+      put "      _pq = find(" _nm +(-1) ", '22'x, _pp);";
+      put "      if _pq = 0 then _pk = _pl - _pp + 1; else _pk = _pq - _pp;";
+      put "      if _pk > 0 then do;";
+      put "        _pv = substr(" _nm +(-1) ", _pp, _pk);";
+      put "        put _pv $varying32767. _pk @;";
+      put "      end;";
+      put "      if _pq = 0 then _pp = _pl + 1;";
+      put "      else do;";
+      put "        put '2222'x @;";
+      put "        _pp = _pq + 1;";
+      put "      end;";
+      put "    end;";
+      put "    put '22'x @;";
+      put "  end;";
+      put "  else do;";
+      put "    _pv = " _nm +(-1) ";";
+      put "    put _pv $varying32767. _pl @;";
+      put "  end;";
       put "end;";
     end;
     else do;
@@ -763,7 +785,7 @@
   run;
   data _null_;
     set &ds;
-    length _pv $65540 _ps $64 _pl 8 _pn 8;
+    length _pv $32767 _ps $64 _pl 8 _pn 8 _pp 8 _pq 8 _pk 8;
     file "&out" encoding='utf-8' lrecl=1048576 termstr=crlf;
     %include p19cg;
     put;

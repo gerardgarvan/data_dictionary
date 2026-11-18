@@ -879,6 +879,22 @@ def test_c38_fires_without_unquote():
     assert any(h[2] == "C38" for h in hits), hits
 
 
+def test_c39_fires_on_char_length_over_32767():
+    for lines in (["length _pv $65540 _ps $64;"],
+                  ["data x;", "  length a $", "    40000;", "run;"],
+                  ['put "length _pv $32768;";']):
+        hits = sas_lint.check_char_length_over_max("<test>", lines)
+        assert any(h[2] == "C39" for h in hits), lines
+
+
+def test_c39_clean_cases():
+    for lines in (["length _pv $32767 _ps $64 _pl 8;"],
+                  ["length n 8;", "x = lengthn(y);"],
+                  ["infile f length=_ln lrecl=1048576;"],
+                  ["put _pv $varying32767. _pk @;"]):
+        assert sas_lint.check_char_length_over_max("<test>", lines) == [], lines
+
+
 def test_c38_clean_cases():
     for lines in (["select a from &ds where %unquote(&where);"],
                   ["%_val(ds=x, where=&where);"],
