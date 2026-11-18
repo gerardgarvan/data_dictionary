@@ -75,7 +75,7 @@ _NOTICE = (
     "Identifiable content kept unaltered: PCNR_Latitude and PCNR_Longitude, free-text notes, "
     "staff-name fields and ages.",
     "No MRN, encrypted MRN or encounter column is included.",
-    "Dictionary: this workbook has no dictionary sheet (PDD-D-27); see out\pdd_2018_2025.xlsx.",
+    "Dictionary: this workbook has no dictionary sheet (PDD-D-27); see out\\pdd_2018_2025.xlsx.",
 )
 
 

@@ -1,6 +1,7 @@
 """Synthetic tests for the Phase 19 verifier (19-06). No real data."""
 from __future__ import annotations
 
+import codecs
 import csv
 import logging
 import sys
@@ -131,16 +132,16 @@ def test_header_name_flag(tmp_path):
 def test_recon_masked_tolerance_and_mismatch(tmp_path):
     p, x = _built(tmp_path)
     path = p["exchange"] / "comb_recon.csv"
-    rows = list(csv.reader(path.open()))
+    rows = list(csv.reader(path.open(encoding="utf-8-sig")))
     for r in rows[1:]:
         if r[0] == "Text":
             r[1] = "<11"  # exact count is 5 -> masked 1..10 is consistent
-    csv.writer(path.open("w", newline="")).writerows(rows)
+    csv.writer(path.open("w", newline="", encoding="utf-8-sig")).writerows(rows)
     assert _failed(_verify(p, x)) == set()
     for r in rows[1:]:
         if r[0] == "Num":
             r[1] = "50"
-    csv.writer(path.open("w", newline="")).writerows(rows)
+    csv.writer(path.open("w", newline="", encoding="utf-8-sig")).writerows(rows)
     assert ("nonblank_vs_recon", "PCNR_Num") in _failed(_verify(p, x))
 
 
@@ -216,3 +217,9 @@ def test_registry_unreadable_fails(tmp_path, monkeypatch):
 
     monkeypatch.setattr(mv, "load_registry_tokens", boom)
     assert ("registry_tokens_loaded", "") in _failed(_verify(p, x))
+
+
+def test_verify_with_bom_stage(tmp_path):
+    p, xlsx = _built(tmp_path)  # write_stage defaults to BOM files
+    assert (p["stage"] / "xlsx_expected.csv").read_bytes().startswith(codecs.BOM_UTF8)
+    assert not _failed(_verify(p, xlsx))

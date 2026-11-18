@@ -19,24 +19,25 @@ ROWS = [
 ]
 
 
-def write_stage(base: Path, rows=None, header=None, kinds=None) -> dict[str, Path]:
+def write_stage(base: Path, rows=None, header=None, kinds=None, bom=True) -> dict[str, Path]:
     rows = ROWS if rows is None else rows
     header = header or HEADER
     kinds = kinds or KINDS
+    enc = "utf-8-sig" if bom else "utf-8"  # SAS-written files start with a BOM
     stage, exch, docs = base / "stage", base / "exchange", base / "docs"
     for d in (stage, exch, docs, base / "qc", base / "out", base / "backup"):
         d.mkdir(parents=True, exist_ok=True)
-    with (stage / "xlsx_data.csv").open("w", encoding="utf-8", newline="") as fh:
+    with (stage / "xlsx_data.csv").open("w", encoding=enc, newline="") as fh:
         w = csv.writer(fh, lineterminator="\r\n")
         w.writerow(header)
         w.writerows(rows)
-    with (stage / "xlsx_schema.csv").open("w", encoding="utf-8", newline="") as fh:
+    with (stage / "xlsx_schema.csv").open("w", encoding=enc, newline="") as fh:
         w = csv.writer(fh)
         w.writerow(["col_index", "name", "sas_type", "excel_kind"])
         for i, (n, k) in enumerate(zip(header, kinds), 1):
             w.writerow([i, n, "N" if k == "N" else "C", k])
     nb = [sum(1 for r in rows if r[i] != "") for i in range(len(header))]
-    with (stage / "xlsx_expected.csv").open("w", encoding="utf-8", newline="") as fh:
+    with (stage / "xlsx_expected.csv").open("w", encoding=enc, newline="") as fh:
         w = csv.writer(fh)
         w.writerow(["kind", "variable", "n_rows", "n_nonblank", "n_special"])
         w.writerow(["ROWS", "", len(rows), "", ""])
@@ -44,19 +45,19 @@ def write_stage(base: Path, rows=None, header=None, kinds=None) -> dict[str, Pat
             w.writerow(["COL", n, "", c, 0])
         for i in range(1, len(rows) + 1):
             w.writerow(["SAMPLE", "", i, "", ""])
-    with (exch / "comb_key_facts.csv").open("w", encoding="utf-8", newline="") as fh:
+    with (exch / "comb_key_facts.csv").open("w", encoding=enc, newline="") as fh:
         w = csv.writer(fh)
         w.writerow(["item", "value"])
         w.writerows([["ROWS", str(len(rows))], ["K1_ROWS", "<11"], ["K2_ROWS", "<11"],
                      ["DISTINCT_PECAN_ID_K1", "<11"], ["DISTINCT_PECAN_ID_K2", "<11"],
                      ["PDD_K2_PSID_MODE", "SAME"]])
-    with (exch / "comb_recon.csv").open("w", encoding="utf-8", newline="") as fh:
+    with (exch / "comb_recon.csv").open("w", encoding=enc, newline="") as fh:
         w = csv.writer(fh)
         w.writerow(["pcnr_name", "n_nonmiss_comb_all", "n_special_comb_all", "explained"])
         for n, c in zip(header, nb):
             if n.startswith("PCNR_"):
                 w.writerow([n[5:], "<11" if 1 <= c <= 10 else c, 0, "Y"])
-    with (exch / "comb_nodata.csv").open("w", encoding="utf-8", newline="") as fh:
+    with (exch / "comb_nodata.csv").open("w", encoding=enc, newline="") as fh:
         w = csv.writer(fh)
         w.writerow(["pcnr_name", "n_nonmiss", "coverage_status", "reconciled"])
         w.writerow(["Empty", 0, "NO_DATA", "Y"])

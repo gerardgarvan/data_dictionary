@@ -21,7 +21,11 @@ Decided 2026-11-18 (PDD-D-35 STAGE_CSV). Applies to `stage\xlsx_schema.csv` and 
 
 ## Stage file formats (written by `sas/19b_xlsx_stage.sas`)
 
-- `xlsx_data.csv`: UTF-8, CRLF line ends, no BOM. First record is the header (column names in export order).
+All SAS-written CSVs (stage, exchange, qc) start with a UTF-8 BOM. Python readers must open them with
+`encoding='utf-8-sig'` (`master_workbook.open_csv`) and strip header names. The DATA sheet header never
+contains U+FEFF (asserted before the header row is written).
+
+- `xlsx_data.csv`: UTF-8, CRLF line ends. The file starts with a UTF-8 BOM (EF BB BF; SAS `FILE encoding='utf-8'` writes one). First record is the header (column names in export order).
   A field with a comma, double quote, CR or LF is quoted with `"` and inner quotes doubled; nothing else is
   quoted. Empty field = blank cell (ordinary and special missing numerics, blank text). Numerics are
   `BEST32.` text. Numeric dates and datetimes are Excel serials (none exist in the current dataset).

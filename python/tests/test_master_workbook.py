@@ -187,3 +187,14 @@ def test_read_expected_empty_fields_are_missing(tmp_path):
     assert exp["rows"] == 6
     assert exp["cols"] == {"A": (5, 0), "B": (4, 2)}
     assert exp["sample"] == [1]
+
+
+@pytest.mark.parametrize("bom", [True, False])
+def test_bom_stage_files(tmp_path, bom):
+    p = write_stage(tmp_path, bom=bom)
+    raw = (p["stage"] / "xlsx_schema.csv").read_bytes()
+    assert raw.startswith(b"\xef\xbb\xbf") == bom
+    run_writer(tmp_path, p)
+    ws = _wb(p)["DATA"]
+    assert ws["A1"].value == "PECAN_ID"
+    assert not any("﻿" in str(c.value) for c in ws[1])

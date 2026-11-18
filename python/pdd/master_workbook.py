@@ -54,12 +54,22 @@ class StageError(Exception):
 # ---------------------------------------------------------------- stage readers
 def open_csv(path: Path):
     csv.field_size_limit(1 << 28)
-    return path.open("r", encoding="utf-8", newline="")
+    # SAS FILE encoding='utf-8' writes a BOM; utf-8-sig drops it (and reads BOM-less files too)
+    return path.open("r", encoding="utf-8-sig", newline="")
+
+
+def _clean_name(s: str) -> str:
+    return s.replace("﻿", "").strip()
 
 
 def read_schema(path: Path) -> list[dict[str, str]]:
     with open_csv(path) as fh:
-        rows = list(csv.DictReader(fh))
+        rd = csv.DictReader(fh)
+        if rd.fieldnames:
+            rd.fieldnames = [_clean_name(f) for f in rd.fieldnames]
+        rows = list(rd)
+    for r in rows:
+        r["name"] = _clean_name(r.get("name") or "")
     need = {"col_index", "name", "sas_type", "excel_kind"}
     if not rows or not need <= set(rows[0]):
         raise StageError(f"{path.name}: header must have {sorted(need)}")
@@ -74,8 +84,9 @@ def read_expected(path: Path) -> dict[str, Any]:
     out: dict[str, Any] = {"rows": None, "cols": {}, "sample": []}
     with open_csv(path) as fh:
         rd = csv.DictReader(fh)
-        if rd.fieldnames != ["kind", "variable", "n_rows", "n_nonblank", "n_special"]:
+        if [_clean_name(f) for f in rd.fieldnames or []] != ["kind", "variable", "n_rows", "n_nonblank", "n_special"]:
             raise StageError(f"{path.name}: unexpected header")
+        rd.fieldnames = [_clean_name(f) for f in rd.fieldnames]
         for r in rd:
             if r["kind"] == "ROWS":
                 out["rows"] = int(r["n_rows"])
@@ -263,7 +274,9 @@ def _write_data(
         header = next(rd, None)
         if header is None:
             raise StageError("data CSV is empty")
+        header = [_clean_name(h) for h in header]
         check_columns(header, schema, keys_code, exceptions)
+        assert not any("﻿" in h for h in names), "BOM in DATA header"
         head = []
         for h in names:
             c = WriteOnlyCell(ws, value=h)
