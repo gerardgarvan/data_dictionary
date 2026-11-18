@@ -407,6 +407,11 @@ def reconcile(
             f"({only_r} only in recon, {only_p} only in profile)"
         )
 
+    nt_stats: dict[str, dict[str, str]] = {}
+    for rec in profile_df[profile_df["var_class"] == "NUM_TEXT"].to_dict("records"):
+        if rec["stat"] in ("N", "N_UNPARSED"):
+            nt_stats.setdefault(rec["variable"], {})[rec["stat"]] = str(rec["n"]).strip()
+
     n_checked = n_masked_skip = 0
     for row in var_rows:
         name, n_nm = row[0], row[4]
@@ -417,6 +422,33 @@ def reconcile(
             errors.append(f"comb_recon explained=N for {name}")
         exp = (rc.get("n_nonmiss_comb_all") or "").strip()
         exp_int = _as_int(exp)
+        if name in nt_stats:
+            # NUM_TEXT: comb_recon counts every non-blank cell = N (parses) + N_UNPARSED.
+            # VARIABLES n_nonmiss follows v1.0 (N alone when N_UNPARSED is masked), so the
+            # check is made on the profile stats, not on the shown n_nonmiss.
+            st = nt_stats[name]
+            n_int = _as_int(st.get("N", ""))
+            unp_raw = st.get("N_UNPARSED", "")
+            if n_int is None or exp_int is None:
+                n_masked_skip += 1  # N or the recon count is masked/suppressed: not comparable
+            elif unp_raw in ("", "0"):
+                if exp_int != n_int:
+                    errors.append(f"{name}: NUM_TEXT n_nonmiss_comb_all differs from N (no unparsed)")
+                else:
+                    n_checked += 1
+            elif unp_raw == "<11":
+                if not 1 <= exp_int - n_int <= 10:
+                    errors.append(f"{name}: NUM_TEXT gap to N is not 1-10 with N_UNPARSED masked")
+                else:
+                    n_checked += 1
+            elif _as_int(unp_raw) is not None:
+                if exp_int != n_int + int(unp_raw):
+                    errors.append(f"{name}: NUM_TEXT n_nonmiss_comb_all differs from N + N_UNPARSED")
+                else:
+                    n_checked += 1
+            else:
+                n_masked_skip += 1
+            continue
         if isinstance(n_nm, int):
             if exp == "<11":
                 errors.append(f"{name}: n_nonmiss shown but comb_recon masks it")

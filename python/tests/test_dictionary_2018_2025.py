@@ -349,3 +349,35 @@ def test_blank_pct_on_masked_rows_and_large_pct_pass(tmp_path):
     out = tmp_path / "o.xlsx"
     write_workbook_2018_2025(ex, out, DOCS, CFG)
     assert out.exists()
+
+
+def _add_numtext(tmp_path: Path, n: str, unp: str | None, comb_all: str) -> Path:
+    ex = make_exchange(tmp_path, columns=5 + len(VARS) + 1)
+    stats = [("N", n)] + ([("N_UNPARSED", unp)] if unp is not None else [])
+    for k, (stat, val) in enumerate(stats):
+        _add_profile_row(ex, variable="Text_Var", var_class="NUM_TEXT", stat=stat, n=val,
+                         sort_order=str(60 + k))
+    with (ex / "comb_recon.csv").open("a", newline="", encoding="utf-8") as fh:
+        csv.writer(fh).writerow(["Text_Var", comb_all, comb_all, "0", comb_all, "0", "0", "3", "3", "Y"])
+    return ex
+
+
+@pytest.mark.parametrize(
+    ("n", "unp", "comb_all"),
+    [("100", "20", "120"), ("100", "<11", "105"), ("100", "<11", "110"), ("100", "<11", "101"),
+     ("100", None, "100"), ("100", "0", "100")],
+)
+def test_numtext_reconciles(tmp_path, n, unp, comb_all):
+    ex = _add_numtext(tmp_path, n, unp, comb_all)
+    write_workbook_2018_2025(ex, tmp_path / "o.xlsx", DOCS, CFG)
+
+
+@pytest.mark.parametrize(
+    ("n", "unp", "comb_all"),
+    [("100", "20", "119"), ("100", "<11", "100"), ("100", "<11", "111"),
+     ("100", None, "105"), ("100", "0", "101")],
+)
+def test_numtext_reconcile_fails(tmp_path, n, unp, comb_all):
+    ex = _add_numtext(tmp_path, n, unp, comb_all)
+    with pytest.raises(ValueError, match="reconciliation failed"):
+        write_workbook_2018_2025(ex, tmp_path / "o.xlsx", DOCS, CFG)
