@@ -489,13 +489,32 @@
 
 /* ---- allow-list gate: every column is a key column, a mapped PCNR_ variable
    (pcnr_name of vars=) or it is listed in the flagged table. Any name with MRN,
-   ENCRYPT or ENCOUNTER in it is also flagged. NORM_PSID is a key column here;
-   dropping it is a Wave 2 decision (PDD-D-43). out = work table of flagged
-   names (colname, colrole). ----------------------------------------------- */
-%macro p19_allowlist(ds=, vars=pdd.name_map_vars_ext, qc=, out=work.p19_cols_flagged);
-  %local _lib _mem _nunl _nhost;
+   ENCRYPT or ENCOUNTER in it also fails the gate unless it is listed in the
+   exceptions file (exc=, columns colname, reason, reviewed_by, reviewed_date)
+   AND its role is MAPPED. KEY and UNLISTED columns can never be excepted. A
+   missing exceptions file, or a listed name that is not a flagged MAPPED column
+   of the dataset (stale or not allowed), fails loudly. Excepted names are
+   logged (names only). NORM_PSID is a key column here; dropping it is a
+   Wave 2 decision (PDD-D-43). out = work table of unexcepted flagged names
+   (colname, colrole). ----------------------------------------------------- */
+%macro p19_allowlist(ds=, vars=pdd.name_map_vars_ext, qc=, out=work.p19_cols_flagged,
+                     exc=&docs_path.\xlsx_name_exceptions.csv);
+  %local _lib _mem _nunl _nhost _nexc _nbad _nstale;
   %let _lib = %upcase(%scan(&ds, 1, .));
   %let _mem = %upcase(%scan(&ds, 2, .));
+  %let _nexc = 0;
+  %let _nbad = 0;
+  %if not %sysfunc(fileexist(&exc)) %then %do;
+    %p19_fail(msg=%str(name exceptions file is missing: &exc));
+    %return;
+  %end;
+  data work._p19_exc;
+    length colname $64 reason $200 reviewed_by $40 reviewed_date $10;
+    infile "&exc" dsd truncover firstobs=2 encoding='wlatin1';
+    input colname reason reviewed_by reviewed_date;
+    colname = upcase(strip(colname));
+    if not missing(colname);
+  run;
   proc sql noprint;
     create table work._p19_al as
       select strip(name) as colname length=64,
@@ -503,24 +522,46 @@
                   when upcase(name) in (select upcase(strip(pcnr_name)) from &vars) then 'MAPPED'
                   else 'UNLISTED' end as colrole length=10,
              (index(upcase(name), 'MRN') > 0 or index(upcase(name), 'ENCRYPT') > 0
-              or index(upcase(name), 'ENCOUNTER') > 0) as ishost
+              or index(upcase(name), 'ENCOUNTER') > 0) as ishost,
+             (upcase(name) in (select colname from work._p19_exc)) as isexc
       from dictionary.columns
       where libname = "&_lib" and memname = "&_mem";
+    /* excepted: flagged by name, listed, and MAPPED */
+    create table work._p19_excok as
+      select colname, colrole from work._p19_al
+      where ishost = 1 and isexc = 1 and colrole = 'MAPPED';
     create table &out as
       select colname, colrole from work._p19_al
-      where colrole = 'UNLISTED' or ishost = 1
+      where colrole = 'UNLISTED' or (ishost = 1 and not (isexc = 1 and colrole = 'MAPPED'))
       order by colname;
+    /* exception rows that are not allowed: not in the dataset, not name-flagged, or not MAPPED */
+    create table work._p19_excbad as
+      select colname from work._p19_exc
+      where colname not in (select upcase(colname) from work._p19_excok);
+    select count(*) into :_nstale trimmed from work._p19_excbad;
     select count(*) into :_nunl trimmed from work._p19_al where colrole = 'UNLISTED';
-    select count(*) into :_nhost trimmed from work._p19_al where ishost = 1;
+    select count(*) into :_nexc trimmed from work._p19_excok;
+    select count(*) into :_nhost trimmed from work._p19_al
+      where ishost = 1 and not (isexc = 1 and colrole = 'MAPPED');
   quit;
   data _null_;
     set &out;
     put 'NOTE: [p19] flagged column name ' colname ' role ' colrole;
   run;
+  data _null_;
+    set work._p19_excok;
+    put 'NOTE: [p19] excepted column name ' colname ' role ' colrole;
+  run;
+  data _null_;
+    set work._p19_excbad;
+    put 'NOTE: [p19] invalid exception name ' colname;
+  run;
   %p19_qadd(ds=&qc, item=columns_not_key_and_not_mapped, n=&_nunl, fail=%eval(&_nunl > 0));
-  %p19_qadd(ds=&qc, item=columns_with_mrn_encrypt_encounter_in_name, n=&_nhost, fail=%eval(&_nhost > 0));
-  %if &_nunl > 0 or &_nhost > 0 %then
-    %p19_fail(msg=%str(allow-list gate failed - a column is not a key column or a mapped PCNR_ variable or its name suggests an MRN or encounter field. Names are in the flagged table));
+  %p19_qadd(ds=&qc, item=columns_name_flag_excepted, n=&_nexc);
+  %p19_qadd(ds=&qc, item=columns_name_flag_unexcepted, n=&_nhost, fail=%eval(&_nhost > 0));
+  %p19_qadd(ds=&qc, item=name_exceptions_invalid, n=&_nstale, fail=%eval(&_nstale > 0));
+  %if &_nunl > 0 or &_nhost > 0 or &_nstale > 0 %then
+    %p19_fail(msg=%str(allow-list gate failed - a column is not a key column or a mapped PCNR_ variable or its name suggests an MRN or encounter field and is not excepted or the exceptions file lists a column that is not allowed. Names are in the flagged table and the log));
 %mend p19_allowlist;
 
 /* ---- closed-file MRN scan (reuses the Phase 18 scan, hit count only) ----- */

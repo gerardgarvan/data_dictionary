@@ -63,7 +63,7 @@ Select-String -Path logs\19a_xlsx_preflight.log -Pattern 'PASS - preflight compl
 | Stop text | Meaning |
 |---|---|
 | `path guard - ...` | a target path is outside `out_root`, inside the shared Master Data folder, or has `..`: config problem |
-| `allow-list gate failed` | a column of `pdd.pcnr_2018_2025` is not a key column or mapped PCNR_ name, or has MRN, ENCRYPT or ENCOUNTER in its name. Names are in `work.p19a_cols_flagged` (log the NOTE lines); decide before Wave 2 |
+| `allow-list gate failed` | (fix_19a) names with MRN, ENCRYPT or ENCOUNTER fail unless listed in `docs\xlsx_name_exceptions.csv` AND role MAPPED (only `PCNR_Age_at_Encounter` is listed); a listed name that is not in the dataset, is KEY or is not name-flagged also fails; a missing exceptions file fails. QC items `columns_name_flag_excepted` / `columns_name_flag_unexcepted` (gate uses the latter). Otherwise: a column of `pdd.pcnr_2018_2025` is not a key column or mapped PCNR_ name, or has MRN, ENCRYPT or ENCOUNTER in its name. Names are in `work.p19a_cols_flagged` (log the NOTE lines); decide before Wave 2 |
 | `limits gate failed` | rows+1 >= 1,048,575, columns >= 16,384, text over 32,767, a control character, or free disk below `PDD_XLS_MIN_FREE_GB` (15): see which `limit_*` row has `isfail` 1. A control character or over-long text is a PENDING DECISION (strip or abort) |
 | `read-only guard failed` | registry, dup link or case map row count changed during the run |
 | `the benchmark CSV could not be deleted` | delete `out_root\stage\xlsx_bench.csv` by hand, it holds row-level data |

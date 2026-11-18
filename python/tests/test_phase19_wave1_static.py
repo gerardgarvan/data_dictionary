@@ -53,3 +53,20 @@ def test_linter_clean():
         r = subprocess.run([sys.executable, str(ROOT / "tools" / "sas_lint.py"), str(SAS / f)],
                            capture_output=True, text=True, cwd=ROOT)
         assert r.returncode == 0, r.stdout
+
+
+def test_name_exceptions_file_and_allowlist_contract():
+    import csv
+    rows = list(csv.DictReader((ROOT / "docs" / "xlsx_name_exceptions.csv").open(encoding="utf-8")))
+    assert [r["colname"] for r in rows] == ["PCNR_Age_at_Encounter"]
+    assert set(rows[0]) == {"colname", "reason", "reviewed_by", "reviewed_date"}
+    assert rows[0]["reviewed_by"] == "Gerard" and rows[0]["reviewed_date"] == "2026-11-18"
+    code = _code("19_xlsx_macros.sas")
+    for item in ("columns_name_flag_excepted", "columns_name_flag_unexcepted"):
+        assert item in code
+    assert "fileexist(&exc)" in code
+    assert re.search(r"%let docs_path\s+=", _code("00_config.sas"))
+    test = _code("19_xlsx_test.sas")
+    for case in ("T6_FLAGGED_EXCEPTED_MAPPED_PASSES", "T6_EXCEPTED_KEY_COLUMN_FAILS",
+                 "T6_FLAGGED_NOT_EXCEPTED_FAILS", "T6_STALE_EXCEPTION_FAILS"):
+        assert case in test

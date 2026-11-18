@@ -317,6 +317,21 @@ options nodlcreatedir;
   %_expect_ok(case=T5_CLEAN_FIXTURE_PASSES_GATE);
 
   /* ---- T6 allow-list gate -------------------------------------------------------- */
+  %let _t6dir = %sysfunc(pathname(work));
+  data _null_;
+    file "&_t6dir.\exc_none.csv";
+    put 'colname,reason,reviewed_by,reviewed_date';
+  run;
+  data _null_;
+    file "&_t6dir.\exc_age.csv";
+    put 'colname,reason,reviewed_by,reviewed_date';
+    put 'PCNR_Age_at_Encounter,"mapped age variable, not an encounter identifier",Gerard,2026-11-18';
+  run;
+  data _null_;
+    file "&_t6dir.\exc_key.csv";
+    put 'colname,reason,reviewed_by,reviewed_date';
+    put 'PECAN_ID,test,Gerard,2026-11-18';
+  run;
   data work.t6v;
     length pcnr_name $64;
     pcnr_name = 'PCNR_A'; output;
@@ -327,7 +342,7 @@ options nodlcreatedir;
     stop;
   run;
   %p19_qinit(ds=work.qc_xlsx_t6);
-  %p19_allowlist(ds=work.t6, vars=work.t6v, qc=work.qc_xlsx_t6, out=work.t6f);
+  %p19_allowlist(ds=work.t6, vars=work.t6v, qc=work.qc_xlsx_t6, out=work.t6f, exc=&_t6dir.\exc_none.csv);
   %_expect_ok(case=T6_KEY_AND_MAPPED_NAMES_PASS);
   %_cnt(ds=work.t6f);
   %_chk(case=T6_NO_FLAGGED_NAMES, cond=%str(&_c = 0), detail=%str(flagged));
@@ -335,7 +350,7 @@ options nodlcreatedir;
     length PECAN_ID 8 KEY_ERA $2 PCNR_A $5 ENCRYPTED_MRN $64;
     stop;
   run;
-  %p19_allowlist(ds=work.t6b, vars=work.t6v, qc=work.qc_xlsx_t6, out=work.t6f);
+  %p19_allowlist(ds=work.t6b, vars=work.t6v, qc=work.qc_xlsx_t6, out=work.t6f, exc=&_t6dir.\exc_age.csv);
   %_expect_fail(case=T6_ENCRYPTED_MRN_COLUMN_FAILS);
   %_cnt(ds=work.t6f, where=%str(upcase(colname) = %"ENCRYPTED_MRN%"));
   %_chk(case=T6_ENCRYPTED_MRN_NAME_IS_FLAGGED, cond=%str(&_c = 1), detail=%str(flagged name));
@@ -343,8 +358,36 @@ options nodlcreatedir;
     length PECAN_ID 8 KEY_ERA $2 PCNR_A $5 PCNR_ZZ $5;
     stop;
   run;
-  %p19_allowlist(ds=work.t6c, vars=work.t6v, qc=work.qc_xlsx_t6, out=work.t6f);
+  %p19_allowlist(ds=work.t6c, vars=work.t6v, qc=work.qc_xlsx_t6, out=work.t6f, exc=&_t6dir.\exc_none.csv);
   %_expect_fail(case=T6_UNMAPPED_PCNR_NAME_FAILS);
+
+  /* flagged + excepted + MAPPED passes (mapped name has ENCOUNTER in it) */
+  data work.t6v2;
+    length pcnr_name $64;
+    pcnr_name = 'PCNR_A'; output;
+    pcnr_name = 'PCNR_Age_at_Encounter'; output;
+  run;
+  data work.t6d;
+    length PECAN_ID 8 KEY_ERA $2 PCNR_A $5 PCNR_Age_at_Encounter 8;
+    stop;
+  run;
+  %p19_allowlist(ds=work.t6d, vars=work.t6v2, qc=work.qc_xlsx_t6, out=work.t6f, exc=&_t6dir.\exc_age.csv);
+  %_expect_ok(case=T6_FLAGGED_EXCEPTED_MAPPED_PASSES);
+  %_cnt(ds=work.t6f);
+  %_chk(case=T6_EXCEPTED_NAME_NOT_IN_FLAGGED_TABLE, cond=%str(&_c = 0), detail=%str(flagged));
+  /* flagged but not excepted fails */
+  %p19_allowlist(ds=work.t6d, vars=work.t6v2, qc=work.qc_xlsx_t6, out=work.t6f, exc=&_t6dir.\exc_none.csv);
+  %_expect_fail(case=T6_FLAGGED_NOT_EXCEPTED_FAILS);
+  /* excepted name that is a KEY column can never be excepted */
+  %p19_allowlist(ds=work.t6, vars=work.t6v, qc=work.qc_xlsx_t6, out=work.t6f, exc=&_t6dir.\exc_key.csv);
+  %_expect_fail(case=T6_EXCEPTED_KEY_COLUMN_FAILS);
+  /* stale exception: listed column is not in the dataset */
+  %p19_allowlist(ds=work.t6, vars=work.t6v, qc=work.qc_xlsx_t6, out=work.t6f, exc=&_t6dir.\exc_age.csv);
+  %_expect_fail(case=T6_STALE_EXCEPTION_FAILS);
+  /* missing exceptions file fails */
+  %p19_allowlist(ds=work.t6, vars=work.t6v, qc=work.qc_xlsx_t6, out=work.t6f, exc=&_t6dir.
+o_such_file.csv);
+  %_expect_fail(case=T6_MISSING_EXCEPTIONS_FILE_FAILS);
 
   /* ---- T7 P19-6 key columns ------------------------------------------------------ */
   data work.t7;

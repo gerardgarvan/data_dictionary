@@ -24,6 +24,7 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
 
 /* ---- Code path (C: -- in git) ---- */
 %let sas_path   = C:\data_dictionary\sas;
+%let docs_path  = C:\data_dictionary\docs;
 
 /* ---- Data paths (P: -- NOT in git, PHI lives here) ---- */
 %let raw_master = P:\PeCAN Master Data\00 Shared Data\DSS Received Data\1 Data Files\Master Data;

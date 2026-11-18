@@ -145,3 +145,7 @@ Outputs: `qc\xlsx_master_pre.csv`, `qc\xlsx_master_stage.csv`, `qc\xlsx_master_v
 - A9 The SPECIAL_MISSING sheet is not required by XLS-01; it exists only if PDD-D-40 = BOTH.
 - A10 The Python verifier reads the registry from its sas7bdat with `pandas.read_sas` (pandas is pinned). If the registry library path or encoding cannot be read, the verifier stops (PENDING SAS RUN: SAS-side export of a hashed token list as the fallback, to be approved first).
 - A11 No subagent was used; plan checker run not performed in this planning run (budget); the plan lists its own verification matrix (19-PLAN.md section "Requirement coverage").
+
+## fix_19a addendum (2026-11-18)
+- Allow-list name heuristic false positive: `PCNR_Age_at_Encounter` (MAPPED age variable) matched ENCOUNTER. Handled by `docs/xlsx_name_exceptions.csv` (reviewed Gerard, 2026-11-18); KEY and UNLISTED columns can never be excepted.
+- **PENDING DECISION (new, not applied): age top-coding.** Ages >= 90 are a HIPAA identifier category; PDD-D-35..44 do not cover it. Before the master workbook is released, decide whether `PCNR_Age_at_Encounter` and other age variables (`docs/age_variables.csv`) are top-coded at 90 (e.g. "90+"), left as is, or dropped. Options and probe evidence (count of age values >= 90, masked <11) to be requested from a SAS probe; no choice applied here.
