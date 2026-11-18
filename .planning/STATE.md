@@ -2,7 +2,7 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: PCNR_ raw layer and dictionary framework
-status: Phase 18 COMPLETE 2026-11-18; next Phase 19
+status: Phase 19 COMPLETE 2026-11-18; milestone v2.0 phases 14-19 done
 last_updated: "2026-11-17T00:19:56.099Z"
 progress:
   total_phases: 8
@@ -27,7 +27,19 @@ Earlier note (superseded, Phase 15 closed): Phase 15 (M2) could be planned: the 
 | 16 | M3 | Name map extension | Complete 2026-11-17 (MAP-01..04 satisfied; test T1-T9 passed, 16a PASS, 16b 1297 variables / 56 NO_DATA, `run_pipeline.cmd 16` PASSED, 0 WARNING) |
 | 17 | M4 | PECAN_ID | Complete 2026-11-17 (PID-01..08; tests T1-T18 and T0-T7 passed; 17a approved 41150 rows 1:1 / 33031 K1 IDs / 1895 dup pairs; 17b 26474 K2 MRNs, registry 59505, case map 77498; see 17-SUMMARY.md) |
 | 18 | M5 | Combined dataset and dictionary 2018-2025 | Complete 2026-11-18 (DD-01..DD-04; test, 18a-18d and writer PASS on real data; see 18-SUMMARY.md) |
-| 19 | M6 | Master Excel export | Planned 2026-11-18 (19-PLAN.md); decisions PDD-D-35..44 PENDING; code not started |
+| 19 | M6 | Master Excel export | Complete 2026-11-18 (XLS-01..04; test, 19a, 19b, writer, verifier PASS on real data; see 19-SUMMARY.md) |
+
+**Phase 19 COMPLETE (2026-11-18).** Verified by Gerard: 19_xlsx_test ALL TESTS PASSED; 19a PASS; 19b PASS (1,300 columns, 77,499 records); writer PASS (`out\PCNR_Master_Data_Nov_2026.xlsx`, 75.7 MB); verifier PASS (2,687 items, 0 failed). Supersedes the Phase 19 planned/Wave 1 notes below. See `19-SUMMARY.md`.
+
+**Backlog (added at Phase 19 close):**
+- Triage pre-Phase-19 lint errors (sas_lint 43 errors across older files; sasjs "10 errors"): were all phases really lint-clean?
+- Masking applies to non-person counts (flags, timings, check counts): mask only person/cell counts.
+- INT_IN_DATE_RANGE probe range (1-80000) is uninformative.
+- 06_profile_macros pct carry-over (also check published `pdd_v1_0.xlsx`); see cleanup item 6.
+- W1 `&sqlrc` warnings in 19_xlsx_macros.
+- Revisit sensitive fields (lat/long, free text, staff names, ages 90+) before any sharing beyond the PeCAN team.
+
+**Carried forward:** Price naming sign-off; DSS question on the `#Error` deaths; cleanup items 1, 2, 3, 5; future cross-era link.
 
 **Phase 18 COMPLETE (2026-11-18).** Verified by Gerard: test ALL TESTS PASSED; 18a PASS; 18b PASS (77,498 x 1,302; backup path also PASS); 18c PASS (19 QC items clean); 18d PASS (0 hits); writer exit 0 (`out\pdd_2018_2025.xlsx`). PDD-D-33 and PDD-D-34 CONFIRMED 2026-11-18. See `18-SUMMARY.md`.
 

@@ -1,6 +1,6 @@
 # Phase 19 SAS run sheet, Wave 1 (for Gerard)
 
-**Status: PENDING SAS RUN.** Written lint-clean on a machine with no SAS and no P:. Wave 1 only: the synthetic test and the probe/preflight 19a. Nothing here needs a PDD-D-35..44 or PDD-D-27 decision; those stay PENDING DECISION and 19a only lists them.
+**Status: COMPLETE 2026-11-18** (all steps incl. Wave 2 run on real data and passed; see 19-SUMMARY.md). Historical text follows:  Written lint-clean on a machine with no SAS and no P:. Wave 1 only: the synthetic test and the probe/preflight 19a. Nothing here needs a PDD-D-35..44 or PDD-D-27 decision; those stay PENDING DECISION and 19a only lists them.
 Later steps (19b stage export, writer, verifier) are Wave 2 and are not in this sheet.
 
 ## Before you start

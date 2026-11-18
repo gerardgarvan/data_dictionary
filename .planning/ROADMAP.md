@@ -202,9 +202,10 @@ Plans:
   1. Workbook at `P:\PeCAN Master Data\Gerard\data_dictionary\out\` has KEY leftmost (source, date, row/column counts, ID definitions, missing-value convention) and DATA.
   2. Pre-export checks stop the run at rows >= 1,048,575, columns >= 16,384, or any text cell > 32,767 characters.
   3. Round-trip QC in `qc\` matches row count, column names in order, and per-column non-missing counts with the SAS dataset.
-  4. Whether the dictionary is a sheet in this file follows PDD-D-27 (OPEN, default no).
+  4. Whether the dictionary is a sheet in this file follows PDD-D-27 (DECIDED: no, separate workbook).
 - **Handoff from 18:** percentages must come from the scrubbed exchange profile or be recomputed with the same masking, never from `pdd.prf_PCNR_2018_2025` directly. Output only under `P:\PeCAN Master Data\Gerard\data_dictionary`.
-- **Plans:** planned 2026-11-18 (headless): `.planning/phases/19-master-data-workbook/19-PLAN.md` and `19-CONTEXT.md` (19-01a..19-08; route (b1) recommended; PDD-D-35..44 PENDING DECISION; probes P19-1..8 and `19_xlsx_test`/`19a` PENDING SAS RUN)
+- **Status: COMPLETE 2026-11-18** (verified on real data; PDD-D-27 and PDD-D-35..44 DECIDED; see `19-SUMMARY.md`). Verifier PASS 2,687 items, 0 failed.
+- **Plans (historical):** planned 2026-11-18 (headless): `.planning/phases/19-master-data-workbook/19-PLAN.md` and `19-CONTEXT.md` (19-01a..19-08; route (b1) recommended; PDD-D-35..44 PENDING DECISION; probes P19-1..8 and `19_xlsx_test`/`19a` PENDING SAS RUN)
 
 ## Milestone v1.x: Remaining families (each gated on its open decision)
 Each phase repeats Phases 2–7 for its family: source guard, import, name map, build, profile, sheet.
