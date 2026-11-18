@@ -172,6 +172,43 @@ def _guard_count_cells(label: str, rows: list[dict[str, str]], cols: list[str]) 
                 raise RuntimeError(f"unmasked small count in {label} row {i} column {col}")
 
 
+def _guard_pct_cells(
+    label: str, rows: list[dict[str, str]], total_rows: int, *, profile: bool = False
+) -> None:
+    """Hard fail if a pct cell would let a reader back-calculate a count of 1-10.
+
+    A pct_total cell implies a count of round(pct / 100 * total_rows); 1-10 is refused
+    in every exchange file. For the profile, any pct cell on a row whose n is blank,
+    masked, 1-10 or flagged small is refused too (this also covers pct_nonmiss).
+    """
+    for i, row in enumerate(rows, start=2):
+        for col, val in row.items():
+            if not col.startswith("pct"):
+                continue
+            s = str(val or "").strip()
+            if not s:
+                continue
+            try:
+                pct = float(s)
+            except ValueError:
+                continue
+            if col != "pct_nonmiss" and 1 <= round(pct / 100 * total_rows) <= 10:
+                raise RuntimeError(f"pct back-calculates a count of 1-10 in {label} row {i} column {col}")
+        if profile:
+            n = str(row.get("n") or "").strip()
+            try:
+                n_val: float | None = float(n)
+            except ValueError:
+                n_val = None  # blank, '<11' or 'suppressed'
+            small = (
+                n_val is None
+                or 1 <= n_val <= 10
+                or str(row.get("small_cell_flag") or "").strip().upper() == "Y"
+            )
+            if small and any(str(row.get(c) or "").strip() for c in ("pct_total", "pct_nonmiss")):
+                raise RuntimeError(f"pct present on a blank or masked n row in {label} row {i}")
+
+
 def load_key_facts(rows: list[dict[str, str]]) -> dict[str, str]:
     """Key facts as {NORMALIZED_ITEM: value}."""
     facts: dict[str, str] = {}
@@ -220,7 +257,7 @@ def load_inputs(exchange_dir: Path, docs_dir: Path) -> dict[str, Any]:
     _assert_columns("comb_recon.csv", rec_h, ["pcnr_name", "n_nonmiss_comb_all", "explained"])
     _guard_count_cells(
         "comb_recon.csv", rec_rows,
-        [c for c in rec_h if c.startswith("n_nonmiss")],
+        [c for c in rec_h if c.startswith(("n_nonmiss", "n_special"))],
     )
     data["recon_headers"], data["recon"] = rec_h, rec_rows
 
@@ -544,6 +581,11 @@ def write_workbook_2018_2025(
         raise ValueError("comb_key_facts.csv: rows count missing or not an integer")
 
     profile_df = data["profile_df"]
+    # PDD-D-34 pct guard on the raw exchange files, before any suppression blanks a cell
+    _guard_pct_cells("profile_PCNR_2018_2025.csv", profile_df.to_dict("records"), total_rows, profile=True)
+    for lbl, key in (("comb_recon.csv", "recon"), ("comb_nodata.csv", "nodata"),
+                     ("comb_d30_conflicts.csv", "d30"), ("name_map_vars_coverage.csv", "coverage")):
+        _guard_pct_cells(lbl, data[key], total_rows)
     if config.get("age_topcode", True):
         profile_df = apply_age_topcode(
             profile_df, docs_dir / str(config.get("age_variables_file", "age_variables.csv"))

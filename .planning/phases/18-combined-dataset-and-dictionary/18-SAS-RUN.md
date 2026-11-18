@@ -4,6 +4,14 @@
 **PDD-D-33 is DECIDED** (Gerard, 2026-11-17): K2 `PRECEDE_STUDY_ID` is the normalized `Precede#####` form. `PDD_K2_PSID_MODE` defaults to NORM in `sas/00_config.sas`; no parameter is needed on any run command.
 **Price naming sign-off:** still pending, unrelated to this phase.
 
+## Re-run after fix_18c (PDD-D-34)
+Written after Gerard's first run (18a-18d PASS, writer exit 1 on 27 special-missing variables). 18a and 18b do **not** need a re-run. Re-run, each in a fresh SAS session:
+1. `18_combine_test.sas` (new T10B special-missing and T10C pct-scrub checks; expect `ALL TESTS PASSED`)
+2. `18c_comb_profile_qc.sas` (now counts `not missing`, writes `n_special_comb_all`, scrubs pct on blank/masked/small-n profile rows and rewrites `profile_PCNR_2018_2025.csv`; QC rows `profile_pct_scrubbed` and `profile_pct_implied_small` = 0)
+3. `18d_comb_scan.sas` (fresh session, after 18c)
+4. `.venv\Scripts\python.exe python\scripts\write_dictionary_2018_2025.py` (new pct guard; exit 0 expected)
+Bring back: the 4 logs, `qc\comb_profile.csv`, `exchange\comb_recon.csv` (check `n_special_comb_all` on the 27 variables and that no pct on masked rows), `qc\comb_scan.csv`.
+
 ## Before you start
 1. Sync branch `pdd-2018-2025-api`. Phase 15, 16 and 17 outputs must exist on P: (`pdd.pcnr`, `pdd.name_map*`, `pdd.nsrc_s21..s23`, `pdd.pecan_id_registry`, `pdd.pecan_id_dup_link`, `pdd.pecan_id_case_map`, `pdd.prf_pcnr`).
 2. `.venv\Scripts\python.exe -m pip install -r python\requirements.txt`

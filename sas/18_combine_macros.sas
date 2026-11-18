@@ -815,15 +815,24 @@
 /* ---- per-variable non-missing and distinct counts ------------------------
    vars table needs idx and pcnr_name. where= is plain text without commas
    (for example KEY_ERA='K1'). out: pcnr_name, n_nonmiss, n_distinct. ----- */
-%macro p18_stats(ds=, out=, era=, distinct=1, vars=work.p18_vars);
+%macro p18_stats(ds=, out=, era=, distinct=1, special=0, vars=work.p18_vars);
   filename p18st temp;
   data _null_;
     set &vars end=_e;
     length _l $400;
     file p18st lrecl=400;
     if _n_ = 1 then put "proc sql noprint; create table work._p18_st1 as select count(*) as nrows";
-    _l = catx(' ', ',', 'count(', strip(pcnr_name), ') as n' || strip(put(idx, best12.)));
+    /* PDD-D-34: n_nonmiss counts only cells that are not missing. PROC SQL
+       COUNT(col) counts special missings (.A-.Z, ._) as values, so use
+       SUM(NOT MISSING(col)), the same meaning as PROC MEANS N. */
+    _l = catx(' ', ',', 'coalesce(sum(not missing(', strip(pcnr_name), ')), 0) as n' || strip(put(idx, best12.)));
     put _l;
+    if &special = 1 then do;
+      if upcase(decided_type) = 'N'
+        then _l = catx(' ', ',', 'coalesce(sum(missing(', strip(pcnr_name), ') and', strip(pcnr_name), 'ne .), 0) as s' || strip(put(idx, best12.)));
+        else _l = catx(' ', ',', '0 as s' || strip(put(idx, best12.)));
+      put _l;
+    end;
     if &distinct = 1 then do;
       _l = catx(' ', ',', 'count(distinct', strip(pcnr_name), ') as d' || strip(put(idx, best12.)));
       put _l;
@@ -842,17 +851,20 @@
     length _l $400;
     file p18st2 lrecl=400;
     if _n_ = 1 then do;
-      put "data &out; set work._p18_st1; length pcnr_name $64 n_nonmiss 8 n_distinct 8;";
+      put "data &out; set work._p18_st1; length pcnr_name $64 n_nonmiss 8 n_distinct 8 n_special 8;";
     end;
     _l = catx(' ', 'pcnr_name =', '"' || strip(pcnr_name) || '";',
               'n_nonmiss = n' || strip(put(idx, best12.)) || ';');
+    put _l;
+    if &special = 1 then _l = 'n_special = s' || strip(put(idx, best12.)) || ';';
+    else _l = 'n_special = .;';
     put _l;
     if &distinct = 1 then do;
       _l = 'n_distinct = d' || strip(put(idx, best12.)) || '; output;';
     end;
     else _l = 'n_distinct = .; output;';
     put _l;
-    if _e then put "keep pcnr_name n_nonmiss n_distinct; run;";
+    if _e then put "keep pcnr_name n_nonmiss n_distinct n_special; run;";
   run;
   %include p18st2;
   options mprint;
@@ -909,7 +921,7 @@
   quit;
   %p18_stats(ds=&comb, out=work._p18_rk1, era=K1, distinct=1, vars=&vars);
   %p18_stats(ds=&comb, out=work._p18_rk2, era=K2, distinct=0, vars=&vars);
-  %p18_stats(ds=&comb, out=work._p18_rall, distinct=0, vars=&vars);
+  %p18_stats(ds=&comb, out=work._p18_rall, distinct=0, special=1, vars=&vars);
   %p18_stats(ds=&old, out=work._p18_rold, distinct=0, vars=work._p18_vold);
   proc sql noprint;
     create table work._p18_pv as
@@ -928,7 +940,8 @@
              k1.n_nonmiss as n_nonmiss_comb_k1,
              k2.n_nonmiss as n_nonmiss_comb_k2,
              al.n_nonmiss as n_nonmiss_comb_all,
-             k1.n_nonmiss - coalesce(o.n_nonmiss, 0) as delta_k1,
+             al.n_special as n_special_comb_all,
+             k1.n_nonmiss -coalesce(o.n_nonmiss, 0) as delta_k1,
              k1.n_distinct as n_distinct_k1,
              case when p.vcl = 'LOW_CARD' and p.noth = 0 and p.nlev > 0 then p.nlev
                   when p.nd is not null then p.nd else . end as n_distinct_prf_v1,
@@ -1015,6 +1028,38 @@
   %if &_p18_scan_hits > 0 %then
     %p18_fail(msg=%str(MRN scan found a registry MRN in a closed log or QC file - see the scan table hit counts));
 %mend p18_scan_no_mrn;
+
+/* ---- PDD-D-34 pct scrub: close the pct back-calculation leak --------------
+   A profile row whose n is blank, 1-10 or flagged small (small_cell_flag Y) must
+   carry no pct_total / pct_nonmiss: pct / 100 * total_rows would give the count
+   back. in = profile table, out = scrubbed copy (WORK), total = dataset row
+   count. QC rows: profile_pct_scrubbed (rows changed) and
+   profile_pct_implied_small (rows left whose implied count is 1-10, FAIL if >0). */
+%macro p18_pct_scrub(in=, out=, total=, qc=);
+  %local _nfix _nleft;
+  %let _nfix = 0;
+  data &out;
+    set &in end=_e;
+    retain _fix 0;
+    if (missing(n) or (n >= 1 and n <= 10) or small_cell_flag = 'Y')
+       and (not missing(pct_total) or not missing(pct_nonmiss)) then do;
+      pct_total = .;
+      pct_nonmiss = .;
+      _fix = _fix + 1;
+    end;
+    if _e then call symputx('_nfix', _fix);
+    drop _fix;
+  run;
+  proc sql noprint;
+    select count(*) into :_nleft trimmed from &out
+      where pct_total is not missing
+        and round(pct_total / 100 * &total) >= 1 and round(pct_total / 100 * &total) <= 10;
+  quit;
+  %p18_qadd(ds=&qc, item=profile_pct_scrubbed, n=&_nfix);
+  %p18_qadd(ds=&qc, item=profile_pct_implied_small, n=&_nleft, fail=%eval(&_nleft > 0));
+  %if &_nleft > 0 %then
+    %p18_fail(msg=%str(profile pct cells still imply a count of 1-10 after the pct scrub));
+%mend p18_pct_scrub;
 
 /* ---- QC dump: stack work.qc_comb_<name> tables into one masked CSV --------
    tables = blank separated names without the qc_comb_ prefix, file = full path.

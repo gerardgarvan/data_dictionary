@@ -38,14 +38,16 @@ VARS = {
     "ASA_Anesth_Record": ("80", "80"),
     "Rare_Var": ("5", "<11"),
     "NoData_Var": ("0", "0"),
+    "Special_Var": ("60", "60"),  # also holds .A/.B cells: missing for N (PDD-D-34)
 }
+N_SPECIAL = {"Special_Var": "25"}
 PROFILE_COLS = [
     "family", "variable", "var_class", "stat", "level", "n", "value", "pct_total",
     "pct_nonmiss", "sort_order", "small_cell_flag", "date_kind", "display_format",
 ]
 RECON_COLS = [
     "pcnr_name", "n_nonmiss_pcnr_old", "n_nonmiss_comb_k1", "n_nonmiss_comb_k2",
-    "n_nonmiss_comb_all", "delta_k1", "n_distinct_k1", "n_distinct_prf_v1", "explained",
+    "n_nonmiss_comb_all", "n_special_comb_all", "delta_k1", "n_distinct_k1", "n_distinct_prf_v1", "explained",
 ]
 
 
@@ -95,7 +97,7 @@ def make_exchange(
         if recon_override and name in recon_override:
             rc = recon_override[name]
         exp = explained_n if (explained_n and name == "Alpha_Var") else "Y"
-        recon.append([name, rc, rc, "0", rc, "0", "3", "3", exp])
+        recon.append([name, rc, rc, "0", rc, N_SPECIAL.get(name, "0"), "0", "3", "3", exp])
     _w(ex / "comb_recon.csv", RECON_COLS, recon)
     _w(ex / "comb_nodata.csv", ["pcnr_name", "n_nonmiss", "coverage_status", "reconciled"],
        [["NoData_Var", "0", "NO_DATA", "Y"]])
@@ -197,7 +199,7 @@ def test_key_sheet_text(tmp_path):
     assert "1 s06 variables are flagged NO_DATA" in blob  # computed from the fixture
     assert "Price" in blob and "pending" in blob
     assert "NULL is read as missing" in blob
-    assert "120 rows and 12 columns" in blob
+    assert "120 rows and 13 columns" in blob
 
 
 def test_k2_mode_from_key_facts(tmp_path):
@@ -267,3 +269,83 @@ def test_script_exit_codes(tmp_path):
     assert (out / "pdd_2018_2025.xlsx").exists()
     (ex / "comb_recon.csv").unlink()
     assert subprocess.run(base, capture_output=True, text=True).returncode != 0
+
+
+def _read_profile(ex: Path) -> tuple[list[str], list[list[str]]]:
+    with (ex / "profile_PCNR_2018_2025.csv").open(encoding="utf-8", newline="") as fh:
+        rd = list(csv.reader(fh))
+    return rd[0], rd[1:]
+
+
+def _add_profile_row(ex: Path, **cells: str) -> None:
+    header, rows = _read_profile(ex)
+    rec = {c: "" for c in PROFILE_COLS}
+    rec.update(family="PCNR", variable="Zeta_Var", var_class="CONT_NUM", stat="LEVEL", sort_order="50")
+    rec.update(cells)
+    rows.append([rec[c] for c in PROFILE_COLS])
+    _w(ex / "profile_PCNR_2018_2025.csv", header, rows)
+
+
+def test_special_missing_variable_reconciles(tmp_path):
+    # profile N = recon n_nonmiss_comb_all = 60; 25 special missings shown only as n_special
+    ws = load_workbook(build(tmp_path))["VARIABLES"]
+    h = {c.value: i for i, c in enumerate(ws[1])}
+    by = {r[0].value: r for r in ws.iter_rows(min_row=2)}
+    assert by["Special_Var"][h["n_nonmiss"]].value == 60
+
+
+def test_reconcile_fails_when_recon_counts_special_missings_as_values(tmp_path):
+    # the pre-PDD-D-34 behaviour: n_nonmiss_comb_all = N + special total
+    ex = make_exchange(tmp_path, recon_override={"Special_Var": "85"})
+    with pytest.raises(ValueError, match="reconciliation failed"):
+        write_workbook_2018_2025(ex, tmp_path / "o.xlsx", DOCS, CFG)
+
+
+def test_unmasked_small_n_special_fails(tmp_path):
+    ex = make_exchange(tmp_path)
+    header, rows = _read_profile(ex)
+    rc = (ex / "comb_recon.csv").read_text(encoding="utf-8").replace(",25,", ",7,")
+    (ex / "comb_recon.csv").write_text(rc, encoding="utf-8")
+    with pytest.raises(RuntimeError, match="unmasked small count"):
+        write_workbook_2018_2025(ex, tmp_path / "o.xlsx", DOCS, CFG)
+
+
+def test_pct_on_masked_n_row_fails(tmp_path):
+    ex = make_exchange(tmp_path)
+    _add_profile_row(ex, n="<11", pct_total="0.5", small_cell_flag="Y")
+    with pytest.raises(RuntimeError, match="pct"):
+        write_workbook_2018_2025(ex, tmp_path / "o.xlsx", DOCS, CFG)
+
+
+def test_pct_on_blank_n_row_fails(tmp_path):
+    ex = make_exchange(tmp_path)
+    _add_profile_row(ex, n="", pct_total="50", small_cell_flag="N")
+    with pytest.raises(RuntimeError, match="blank or masked n"):
+        write_workbook_2018_2025(ex, tmp_path / "o.xlsx", DOCS, CFG)
+
+
+def test_pct_implying_small_count_fails_even_with_large_n(tmp_path):
+    # 1/120 * 100 = 0.8333: implied count 1 of TOTAL 120
+    ex = make_exchange(tmp_path)
+    _add_profile_row(ex, n="50", pct_total="0.83333333", small_cell_flag="N")
+    with pytest.raises(RuntimeError, match="back-calculates"):
+        write_workbook_2018_2025(ex, tmp_path / "o.xlsx", DOCS, CFG)
+
+
+def test_pct_guard_applies_to_other_exchange_files(tmp_path):
+    ex = make_exchange(tmp_path)
+    (ex / "comb_nodata.csv").write_text(
+        "pcnr_name,n_nonmiss,coverage_status,reconciled,pct_total\nNoData_Var,0,NO_DATA,Y,2.5\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError, match="back-calculates"):
+        write_workbook_2018_2025(ex, tmp_path / "o.xlsx", DOCS, CFG)
+
+
+def test_blank_pct_on_masked_rows_and_large_pct_pass(tmp_path):
+    ex = make_exchange(tmp_path)
+    _add_profile_row(ex, n="<11", pct_total="", small_cell_flag="Y")
+    _add_profile_row(ex, n="50", pct_total="41.6667", small_cell_flag="N")
+    out = tmp_path / "o.xlsx"
+    write_workbook_2018_2025(ex, out, DOCS, CFG)
+    assert out.exists()

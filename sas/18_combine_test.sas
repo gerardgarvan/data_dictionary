@@ -565,6 +565,45 @@ options nodlcreatedir;
   %p18_recon(comb=work.final_bad, old=work.t_old, prf=work.t_prf, tag_old=old);
   %_expect_fail(case=T10_UNEXPLAINED_DELTA_FAILS);
 
+  /* ---- T10b special missings (PDD-D-34) ---------------------------------------- */
+  data work.t_sv;
+    length pcnr_name $64 decided_type $1;
+    idx = 1; pcnr_name = 'PCNR_SPEC'; decided_type = 'N'; output;
+    idx = 2; pcnr_name = 'PCNR_TXT'; decided_type = 'C'; output;
+  run;
+  data work.t_sd;
+    length KEY_ERA $2 PCNR_TXT $4;
+    KEY_ERA = 'K1'; PCNR_SPEC = 5; PCNR_TXT = 'a'; output;
+    PCNR_SPEC = .A; PCNR_TXT = ''; output;
+    PCNR_SPEC = .A; output;
+    PCNR_SPEC = .B; output;
+    PCNR_SPEC = .; output;
+  run;
+  %p18_stats(ds=work.t_sd, out=work.t_so, distinct=0, special=1, vars=work.t_sv);
+  %_expect_ok(case=T10B_STATS_WITH_SPECIAL_RUNS);
+  %_val(ds=work.t_so, var=n_nonmiss, where=%str(pcnr_name = %'PCNR_SPEC%'));
+  %_chk(case=T10B_NONMISS_EXCLUDES_SPECIAL_MISSINGS, cond=%str(&_v = 1), detail=%str(nonmiss));
+  %_val(ds=work.t_so, var=n_special, where=%str(pcnr_name = %'PCNR_SPEC%'));
+  %_chk(case=T10B_N_SPECIAL_COUNTS_A_AND_B, cond=%str(&_v = 3), detail=%str(special));
+  %_val(ds=work.t_so, var=n_special, where=%str(pcnr_name = %'PCNR_TXT%'));
+  %_chk(case=T10B_CHAR_VARIABLE_HAS_NO_SPECIAL, cond=%str(&_v = 0), detail=%str(char special));
+  %_val(ds=work.t_so, var=n_nonmiss, where=%str(pcnr_name = %'PCNR_TXT%'));
+  %_chk(case=T10B_CHAR_NONMISS_COUNTS_NONBLANK, cond=%str(&_v = 1), detail=%str(char nonmiss));
+
+  /* ---- T10c pct scrub (PDD-D-34) --------------------------------------------------- */
+  data work.t_pp;
+    length variable $32 stat $16 small_cell_flag $1 n 8 pct_total 8 pct_nonmiss 8;
+    variable = 'V'; stat = 'LEVEL'; n = .; pct_total = 0.5; pct_nonmiss = 0.5; small_cell_flag = 'N'; output;
+    variable = 'W'; stat = 'LEVEL'; n = 5; pct_total = 0.4; pct_nonmiss = 0.4; small_cell_flag = 'Y'; output;
+    variable = 'X'; stat = 'LEVEL'; n = 500; pct_total = 40; pct_nonmiss = 50; small_cell_flag = 'N'; output;
+  run;
+  %p18_pct_scrub(in=work.t_pp, out=work.t_ps, total=1250, qc=work.qc_comb_t10c);
+  %_expect_ok(case=T10C_PCT_SCRUB_PASSES);
+  %_cnt(ds=work.t_ps, where=%str((variable = %'V%' or variable = %'W%') and pct_total is missing and pct_nonmiss is missing));
+  %_chk(case=T10C_PCT_BLANK_ON_BLANK_AND_SMALL_N, cond=%str(&_c = 2), detail=%str(pct kept));
+  %_cnt(ds=work.t_ps, where=%str(variable = %'X%' and pct_total = 40));
+  %_chk(case=T10C_PCT_KEPT_ON_LARGE_N, cond=%str(&_c = 1), detail=%str(pct lost));
+
   /* ---- T12 read-only guard ---------------------------------------------------- */
   %p18_ro_start;
   %p18_ro_end;

@@ -121,12 +121,24 @@
     put "&_modate.,&_nobs.,&_dttm.";
   run;
 
+  /* PDD-D-34: no pct on a masked, blank or small-n row (pct x total gives the
+     count back). Scrub a WORK copy of the profile and rewrite the exchange CSV
+     with the same PROC EXPORT call Phase 6 uses. pdd.prf_ stays as published. */
+  %p18_pct_scrub(in=pdd.prf_PCNR_2018_2025, out=work.p18c_prf_scrub, total=&_nobs,
+                 qc=pdd.qc_comb_profile);
+  filename p18cprf "&exchange_path.\profile_PCNR_2018_2025.csv" encoding='utf-8';
+  proc export data=work.p18c_prf_scrub outfile=p18cprf dbms=csv replace;
+  run;
+  filename p18cprf clear;
+  %if &syserr > 4 %then
+    %fail_out(msg=%str(PROC EXPORT of the scrubbed profile CSV failed));
+
   /* reconciliation (DD-04) */
   %p18_recon(comb=pdd.&comb_ds, old=pdd.pcnr, prf=pdd.prf_pcnr, tc=pdd.qc_comb_typeconv,
              out=work.p18c_recon, qc=pdd.qc_comb_profile);
   %p18_export(ds=work.p18c_recon, file=&exchange_path.\comb_recon.csv,
-              cols=pcnr_name n_nonmiss_pcnr_old n_nonmiss_comb_k1 n_nonmiss_comb_k2 n_nonmiss_comb_all delta_k1 n_distinct_k1 n_distinct_prf_v1 explained,
-              numcols=n_nonmiss_pcnr_old n_nonmiss_comb_k1 n_nonmiss_comb_k2 n_nonmiss_comb_all delta_k1 n_distinct_k1 n_distinct_prf_v1);
+              cols=pcnr_name n_nonmiss_pcnr_old n_nonmiss_comb_k1 n_nonmiss_comb_k2 n_nonmiss_comb_all n_special_comb_all delta_k1 n_distinct_k1 n_distinct_prf_v1 explained,
+              numcols=n_nonmiss_pcnr_old n_nonmiss_comb_k1 n_nonmiss_comb_k2 n_nonmiss_comb_all n_special_comb_all delta_k1 n_distinct_k1 n_distinct_prf_v1);
 
   /* NO_DATA flags (coverage reconciliation) */
   %p18_nodata_flags(ds=pdd.&comb_ds, cov=pdd.name_map_vars_coverage, out=work.p18c_nodata,
