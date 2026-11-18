@@ -804,20 +804,82 @@
 /* ---- records in a closed CSV, quote aware: a record ends at a line end after
    which the running count of double quotes is even. Sets _p19_csv_recs and
    _p19_csv_lines (physical lines, CRLF split). ----------------------------- */
+%macro p19_csv_scan(file=, out=work.p19_csvscan);
+  /* Streams the file as raw 32767 byte blocks (RECFM=F, no _INFILE_, so rows longer
+     than 32767 bytes are fine) and splits physical lines at CRLF; a lone CR or LF is
+     content. State (pending CR, quote parity, blanks) carries across blocks. One row
+     per physical line: lineno, len (bytes, CRLF excluded), nq (double quotes),
+     head (first 64 bytes), recok (1 when the running quote count is even, i.e. the
+     line ends a record). The last block is blank padded: trailing blanks of a final
+     line with no CRLF are not counted (p19_stage always ends lines with CRLF). */
+  data &out(keep=lineno len nq head recok);
+    infile "&file" recfm=f lrecl=32767 truncover end=_e;
+    input _b $char32767.;
+    length _c _x $1 head $64;
+    retain _cr 0 _pend 0 _q 0 _bl 0 head '';
+    do _i = 1 to 32767;
+      _c = char(_b, _i);
+      _skip = 0;
+      if _cr then do;
+        _cr = 0;
+        if _c = '0A'x then do;
+          link term;
+          _skip = 1;
+        end;
+        else do;
+          _x = '0D'x;
+          link addc;
+        end;
+      end;
+      if not _skip then do;
+        if _c = '0D'x then _cr = 1;
+        else if _c = ' ' then _bl + 1;
+        else do;
+          _x = _c;
+          link addc;
+        end;
+      end;
+    end;
+    if _e and _pend then do;
+      _bl = 0;
+      link term;
+    end;
+    return;
+  addc:
+    _pos = len + _bl + 1;
+    if _pos <= 64 then substr(head, _pos, 1) = _x;
+    len + _bl + 1;
+    _bl = 0;
+    if _x = '22'x then do;
+      nq + 1;
+      _q + 1;
+    end;
+    _pend = 1;
+    return;
+  term:
+    len + _bl;
+    _bl = 0;
+    lineno + 1;
+    recok = (mod(_q, 2) = 0);
+    output;
+    len = 0;
+    nq = 0;
+    head = '';
+    _pend = 0;
+    return;
+  run;
+%mend p19_csv_scan;
+
 %macro p19_csv_records(file=);
+  %global _p19_csv_recs _p19_csv_lines;
   %let _p19_csv_recs = 0;
   %let _p19_csv_lines = 0;
-  data _null_;
-    infile "&file" encoding='utf-8' lrecl=1048576 termstr=crlf truncover end=_e;
-    input;
-    _lines + 1;
-    _q + countc(_infile_, '22'x);
-    if mod(_q, 2) = 0 then _recs + 1;
-    if _e then do;
-      call symputx('_p19_csv_recs', _recs, 'G');
-      call symputx('_p19_csv_lines', _lines, 'G');
-    end;
-  run;
+  %p19_csv_scan(file=&file, out=work.p19_csvscan);
+  proc sql noprint;
+    select count(*), coalesce(sum(recok), 0)
+      into :_p19_csv_lines trimmed, :_p19_csv_recs trimmed
+      from work.p19_csvscan;
+  quit;
 %mend p19_csv_records;
 
 /* ---- expected counts and sample list (exact, stay on P: under stage). One

@@ -895,6 +895,21 @@ def test_c39_clean_cases():
         assert sas_lint.check_char_length_over_max("<test>", lines) == [], lines
 
 
+def test_c40_fires_on_large_lrecl_with_infile_var():
+    lines = ["data _null_;", "  infile f lrecl=1048576 truncover;", "  input;",
+             "  n = countc(_infile_, 'x');", "run;"]
+    hits = sas_lint.check_infile_large_lrecl("<test>", lines)
+    assert any(h[2] == "C40" for h in hits), hits
+
+
+def test_c40_clean_cases():
+    for lines in (["data _null_;", "infile f lrecl=32767;", "input;", "x=_infile_;", "run;"],
+                  ["data _null_;", "infile f lrecl=1048576;", "input a $char100.;", "run;"],
+                  ["data _null_;", "infile f lrecl=1048576;", "run;",
+                   "data _null_;", "infile g;", "x=_infile_;", "run;"]):
+        assert sas_lint.check_infile_large_lrecl("<test>", lines) == [], lines
+
+
 def test_c38_clean_cases():
     for lines in (["select a from &ds where %unquote(&where);"],
                   ["%_val(ds=x, where=&where);"],
