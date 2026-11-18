@@ -100,13 +100,16 @@ options nodlcreatedir;
 %mend _record;
 
 /* the check is FAIL unless cond evaluates true (C34: %unquote) */
-%macro _chk(case=, cond=, detail=);
-  %local _res _isdec;
+/* num=1: cond holds a decimal comparison, evaluated with %sysevalf(..., boolean)
+   into a variable first, so an evaluation problem leaves _r blank (FAIL is recorded)
+   instead of stopping the macro inside %if. Use num=1 for every decimal literal. */
+%macro _chk(case=, cond=, detail=, num=0);
+  %local _res _r;
   %let _res = FAIL;
-  /* a decimal needs %sysevalf (plain %if raises the character-operand ERROR) */
-  %let _isdec = %sysfunc(prxmatch(/\d\.\d/, %superq(cond)));
-  %if &_isdec > 0 %then %do;
-    %if %sysevalf(%unquote(&cond)) %then %let _res = PASS;
+  %if &num = 1 %then %do;
+    %let _r = 0;
+    %let _r = %sysevalf(%unquote(&cond), boolean);
+    %if "&_r" = "1" %then %let _res = PASS;
   %end;
   %else %do;
     %if %unquote(&cond) %then %let _res = PASS;
@@ -333,7 +336,7 @@ options nodlcreatedir;
   %p18_typeconv_reset;
   %p18_typeconv_add(tag=t1);
   %_val(ds=work.b_t1, var=PCNR_AGE, where=%str(norm_psid = %'Precede00001%'));
-  %_chk(case=T1_DECIMAL_PARSED, cond=%str(%sysevalf(&_v = 1.5)), detail=%str(1.5 not parsed));
+  %_chk(case=T1_DECIMAL_PARSED, cond=%str(&_v = 1.5), num=1, detail=%str(1.5 not parsed));
   %_val(ds=work.qc_comb_typeconv, var=n_char_to_num_fail, where=%str(pcnr_name = %'PCNR_AGE%'));
   %_chk(case=T1_UNPARSEABLE_COUNTED, cond=%str(&_v = 1), detail=%str(failure count));
   %_cnt(ds=dictionary.columns,
