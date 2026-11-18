@@ -520,7 +520,7 @@ options mprint nofmterr nodate nonumber ps=max ls=200;
         then do;
           call symputx('_log_bad',
                        strip(put(input(symget('_log_bad'), best32.) + 1, best32.)), 'L');
-          put 'ERROR: [99_run_all] log-scan (&_cur_log): ' _line;
+          put "ERROR: [99_run_all] log-scan (&_cur_log): " _line;
         end;
       run;
       %let _total_bad = %eval(&_total_bad + &_log_bad);

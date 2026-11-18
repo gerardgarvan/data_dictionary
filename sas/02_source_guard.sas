@@ -2317,7 +2317,7 @@ quit;
             quit;
             data _null_;
               set work._diag_pat (obs=10);
-              put 'NOTE: [02_source_guard] _diag_unmatched_ids: &_dsc char_pattern=' pattern ' n=' n_ids;
+              put "NOTE: [02_source_guard] _diag_unmatched_ids: &_dsc char_pattern=" pattern ' n=' n_ids;
             run;
             proc datasets lib=work nolist nowarn; delete _diag_pat; quit;
 
@@ -2335,7 +2335,7 @@ quit;
             %put NOTE: [02_source_guard] _diag_unmatched_ids: &_dsc n_distinct_7char_prefix=&_n_pfx;
             data _null_;
               set work._diag_pfx;
-              put 'NOTE: [02_source_guard] _diag_unmatched_ids: &_dsc prefix7=' prefix7;
+              put "NOTE: [02_source_guard] _diag_unmatched_ids: &_dsc prefix7=" prefix7;
             run;
             proc datasets lib=work nolist nowarn; delete _diag_pfx; quit;
 

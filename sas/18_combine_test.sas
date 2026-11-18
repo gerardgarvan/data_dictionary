@@ -101,9 +101,16 @@ options nodlcreatedir;
 
 /* the check is FAIL unless cond evaluates true (C34: %unquote) */
 %macro _chk(case=, cond=, detail=);
-  %local _res;
+  %local _res _isdec;
   %let _res = FAIL;
-  %if %unquote(&cond) %then %let _res = PASS;
+  /* a decimal needs %sysevalf (plain %if raises the character-operand ERROR) */
+  %let _isdec = %sysfunc(prxmatch(/\d\.\d/, %superq(cond)));
+  %if &_isdec > 0 %then %do;
+    %if %sysevalf(%unquote(&cond)) %then %let _res = PASS;
+  %end;
+  %else %do;
+    %if %unquote(&cond) %then %let _res = PASS;
+  %end;
   %if &_res = PASS %then %_record(case=&case, result=PASS);
   %else %_record(case=&case, result=FAIL, detail=%str(&detail - or the check could not be evaluated));
 %mend _chk;
@@ -121,20 +128,20 @@ options nodlcreatedir;
 %mend _expect_ok;
 
 %macro _init_g;
-  %global _v _c;
+  %global _v _c _dec _dec2;
 %mend _init_g;
 %_init_g;
 %macro _val(ds=, var=, where=1, mv=_v);
   %let &mv = ;
   proc sql noprint;
-    select &var into :&mv trimmed from &ds where &where;
+    select &var into :&mv trimmed from &ds where %unquote(&where);
   quit;
 %mend _val;
 
 %macro _cnt(ds=, where=1, mv=_c);
   %let &mv = 0;
   proc sql noprint;
-    select count(*) into :&mv trimmed from &ds where &where;
+    select count(*) into :&mv trimmed from &ds where %unquote(&where);
   quit;
 %mend _cnt;
 
@@ -475,10 +482,10 @@ options nodlcreatedir;
   %p18_order_cols(in=work.att, out=work.final);
   %p18_gate_vars(ds=work.final, order=1);
   %_expect_ok(case=T8_ORDER_AND_VARIABLE_GATE_PASS);
-  proc sql noprint;
-    create table work.f_ord as
-      select PRECEDE_STUDY_ID, PECAN_ID, * from work.final(drop=PRECEDE_STUDY_ID PECAN_ID);
-  quit;
+  data work.f_ord;
+    length PRECEDE_STUDY_ID $64 PECAN_ID 8;
+    set work.final;
+  run;
   %p18_gate_vars(ds=work.f_ord, order=1);
   %_expect_fail(case=T8_WRONG_COLUMN_ORDER_FAILS);
   data work.f_miss;

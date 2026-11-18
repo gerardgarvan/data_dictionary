@@ -179,6 +179,10 @@
 %macro p18_load_types(decisions=, vars_ext=pdd.name_map_vars_ext,
                       map_ext=pdd.name_map_ext, out=work.p18_vars);
   %local _npend _nunk _nv;
+  %if not %sysfunc(fileexist(&decisions)) %then %do;
+    %p18_fail(msg=%str(PENDING DECISION - type decisions CSV not found: &decisions));
+    %return;
+  %end;
   data work._p18_dec;
     infile "&decisions" dsd truncover firstobs=2 lrecl=4000;
     length pcnr_name $64 combined_type $1 note_kind $16 note_text $1000
@@ -305,13 +309,19 @@
       select idx, max(case when srctype = 'C' then srclen else 0 end) as cmax,
              max(case when srctype = 'N' then 1 else 0 end) as anynum
       from work._p18_small group by idx;
-    create table &vars as
+    /* new table first: a CREATE TABLE that reads its own target warns */
+    create table work._p18_vnew as
       select v.*, case when v.decided_type = 'N' then 8
              else max(1, coalesce(v.max_length, 1), coalesce(l.cmax, 0),
                       32 * coalesce(l.anynum, 0)) end as dstlen
       from &vars v left join work._p18_len l on v.idx = l.idx
       order by v.idx;
   quit;
+  data &vars;
+    set work._p18_vnew;
+  run;
+  proc delete data=work._p18_vnew;
+  run;
 %mend p18_set_lengths;
 
 
@@ -682,7 +692,19 @@
 /* ---- fixed column order: PECAN_ID, PRECEDE_STUDY_ID, PECAN_ID_KEY_ERA,
    KEY_ERA, NORM_PSID, then PCNR_ variables alphabetically ------------------ */
 %macro p18_order_cols(in=, out=, vars=work.p18_vars);
-  %local _i _nv;
+  %local _i _nv _nkeyin;
+  /* the key columns must already be on the input (p18_attach_ids adds them) */
+  proc sql noprint;
+    select count(*) into :_nkeyin trimmed
+    from dictionary.columns
+    where libname = "%upcase(%scan(&in, 1, .))" and memname = "%upcase(%scan(&in, 2, .))"
+      and upcase(name) in ('PECAN_ID', 'PRECEDE_STUDY_ID', 'PECAN_ID_KEY_ERA',
+                           'KEY_ERA', 'NORM_PSID');
+  quit;
+  %if &_nkeyin ne 5 %then %do;
+    %p18_fail(msg=%str(column order needs PECAN_ID PRECEDE_STUDY_ID PECAN_ID_KEY_ERA KEY_ERA NORM_PSID on the input - run the id attach first));
+    %return;
+  %end;
   proc sql noprint;
     select count(*) into :_nv trimmed from &vars;
     select strip(pcnr_name) into :_p18_c1 - :_p18_c&_nv

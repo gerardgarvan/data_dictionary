@@ -851,3 +851,36 @@ def test_c36_passes_when_included_or_defined(tmp_path):
     f.write_text('%include "&sas_path.\m_macros.sas";\n%macro p16_x;\n%mend p16_x;\n%p17_topcode(in=a);\n%p16_x;\n',
                  encoding="utf-8")
     assert sas_lint.check_macro_defined_or_included(str(f), f.read_text(encoding="utf-8").split("\n")) == []
+
+
+# ---------------------------------------------------------------------------
+# C37 &macrovar in single quotes, C38 where text without %unquote
+# ---------------------------------------------------------------------------
+
+def test_c37_fires_on_macrovar_in_single_quotes():
+    for lines in (["infile 'C:\tmp\&_dec';"],
+                  ["put 'NOTE: n=&n';"]):
+        hits = sas_lint.check_macrovar_in_single_quotes("<test>", lines)
+        assert any(h[2] == "C37" for h in hits), lines
+
+
+def test_c37_clean_cases():
+    for lines in (['infile "C:\tmp\&_dec";'],
+                  ["_line = cat('  ', ' = \"&s_code\";');"],
+                  ["where memname like 'QC_%';", "x = \"&a\";"],
+                  ["%put NOTE: it's &x;"],
+                  ["%let q = %str(%')&x;"]):
+        assert sas_lint.check_macrovar_in_single_quotes("<test>", lines) == [], lines
+
+
+def test_c38_fires_without_unquote():
+    hits = sas_lint.check_where_param_no_unquote(
+        "<test>", ["select a from &ds where &where;"])
+    assert any(h[2] == "C38" for h in hits), hits
+
+
+def test_c38_clean_cases():
+    for lines in (["select a from &ds where %unquote(&where);"],
+                  ["%_val(ds=x, where=&where);"],
+                  ["%let where = a;"]):
+        assert sas_lint.check_where_param_no_unquote("<test>", lines) == [], lines
