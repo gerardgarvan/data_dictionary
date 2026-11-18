@@ -34,6 +34,14 @@
             T14 QC dump CSV: n of 5 is masked as <11
             T15 no WARNING and no ERROR lines in this log, no fake MRN in the
                 log or the CSV files
+            T16 key set K3 (exactly three keys), K4, unknown K-code stops
+            T17 export column list: keys first, NORM_PSID and the PECAN_ID_KEY_ERA
+                copy never staged under K3, extra ENCRYPTED_MRN or a missing key
+                stops
+            T18 synthetic end-to-end stage and expected counts: CSV lines equal
+                hand-written text (quoting, formula text, special missing, date
+                serial, 32,767 character cell, embedded CRLF), record count
+                7 and physical lines 8, schema CSV, expected counts, sample 2000
   Run     : sas 19_xlsx_test.sas  (no pipeline setup required, UTF-8 session:
             -config ...\nls\u8\sasv9.cfg -encoding utf8)
             Bring back the log and look for the TESTRESULT SUMMARY line.
@@ -70,7 +78,7 @@ options nodlcreatedir;
 %let p18_fail_mode = FLAG;
 %let p17_fail_mode = FLAG;
 %macro _globals_t;
-  %global PDD_XLS_T _v _c;
+  %global PDD_XLS_T _v _c _ks;
 %mend _globals_t;
 %_globals_t;
 %let PDD_XLS_T = ;
@@ -589,6 +597,150 @@ o_such_file.csv);
   %_chk(case=T14_SMALL_COUNT_MASKED, cond=%str(%"&_v%" = %"<11%"), detail=%str(mask));
   %_val(ds=work.t14r, var=c, where=%str(b = %"large_count%"));
   %_chk(case=T14_LARGE_COUNT_EXACT, cond=%str(%"&_v%" = %"500%"), detail=%str(exact));
+
+  /* ---- T16 key set (PDD-D-43) ---------------------------------------------------- */
+  %p19_keyset(code=K3, mv=_ks);
+  %_expect_ok(case=T16_K3_ACCEPTED);
+  %_chk(case=T16_K3_IS_EXACTLY_THREE_KEYS, cond=%str(%"&_ks%" = %"PECAN_ID PRECEDE_STUDY_ID KEY_ERA%"), detail=%str(k3 list));
+  %p19_keyset(code=k4, mv=_ks);
+  %_chk(case=T16_K4_ADDS_PECAN_ID_KEY_ERA, cond=%str(%"&_ks%" = %"PECAN_ID PRECEDE_STUDY_ID PECAN_ID_KEY_ERA KEY_ERA%"), detail=%str(k4 list));
+  %p19_keyset(code=K9, mv=_ks);
+  %_expect_fail(case=T16_UNKNOWN_K_CODE_STOPS);
+  %_chk(case=T16_UNKNOWN_K_CODE_GIVES_EMPTY_LIST, cond=%str(%length(&_ks) = 0), detail=%str(list not empty));
+
+  /* ---- T17 export column list ---------------------------------------------------- */
+  data work.s1v;
+    length pcnr_name $64;
+    pcnr_name = 'PCNR_A'; output;
+    pcnr_name = 'PCNR_B'; output;
+    pcnr_name = 'PCNR_DT'; output;
+    pcnr_name = 'PCNR_DD'; output;
+  run;
+  data work.s1;
+    length NORM_PSID $20 PECAN_ID $8 PRECEDE_STUDY_ID $8 KEY_ERA $2 PECAN_ID_KEY_ERA $2
+           PCNR_A $32767 PCNR_B 8 PCNR_DT 8 PCNR_DD $8;
+    format PCNR_DT date9.;
+    NORM_PSID = 'n1'; PECAN_ID = 'P1'; PRECEDE_STUDY_ID = 'Pr1'; KEY_ERA = 'K1'; PECAN_ID_KEY_ERA = 'K1';
+    PCNR_A = '007'; PCNR_B = 1.5; PCNR_DT = '15JAN2020'd; PCNR_DD = '12'; output;
+    PECAN_ID = 'P2'; PRECEDE_STUDY_ID = 'Pr2';
+    PCNR_A = '=SUM(1)'; PCNR_B = .A; PCNR_DT = .; PCNR_DD = '#'; output;
+    PECAN_ID = 'P3'; PRECEDE_STUDY_ID = 'Pr3'; KEY_ERA = 'K2';
+    PCNR_A = 'x,y'; PCNR_B = .; PCNR_DD = ''; output;
+    PECAN_ID = 'P4'; PRECEDE_STUDY_ID = 'Pr4';
+    PCNR_A = 'say "hi"'; PCNR_B = 3; output;
+    PECAN_ID = 'P5'; PRECEDE_STUDY_ID = 'Pr5';
+    PCNR_A = cats('l1', '0D0A'x, 'l2'); PCNR_B = .B; output;
+    PECAN_ID = 'P6'; PRECEDE_STUDY_ID = 'Pr6';
+    PCNR_A = repeat('z', 32766); PCNR_B = 2.5; output;
+  run;
+  %p19_qinit(ds=work.qc_xlsx_t17);
+  %p19_columns(ds=work.s1, out=work.s1c, keys=K3, vars=work.s1v, qc=work.qc_xlsx_t17);
+  %_expect_ok(case=T17_K3_COLUMN_LIST_PASSES);
+  %_chk(case=T17_K3_SEVEN_COLUMNS, cond=%str(&_p19_nexp = 7), detail=%str(count));
+  %_val(ds=work.s1c, var=colname, where=%str(idx = 1));
+  %_chk(case=T17_FIRST_COLUMN_IS_PECAN_ID, cond=%str(%"&_v%" = %"PECAN_ID%"), detail=%str(first));
+  %_val(ds=work.s1c, var=colname, where=%str(idx = 3));
+  %_chk(case=T17_THIRD_COLUMN_IS_KEY_ERA, cond=%str(%"&_v%" = %"KEY_ERA%"), detail=%str(third));
+  %_val(ds=work.s1c, var=colname, where=%str(idx = 4));
+  %_chk(case=T17_FOURTH_COLUMN_IS_FIRST_MAPPED, cond=%str(%"&_v%" = %"PCNR_A%"), detail=%str(fourth));
+  %_cnt(ds=work.s1c, where=%str(upcase(colname) in (%"NORM_PSID%", %"PECAN_ID_KEY_ERA%")));
+  %_chk(case=T17_NORM_PSID_AND_KEY_ERA_COPY_NEVER_STAGED, cond=%str(&_c = 0), detail=%str(extra key copies));
+  %_val(ds=work.s1c, var=excel_kind, where=%str(colname = %"PCNR_DT%"));
+  %_chk(case=T17_DATE_FORMAT_GIVES_DATE_KIND, cond=%str(%"&_v%" = %"DATE%"), detail=%str(kind));
+  %_val(ds=work.s1c, var=excel_kind, where=%str(colname = %"PCNR_B%"));
+  %_chk(case=T17_PLAIN_NUMERIC_IS_N, cond=%str(%"&_v%" = %"N%"), detail=%str(kind));
+  %p19_columns(ds=work.s1, out=work.s1c4, keys=K4, vars=work.s1v, qc=work.qc_xlsx_t17);
+  %_chk(case=T17_K4_EIGHT_COLUMNS, cond=%str(&_p19_nexp = 8), detail=%str(count));
+  %_cnt(ds=work.s1c4, where=%str(colname = %"NORM_PSID%"));
+  %_chk(case=T17_NORM_PSID_NEVER_STAGED_UNDER_K4, cond=%str(&_c = 0), detail=%str(norm_psid));
+  %_expect_ok(case=T17_K4_PASSES);
+  data work.s1x;
+    set work.s1;
+    length ENCRYPTED_MRN $8;
+  run;
+  %p19_columns(ds=work.s1x, out=work.s1cx, keys=K3, vars=work.s1v, qc=work.qc_xlsx_t17);
+  %_expect_fail(case=T17_EXTRA_ENCRYPTED_MRN_COLUMN_STOPS);
+  data work.s1m;
+    set work.s1(drop=KEY_ERA);
+  run;
+  %p19_columns(ds=work.s1m, out=work.s1cm, keys=K3, vars=work.s1v, qc=work.qc_xlsx_t17);
+  %_expect_fail(case=T17_MISSING_KEY_COLUMN_STOPS);
+
+  /* ---- T18 stage writer, record count, expected counts --------------------------- */
+  %p19_columns(ds=work.s1, out=work.s1c, keys=K3, vars=work.s1v, qc=work.qc_xlsx_t17);
+  %let _f1 = &_wk\s1_data.csv;
+  %let _f2 = &_wk\s1_schema.csv;
+  %let _f3 = &_wk\s1_exp.csv;
+  %p19_stage(ds=work.s1, cols=work.s1c, out=&_f1, schema=&_f2);
+  %p19_csv_records(file=&_f1);
+  %_chk(case=T18_SEVEN_RECORDS_HEADER_PLUS_SIX_ROWS, cond=%str(&_p19_csv_recs = 7), detail=%str(records));
+  %_chk(case=T18_EMBEDDED_CRLF_GIVES_EIGHT_PHYSICAL_LINES, cond=%str(&_p19_csv_lines = 8), detail=%str(lines));
+  %global _s1_bad _s1_n;
+  data _null_;
+    infile "&_f1" encoding='utf-8' lrecl=1048576 termstr=crlf truncover end=_e;
+    input;
+    _bad = 0;
+    if _n_ = 1 then _bad + (_infile_ ne 'PECAN_ID,PRECEDE_STUDY_ID,KEY_ERA,PCNR_A,PCNR_B,PCNR_DT,PCNR_DD');
+    if _n_ = 2 then _bad + (_infile_ ne 'P1,Pr1,K1,007,1.5,43845,12');
+    if _n_ = 3 then _bad + (_infile_ ne 'P2,Pr2,K1,=SUM(1),,,#');
+    if _n_ = 4 then _bad + (_infile_ ne 'P3,Pr3,K2,"x,y",,,');
+    if _n_ = 5 then _bad + (_infile_ ne 'P4,Pr4,K2,"say ""hi""",3,,');
+    if _n_ = 6 then _bad + (_infile_ ne 'P5,Pr5,K2,"l1');
+    if _n_ = 7 then _bad + (_infile_ ne 'l2",,,');
+    if _n_ = 8 then _bad + (lengthn(_infile_) ne 32783);
+    _tot + _bad;
+    if _e then do;
+      call symputx('_s1_bad', _tot, 'G');
+      call symputx('_s1_n', _n_, 'G');
+    end;
+  run;
+  %_chk(case=T18_STAGE_LINES_MATCH_HAND_WRITTEN_CSV, cond=%str(&_s1_bad = 0 and &_s1_n = 8), detail=%str(a stage line differs));
+  data work.s1s;
+    infile "&_f2" encoding='utf-8' dsd firstobs=2 truncover;
+    length ix 8 nm $64 st $1 ek $8;
+    input ix nm $ st $ ek $;
+  run;
+  %_val(ds=work.s1s, var=ek, where=%str(nm = %"PCNR_DT%"));
+  %_chk(case=T18_SCHEMA_DATE_KIND, cond=%str(%"&_v%" = %"DATE%"), detail=%str(kind));
+  %_val(ds=work.s1s, var=st, where=%str(nm = %"PCNR_DD%"));
+  %_chk(case=T18_SCHEMA_DEATH_DAYS_STAGED_AS_TEXT, cond=%str(%"&_v%" = %"C%"), detail=%str(type));
+  %_cnt(ds=work.s1s);
+  %_chk(case=T18_SCHEMA_SEVEN_ROWS, cond=%str(&_c = 7), detail=%str(rows));
+  %p19_expected(ds=work.s1, cols=work.s1c, out=&_f3);
+  %global _s1_hit;
+  data _null_;
+    infile "&_f3" encoding='utf-8' lrecl=32767 termstr=crlf truncover end=_e;
+    input;
+    _hit + (_infile_ = 'ROWS,,6,,');
+    _hit + (_infile_ = 'COL,PECAN_ID,6,6,0');
+    _hit + (_infile_ = 'COL,PCNR_A,6,6,0');
+    _hit + (_infile_ = 'COL,PCNR_B,6,3,2');
+    _hit + (_infile_ = 'COL,PCNR_DT,6,1,0');
+    _hit + (_infile_ = 'COL,PCNR_DD,6,2,0');
+    _smp + (_infile_ =: 'SAMPLE,');
+    if _e then call symputx('_s1_hit', _hit * 100 + _smp, 'G');
+  run;
+  %_chk(case=T18_EXPECTED_COUNTS_MATCH_HAND_COUNTS_AND_SIX_SAMPLE_ROWS, cond=%str(&_s1_hit = 606), detail=%str(expected counts));
+  data work.s2;
+    length c $4;
+    do _i = 1 to 5000;
+      c = 'a';
+      output;
+    end;
+    drop _i;
+  run;
+  data work.s2c;
+    length colname $64 idx 8 sas_type $1 excel_kind $8 fmt $32;
+    colname = 'C'; idx = 1; sas_type = 'C'; excel_kind = 'C'; output;
+  run;
+  %p19_expected(ds=work.s2, cols=work.s2c, out=&_wk\s2_exp.csv);
+  data _null_;
+    infile "&_wk\s2_exp.csv" encoding='utf-8' lrecl=32767 termstr=crlf truncover end=_e;
+    input;
+    _smp + (_infile_ =: 'SAMPLE,');
+    if _e then call symputx('_s1_hit', _smp, 'G');
+  run;
+  %_chk(case=T18_SAMPLE_CAPPED_AT_2000_ROWS, cond=%str(&_s1_hit = 2000), detail=%str(sample size));
 %mend _run_tests;
 %_run_tests;
 

@@ -18,3 +18,18 @@ Decided 2026-11-18 (PDD-D-35 STAGE_CSV). Applies to `stage\xlsx_schema.csv` and 
 - KEY sheet: first sheet; carries `key_sheet_notice()` (identifiable fields, approved PeCAN team use
   only) and points to `out\pdd_2018_2025.xlsx` for the dictionary.
 - Gate: the production write needs `PDD_XLS_APPROVE=1` set at run time (`require_approval`); never in config.
+
+## Stage file formats (written by `sas/19b_xlsx_stage.sas`)
+
+- `xlsx_data.csv`: UTF-8, CRLF line ends, no BOM. First record is the header (column names in export order).
+  A field with a comma, double quote, CR or LF is quoted with `"` and inner quotes doubled; nothing else is
+  quoted. Empty field = blank cell (ordinary and special missing numerics, blank text). Numerics are
+  `BEST32.` text. Numeric dates and datetimes are Excel serials (none exist in the current dataset).
+  Records, not physical lines, equal dataset rows + 1 (a text cell can hold CR LF). Read with `csv.reader`
+  on a file opened with `newline=''`.
+- `xlsx_schema.csv`: header `col_index,name,sas_type,excel_kind`; `sas_type` is `N` or `C`; `excel_kind` is
+  `N`, `C`, `DATE`, `DATETIME` or `TIME`. Row order = column order of the data CSV.
+- `xlsx_expected.csv`: header `kind,variable,n_rows,n_nonblank,n_special`. `ROWS` has the dataset row count in
+  `n_rows`. One `COL` row per exported column in export order (`n_nonblank` = non-blank text cells or
+  non-missing numbers, `n_special` = special missing numbers, 0 for text). `SAMPLE` rows hold in `n_rows` a
+  1-based data row number (min(rows, 2000) distinct rows, seed 19). Counts only, exact, kept on P: under `stage`.

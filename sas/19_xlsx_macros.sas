@@ -7,8 +7,12 @@
             decision: path guard, decision gate, QC staging, dataset probes
             P19-1..P19-8 (counts only), limits gate (XLS-02), free disk,
             allow-list gate, closed-file MRN scan, SAS-side speed benchmark.
-            NOT here (Wave 2, needs PDD-D-35..44): stage writer, column list
-            under PDD-D-36/37/43, expected counts.
+            Wave 2 (decided PDD-D-35..44): %p19_keyset, %p19_columns (K3 keys
+            first, then dataset order), %p19_stage (stage CSV and schema CSV),
+            %p19_csv_records (quote-aware record count), %p19_expected (exact
+            counts and a seeded sample row list). Only the decided values
+            (DATES=SERIAL, SPECIAL=BLANK, ORDER=DICT, NODATA=INCLUDE) are
+            implemented; the 19b program stops on any other value.
   Needs   : the calling program defines %fail_out(msg=) BEFORE calling any
             macro that can fail. The first statement above includes the
             Phase 18 macros (which include the Phase 17 macros): this file
@@ -48,7 +52,8 @@
   %end;
   %global _p19_guard_ok _p19_dec_status _p19_free_gb _p19_nrows _p19_ncols
           _p19_nchar _p19_nnum _p19_enc _p19_maxlen _p19_nctrl
-          _p19_bench_secs _p19_bench_est_min _p19_flush_writes;
+          _p19_bench_secs _p19_bench_est_min _p19_flush_writes
+          _p19_keycols _p19_nexp _p19_csv_recs _p19_csv_lines;
 %mend p19_init;
 
 /* ---- failure helper: ABORT calls %fail_out, FLAG only records --------- */
@@ -629,5 +634,251 @@
   %if &_del ne 1 %then
     %p19_fail(msg=%str(the benchmark CSV could not be deleted - delete it by hand, it holds row level data));
 %mend p19_bench_sas;
+
+/* ---- export column list (Wave 2). Keys of PDD_XLS_KEYS first (in key set
+   order), then every mapped PCNR_ variable in dataset order (PDD-D-37 DICT,
+   NO_DATA variables kept, PDD-D-36 INCLUDE). NORM_PSID and any other key role
+   column outside the key set are never exported. A column that is neither a key
+   of the set, an excluded key-role name nor a mapped variable (vars=) fails the
+   gate (for example ENCRYPTED_MRN). A key of the set missing from ds fails.
+   out: colname, idx (position in the export, 1-based), sas_type (N or C),
+   excel_kind (N, C, DATE, DATETIME, TIME), fmt. Sets _p19_nexp. ------------ */
+%macro p19_columns(ds=, out=, keys=K3, vars=pdd.name_map_vars_ext, qc=);
+  %local _lib _mem _nunl _nmiss _nx;
+  %let _lib = %upcase(%scan(&ds, 1, .));
+  %let _mem = %upcase(%scan(&ds, 2, .));
+  %let _p19_nexp = 0;
+  %p19_keyset(code=&keys, mv=_p19_keycols);
+  %if %length(&_p19_keycols) = 0 %then %return;
+  data work._p19_keys;
+    length colname $64 kord 8;
+    do _i = 1 to countw("&_p19_keycols", ' ');
+      colname = upcase(scan("&_p19_keycols", _i, ' '));
+      kord = _i;
+      output;
+    end;
+    drop _i;
+  run;
+  proc sql noprint;
+    create table work._p19_dc as
+      select strip(name) as colname length=64, varnum, upcase(type) as ctype length=4,
+             strip(format) as fmt length=32,
+             case when upcase(name) in (select colname from work._p19_keys) then 'K'
+                  when upcase(name) in ('NORM_PSID', 'PECAN_ID_KEY_ERA', 'PECAN_ID', 'PRECEDE_STUDY_ID', 'KEY_ERA') then 'X'
+                  when upcase(name) in (select upcase(strip(pcnr_name)) from &vars) then 'M'
+                  else 'U' end as role length=1
+      from dictionary.columns
+      where libname = "&_lib" and memname = "&_mem";
+    select count(*) into :_nunl trimmed from work._p19_dc where role = 'U';
+    select count(*) into :_nx trimmed from work._p19_dc where role = 'X';
+    select count(*) into :_nmiss trimmed from work._p19_keys
+      where colname not in (select upcase(colname) from work._p19_dc where role = 'K');
+    create table work._p19_dc2 as
+      select d.colname, d.varnum, d.ctype, d.fmt,
+             case when d.role = 'K' then 0 else 1 end as grp,
+             coalesce(k.kord, 0) as kord
+      from work._p19_dc d left join work._p19_keys k on upcase(d.colname) = k.colname
+      where d.role in ('K', 'M')
+      order by grp, kord, d.varnum;
+  quit;
+  data &out;
+    length colname $64 idx 8 sas_type $1 excel_kind $8 fmt $32 _f $32;
+    set work._p19_dc2;
+    idx = _n_;
+    if ctype = 'CHAR' then do;
+      sas_type = 'C';
+      excel_kind = 'C';
+    end;
+    else do;
+      sas_type = 'N';
+      excel_kind = 'N';
+      _f = upcase(prxchange('s/\d*\.?\d*$//', 1, strip(fmt)));
+      if prxmatch('/^(DATETIME|DTDATE|DTMONYY|DTWKDATX|DTYEAR|DTYYQC|MDYAMPM)$/', strip(_f)) then excel_kind = 'DATETIME';
+      else if prxmatch('/^(TIME|TIMEAMPM|HHMM|HOUR|MMSS|TOD)$/', strip(_f)) then excel_kind = 'TIME';
+      else if prxmatch('/^(DATE|DDMMYY|MMDDYY|YYMMDD|MONYY|YYMON|YYMM|MMYY|YYQ|WEEKDATE|WORDDATE|WORDDATX|EURDFDE|JULIAN|E8601DA|B8601DA)$/', strip(_f)) then excel_kind = 'DATE';
+    end;
+    keep colname idx sas_type excel_kind fmt;
+  run;
+  proc sql noprint;
+    select count(*) into :_p19_nexp trimmed from &out;
+  quit;
+  %p19_qadd(ds=&qc, item=export_columns, n=&_p19_nexp);
+  %p19_qadd(ds=&qc, item=export_columns_excluded_key_role, n=&_nx);
+  %p19_qadd(ds=&qc, item=export_columns_not_key_and_not_mapped, n=&_nunl, fail=%eval(&_nunl > 0));
+  %p19_qadd(ds=&qc, item=export_key_columns_missing, n=&_nmiss, fail=%eval(&_nmiss > 0));
+  %if &_nunl > 0 or &_nmiss > 0 %then
+    %p19_fail(msg=%str(export column gate failed - a column is not in the key set and not a mapped PCNR_ variable or a key column of the set is missing));
+%mend p19_columns;
+
+/* ---- stage writer. cols = table from %p19_columns. Writes the data CSV (header
+   line, then one record per row, UTF-8, CRLF) and the schema CSV (col_index,
+   name, sas_type, excel_kind; no values). Cells: character values keep their
+   text, only SAS trailing padding is cut, and a value with a comma, quote, CR
+   or LF is quoted (quote doubled). Numerics use BEST32., missing and special
+   missing are empty (PDD-D-40 BLANK). Numeric dates and datetimes become Excel
+   serials (PDD-D-38 SERIAL): date + 21916, datetime / 86400 + 21916, time /
+   86400. Column statements are generated into a temp file and included inside
+   one DATA step, so the dataset is read once. ----------------------------- */
+%macro p19_stage(ds=, cols=, out=, schema=);
+  %local _nc;
+  proc sql noprint;
+    select count(*) into :_nc trimmed from &cols;
+  quit;
+  filename p19cg temp;
+  data _null_;
+    set &cols end=_e;
+    file p19cg lrecl=2000;
+    if _n_ = 1 then put 'if _n_ = 1 then do;';
+    put "put '" colname +(-1) "' @;";
+    if _e then do;
+      put 'put;';
+      put 'end;';
+    end;
+    else put "put ',' @;";
+  run;
+  data _null_;
+    set &cols;
+    file p19cg lrecl=2000 mod;
+    length _nm $80;
+    _nm = "'" || strip(colname) || "'n";
+    if idx > 1 then put "put ',' @;";
+    if excel_kind = 'C' then do;
+      put "_pv = trimn(" _nm +(-1) ");";
+      put "_pl = lengthn(_pv);";
+      put "if _pl > 0 then do;";
+      put "  if findc(_pv, '222C0A0D'x) > 0 then _pv = '22'x || trimn(tranwrd(_pv, '22'x, '2222'x)) || '22'x;";
+      put "  put _pv +(-1) @;";
+      put "end;";
+    end;
+    else do;
+      put "if not missing(" _nm +(-1) ") then do;";
+      if excel_kind = 'DATE' then put "  _pn = " _nm +(-1) " + 21916;";
+      else if excel_kind = 'DATETIME' then put "  _pn = " _nm +(-1) " / 86400 + 21916;";
+      else if excel_kind = 'TIME' then put "  _pn = " _nm +(-1) " / 86400;";
+      else put "  _pn = " _nm +(-1) ";";
+      put "  _ps = strip(put(_pn, best32.));";
+      put "  put _ps +(-1) @;";
+      put "end;";
+    end;
+  run;
+  data _null_;
+    set &ds;
+    length _pv $65540 _ps $64 _pl 8 _pn 8;
+    file "&out" encoding='utf-8' lrecl=1048576 termstr=crlf;
+    %include p19cg;
+    put;
+  run;
+  filename p19cg clear;
+  data _null_;
+    set &cols;
+    file "&schema" encoding='utf-8' lrecl=1000 termstr=crlf;
+    if _n_ = 1 then put 'col_index,name,sas_type,excel_kind';
+    length _l $200;
+    _l = strip(put(idx, best12.)) || ',' || strip(colname) || ',' || strip(sas_type) || ',' || strip(excel_kind);
+    put _l;
+  run;
+%mend p19_stage;
+
+/* ---- records in a closed CSV, quote aware: a record ends at a line end after
+   which the running count of double quotes is even. Sets _p19_csv_recs and
+   _p19_csv_lines (physical lines, CRLF split). ----------------------------- */
+%macro p19_csv_records(file=);
+  %let _p19_csv_recs = 0;
+  %let _p19_csv_lines = 0;
+  data _null_;
+    infile "&file" encoding='utf-8' lrecl=1048576 termstr=crlf truncover end=_e;
+    input;
+    _lines + 1;
+    _q + countc(_infile_, '22'x);
+    if mod(_q, 2) = 0 then _recs + 1;
+    if _e then do;
+      call symputx('_p19_csv_recs', _recs, 'G');
+      call symputx('_p19_csv_lines', _lines, 'G');
+    end;
+  run;
+%mend p19_csv_records;
+
+/* ---- expected counts and sample list (exact, stay on P: under stage). One
+   pass over ds. File layout, header kind,variable,n_rows,n_nonblank,n_special:
+   ROWS (n_rows = dataset rows), COL (per exported column in export order:
+   non-blank text cells or non-missing numbers, special missing numbers),
+   SAMPLE (n_rows = a 1-based data row number; min(rows, 2000) distinct rows,
+   seeded). Counts only, no cell values. ------------------------------------ */
+%macro p19_expected(ds=, cols=, out=, sample=2000, seed=19);
+  %local _nc;
+  proc sql noprint;
+    select count(*) into :_nc trimmed from &cols;
+  quit;
+  filename p19cx1 temp;
+  filename p19cx2 temp;
+  data _null_;
+    set &cols;
+    file p19cx1 lrecl=2000;
+    length _nm $80 _ix $12;
+    _nm = "'" || strip(colname) || "'n";
+    _ix = strip(put(idx, best12.));
+    if excel_kind = 'C' then put "if " _nm +(-1) " ne '' then _nb{" _ix +(-1) "} = _nb{" _ix +(-1) "} + 1;";
+    else do;
+      put "if missing(" _nm +(-1) ") then do;";
+      put "  if " _nm +(-1) " ne . then _ns{" _ix +(-1) "} = _ns{" _ix +(-1) "} + 1;";
+      put "end;";
+      put "else _nb{" _ix +(-1) "} = _nb{" _ix +(-1) "} + 1;";
+    end;
+    file p19cx2 lrecl=2000;
+    put "p19_kind = 'COL';";
+    put "p19_var = '" colname +(-1) "';";
+    put "p19_nonblank = _nb{" _ix +(-1) "};";
+    put "p19_special = _ns{" _ix +(-1) "};";
+    put "output;";
+  run;
+  data work._p19_ex;
+    length p19_kind $8 p19_var $64 p19_nrows 8 p19_nonblank 8 p19_special 8;
+    set &ds end=_e;
+    array _nb{&_nc} _temporary_ (&_nc * 0);
+    array _ns{&_nc} _temporary_ (&_nc * 0);
+    %include p19cx1;
+    if _e then do;
+      p19_nrows = _n_;
+      p19_kind = 'ROWS';
+      p19_var = '';
+      p19_nonblank = .;
+      p19_special = .;
+      output;
+      %include p19cx2;
+    end;
+    keep p19_kind p19_var p19_nrows p19_nonblank p19_special;
+  run;
+  filename p19cx1 clear;
+  filename p19cx2 clear;
+  proc sql noprint;
+    select max(p19_nrows) into :_p19_nrows trimmed from work._p19_ex;
+  quit;
+  data work._p19_smp;
+    length p19_kind $8 p19_var $64 p19_nrows 8 p19_nonblank 8 p19_special 8;
+    call streaminit(&seed);
+    _need = min(&_p19_nrows, &sample);
+    do _i = 1 to &_p19_nrows;
+      if _need <= 0 then leave;
+      if rand('uniform') * (&_p19_nrows - _i + 1) < _need then do;
+        p19_kind = 'SAMPLE';
+        p19_nrows = _i;
+        output;
+        _need = _need - 1;
+      end;
+    end;
+    keep p19_kind p19_var p19_nrows p19_nonblank p19_special;
+  run;
+  data _null_;
+    set work._p19_ex work._p19_smp;
+    file "&out" encoding='utf-8' lrecl=32767 termstr=crlf;
+    length _l $400;
+    if _n_ = 1 then put 'kind,variable,n_rows,n_nonblank,n_special';
+    _l = strip(p19_kind) || ',' || strip(p19_var) || ','
+         || ifc(missing(p19_nrows), '', strip(put(p19_nrows, best12.))) || ','
+         || ifc(missing(p19_nonblank), '', strip(put(p19_nonblank, best12.))) || ','
+         || ifc(missing(p19_special), '', strip(put(p19_special, best12.)));
+    put _l;
+  run;
+%mend p19_expected;
 
 %p19_init;

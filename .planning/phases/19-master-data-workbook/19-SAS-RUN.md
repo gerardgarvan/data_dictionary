@@ -74,3 +74,63 @@ Step 1 under 2 minutes. Step 2: one pass over the dataset plus one grouped read,
 ## Update 2026-11-18 (decide_19)
 
 Decisions PDD-D-35..44 and PDD-D-27 are DECIDED and the `PDD_XLS_*` defaults are set in `sas/00_config.sas` (PDD_XLS_APPROVE stays empty). The Wave 1 run order above is unchanged. 19a will now report `1 of 11 PDD_XLS decisions` empty (APPROVE, by design). For Wave 2 Gerard sets `PDD_XLS_APPROVE` at run time only (`options set=PDD_XLS_APPROVE 1`), never in config. Backlog: the INT_IN_DATE_RANGE probe range was too broad to be informative; the export masks flags/timings 1-10 (change to mask only person/cell counts).
+
+---
+
+# Wave 2, part A: stage export (19b) - PENDING SAS RUN
+
+Wave 1 passed (19_xlsx_test ALL TESTS PASSED, 19a PASS). Decisions are DECIDED. This part runs the SAS side only; the Python writer and verifier (part B) come after and are not in this sheet yet.
+
+## Run order (fresh SAS session for each program, same command template as above)
+| Step | Program | Expect | Bring back |
+|---|---|---|---|
+| 1 | `19_xlsx_test.sas` (now with T16 key set, T17 column list, T18 synthetic stage + expected) | `TESTRESULT SUMMARY: ALL TESTS PASSED`; `[PASS]` for T16_*, T17_*, T18_*; no `WARNING`/`ERROR` line | the log |
+| 2 | set `PDD_XLS_APPROVE` to 1 for the run only: `options set=PDD_XLS_APPROVE '1';` before, then `19b_xlsx_stage.sas` | `PASS - stage written, row count equal` in `logs\19b_xlsx_stage.log` | `logs\19b_xlsx_stage.log`; `qc\xlsx_master_stage.csv` |
+| 3 | `options set=PDD_XLS_APPROVE '0';` after the run (or end the session). Never put it in `00_config.sas` | - | - |
+
+Without the approval flag 19b stops with `PENDING DECISION: PDD_XLS_APPROVE is empty` before touching any file (nothing is written but the QC row set).
+If step 1 shows any `[FAIL]` line, send the log back and do not run step 2.
+
+## What 19b does
+1. Decision gate on all 11 `PDD_XLS_*` values (each must be the decided, implemented value; APPROVE must be 1), path guard on every target, required tables.
+2. Allow-list gate, then `%p19_columns` with key set K3: `PECAN_ID`, `PRECEDE_STUDY_ID`, `KEY_ERA`, then the PCNR_ variables in dataset order. `NORM_PSID` and `PECAN_ID_KEY_ERA` are never staged.
+3. One pass probe plus the XLS-02 limits gate on the real dataset (exported column count).
+4. `%p19_stage`: `stage\xlsx_data.csv` and `stage\xlsx_schema.csv`; `PCNR_Death_Days_After_Surgery` is staged as delivered text (the Python writer converts it).
+5. Record count of the closed CSV (quote aware) must equal dataset rows + 1.
+6. `%p19_expected`: `stage\xlsx_expected.csv` (exact counts, 2,000 row seeded sample list).
+7. Registry, dup link and case map row counts unchanged. QC written once.
+
+Writes: `stage\xlsx_data.csv`, `stage\xlsx_schema.csv`, `stage\xlsx_expected.csv` (all under `P:\PeCAN Master Data\Gerard\data_dictionary\stage`), `pdd.qc_xlsx_stage`, `qc\xlsx_master_stage.csv` (masked), the log. `xlsx_data.csv` is row-level identifiable data: do not copy it, do not bring it back. It is deleted by the verifier on PASS (part B); delete it by hand if you stop here. Nothing is written to the shared Master Data folder.
+
+## PowerShell checks (counts only, from `P:\PeCAN Master Data\Gerard\data_dictionary`)
+```
+# the PASS line and no problem lines
+Select-String -Path logs\19b_xlsx_stage.log -Pattern 'PASS - stage written'
+Select-String -Path logs\19b_xlsx_stage.log -Pattern '^(ERROR|WARNING)' | Measure-Object | Select-Object Count
+# QC table (masked): every isfail 0
+Import-Csv qc\xlsx_master_stage.csv | Format-Table tbl,item,n,isfail -AutoSize
+Import-Csv qc\xlsx_master_stage.csv | Where-Object { $_.isfail -ne '0' }
+# stage sizes (bytes) and header column count; no values printed
+Get-ChildItem stage\xlsx_*.csv | Select-Object Name,Length
+(Get-Content stage\xlsx_schema.csv | Measure-Object -Line).Lines - 1
+# expected counts file: row count and sample size only
+Select-String -Path stage\xlsx_expected.csv -Pattern '^ROWS,'
+(Select-String -Path stage\xlsx_expected.csv -Pattern '^SAMPLE,' | Measure-Object).Count
+# schema must not list the copies or MRN fields (expect 0)
+(Select-String -Path stage\xlsx_schema.csv -Pattern 'NORM_PSID|PECAN_ID_KEY_ERA|MRN|ENCRYPT' | Measure-Object).Count
+```
+Expected: `stage_csv_records_incl_header` equals `dataset_rows` + 1 in the QC CSV (counts in QC may show `<11` only for 1-10); `export_columns` = dataset columns minus 2 (the two excluded key copies); sample count = 2000; schema line count = `export_columns`.
+
+## If 19b stops
+| Stop text | Meaning |
+|---|---|
+| `PENDING DECISION: PDD_XLS_APPROVE is empty` | the approval flag was not set for this session (step 2) |
+| `PENDING DECISION: PDD_XLS_<x> is empty` / `... outside the allowed list` | config value empty or one that 19b does not implement (route (a)/(c), DROP, ERA sheets, CODE_TEXT, CONVERT): revise plan 19 |
+| `path guard - ...` | a target is outside `out_root` or holds the shared folder or `..` |
+| `allow-list gate failed` / `export column gate failed` | a column is not a key of K3 and not a mapped PCNR_ variable, or has an MRN-like name without a reviewed exception; names are in the log NOTE lines |
+| `limits gate failed` | rows, columns, text length, control character or free disk: see the `limit_*` row with `isfail` 1 |
+| `stage CSV record count differs from dataset rows plus one` | stage CSV is wrong: delete the three stage files, send the log back |
+| `read-only guard failed` | registry, dup link or case map row count changed during the run |
+
+## Time (estimate, unmeasured)
+Step 1 under 2 minutes. 19b: one probe pass, one stage pass, one expected-count pass plus a read of the CSV: 10-40 minutes (the 19a benchmark gives the pass time to scale from).
